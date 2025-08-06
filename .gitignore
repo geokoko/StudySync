@@ -31,7 +31,7 @@ gradle/wrapper/gradle-wrapper.jar
 Thumbs.db
 
 # Application specific
-studysync
+/studysync
 studysync.desktop
 
 # Temporary files
@@ -44,3 +44,6 @@ build-release.sh
 
 # Keep gradle wrapper properties
 !gradle/wrapper/gradle-wrapper.properties
+
+# Track source code
+!src/
