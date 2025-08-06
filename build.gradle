@@ -1,0 +1,158 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'org.springframework.boot' version '3.2.0'
+    id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.openjfx.javafxplugin' version '0.0.14'
+    id 'jacoco'
+    id 'checkstyle'
+}
+
+repositories {
+    mavenCentral()
+}
+
+def javafxVersion = '21'
+
+dependencyManagement {
+    dependencies {
+        dependency 'org.jetbrains.kotlin:kotlin-stdlib:1.9.10'
+        dependency 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.10'
+        dependency 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10'
+        dependency 'org.jetbrains.kotlin:kotlin-stdlib-common:1.9.10'
+    }
+}
+
+dependencies {
+    // Spring Boot starters
+    implementation 'org.springframework.boot:spring-boot-starter-data-jdbc'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    
+    // Database dependencies
+    implementation 'com.h2database:h2'
+    implementation 'com.zaxxer:HikariCP'
+    
+    // JavaFX dependencies
+    implementation 'org.openjfx:javafx-controls:21'
+    implementation 'org.openjfx:javafx-fxml:21'
+    implementation 'org.openjfx:javafx-web:21'
+    
+    // Jackson for JSON processing (included in Spring Boot)
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+    
+    // Google Calendar API
+    implementation 'com.google.api-client:google-api-client:2.2.0'
+    implementation 'com.google.oauth-client:google-oauth-client-jetty:1.34.1'
+    implementation 'com.google.apis:google-api-services-calendar:v3-rev20220715-2.0.0'
+    implementation 'com.google.apis:google-api-services-oauth2:v2-rev20200213-1.31.0'
+    implementation 'com.google.oauth-client:google-oauth-client-java6:1.34.1'
+    
+    // HTTP client for API calls
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    
+    // Utilities
+    implementation 'com.google.guava:guava:32.1.2-jre'
+    
+    // Testing dependencies
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.mockito:mockito-core'
+}
+
+javafx {
+    version = '21'
+    // Usually you declare whichever modules you use:
+    modules = ['javafx.controls', 'javafx.fxml', 'javafx.web']
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+group = 'com.studysync'
+version = '0.1.0-BETA'
+description = 'StudySync - Personal Study and Task Management Desktop Application (Beta)'
+
+application {
+    mainClass = 'com.studysync.StudySyncApplication'
+}
+
+// Test configuration
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+    }
+    finalizedBy jacocoTestReport
+}
+
+// Code coverage
+jacoco {
+    toolVersion = "0.8.8"
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                '**/config/**',
+                '**/StudySyncApplication.class',
+                '**/StudySyncJavaFXApp.class'
+            ])
+        }))
+    }
+}
+
+// Code style checking
+checkstyle {
+    toolVersion = '10.12.1'
+    configFile = file("${rootDir}/config/checkstyle/checkstyle.xml")
+}
+
+checkstyleMain {
+    source = 'src/main/java'
+}
+
+checkstyleTest {
+    source = 'src/test/java'
+}
+
+// Integration tests
+configurations {
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+sourceSets {
+    integrationTest {
+        java {
+            compileClasspath += sourceSets.main.output
+            compileClasspath += sourceSets.test.output
+            runtimeClasspath += sourceSets.main.output
+            runtimeClasspath += sourceSets.test.output
+            srcDir file('src/test/java/com/studysync/integration')
+        }
+        resources.srcDir file('src/test/resources')
+    }
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs integration tests.'
+    group = 'verification'
+    
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    useJUnitPlatform()
+    
+    shouldRunAfter test
+}

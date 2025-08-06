@@ -1,0 +1,86 @@
+
+.root {
+    -fx-font-family: "System";
+}
+
+.tab-pane {
+    -fx-tab-min-width: 150px;
+    -fx-tab-max-width: 150px;
+}
+
+.tab {
+    -fx-background-color: #ecf0f1;
+    -fx-text-fill: #2c3e50;
+    -fx-font-weight: bold;
+}
+
+.tab:selected {
+    -fx-background-color: #3498db;
+    -fx-text-fill: white;
+}
+
+.button {
+    -fx-background-radius: 5;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-opacity: 0.8;
+}
+
+.text-field, .text-area, .combo-box, .date-picker {
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: #bdc3c7;
+}
+
+.text-field:focused, .text-area:focused, .combo-box:focused, .date-picker:focused {
+    -fx-border-color: #3498db;
+}
+
+.list-view {
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: #bdc3c7;
+}
+
+.progress-bar {
+    -fx-background-radius: 10;
+}
+
+.separator {
+    -fx-background-color: #ecf0f1;
+}
+
+/* Make panel content scrollable */
+.tab-content-area {
+    -fx-max-height: 650px;
+}
+
+.tab-content-area .scroll-pane {
+    -fx-fit-to-width: true;
+    -fx-fit-to-height: true;
+    -fx-hbar-policy: as-needed;
+    -fx-vbar-policy: as-needed;
+}
+
+.tab-content-area .scroll-pane .viewport {
+    -fx-background-color: transparent;
+}
+
+.tab-content-area .scroll-pane .content {
+    -fx-background-color: transparent;
+}
+
+/* Button alignment fixes */
+.button {
+    -fx-alignment: center;
+    -fx-text-alignment: center;
+    -fx-content-display: center;
+}
+
+/* Ensure button text is properly centered */
+.button .text {
+    -fx-text-alignment: center;
+}

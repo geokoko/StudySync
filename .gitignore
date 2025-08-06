@@ -1,0 +1,46 @@
+# Google setup (for now)
+GOOGLE_AUTHENTICATION.md
+
+# Data and logs
+data/
+logs/
+*.log
+
+# Environment and configuration files
+.env
+src/main/resources/application.yml
+src/main/resources/application-*.yml
+src/main/resources/database.properties
+
+# Build artifacts
+.gradle/
+build/
+bin/
+gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Application specific
+studysync
+studysync.desktop
+
+# Temporary files
+*.tmp
+*.bak
+
+# Incomplete scripts
+install-desktop-entry.sh
+build-release.sh
+
+# Keep gradle wrapper properties
+!gradle/wrapper/gradle-wrapper.properties
