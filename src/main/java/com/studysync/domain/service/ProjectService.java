@@ -100,12 +100,12 @@ public class ProjectService {
                 .orElseThrow(() -> new IllegalArgumentException("Project session not found."));
 
         // Apply user input from dialog to the session
-        existingSession.setSessionTitle(endDetails.getSessionTitle());
-        existingSession.setObjectives(endDetails.getObjectives());
-        existingSession.setProgress(endDetails.getProgress());
-        existingSession.setNextSteps(endDetails.getNextSteps());
-        existingSession.setChallenges(endDetails.getChallenges());
-        existingSession.setNotes(endDetails.getNotes());
+        existingSession.setSessionTitle(endDetails.sessionTitle());
+        existingSession.setObjectives(endDetails.objectives());
+        existingSession.setProgress(endDetails.progress());
+        existingSession.setNextSteps(endDetails.nextSteps());
+        existingSession.setChallenges(endDetails.challenges());
+        existingSession.setNotes(endDetails.notes());
         
         // End the session (calculates points, sets timestamps)
         existingSession.endSession();

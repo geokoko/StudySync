@@ -6,6 +6,7 @@ import com.studysync.domain.entity.Task;
 import com.studysync.domain.entity.Project;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.DailyReflection;
+import com.studysync.domain.entity.Category;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -42,6 +43,7 @@ public class ActiveRecordConfig {
         Project.setJdbcTemplate(jdbcTemplate);
         StudyGoal.setJdbcTemplate(jdbcTemplate);
         DailyReflection.setJdbcTemplate(jdbcTemplate);
+        Category.setJdbcTemplate(jdbcTemplate);
         logger.info("Active Record entities initialized successfully with JdbcTemplate");
     }
 }

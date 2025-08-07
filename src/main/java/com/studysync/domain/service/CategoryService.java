@@ -2,6 +2,7 @@
 package com.studysync.domain.service;
 
 import com.studysync.domain.exception.ValidationException;
+import com.studysync.domain.entity.Category;
 import com.studysync.domain.valueobject.TaskCategory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Domain service providing comprehensive task category management for the StudySync system.
@@ -60,7 +62,7 @@ import java.util.List;
  * @version 0.1.0-BETA
  * @since 0.1.0
  * @see TaskCategory
- * @see CategoryDatabaseService
+ * @see Category
  * @see TaskService
  */
 @Service
@@ -86,13 +88,10 @@ public class CategoryService {
      */
     @Transactional(readOnly = true)
     public List<TaskCategory> getCategories() {
-        // TODO: Implement Active Record or simple category management
-        return List.of(
-            new TaskCategory("Work"),
-            new TaskCategory("Personal"),
-            new TaskCategory("Study"),
-            new TaskCategory("Health")
-        );
+        List<Category> categories = Category.findAll();
+        return categories.stream()
+            .map(category -> new TaskCategory(category.getName()))
+            .collect(Collectors.toList());
     }
     
     /**
@@ -110,8 +109,13 @@ public class CategoryService {
         if (name == null || name.trim().isEmpty()) {
             throw ValidationException.requiredFieldMissing("name");
         }
-        // TODO: Implement category persistence
-        TaskCategory category = new TaskCategory(name);
+        
+        if (Category.existsByName(name.trim())) {
+            throw ValidationException.invalidInput("name", "Category with name '" + name + "' already exists");
+        }
+        
+        Category category = new Category(name.trim());
+        category.save();
         logger.info("Added category: {}", name);
     }
     
@@ -127,7 +131,19 @@ public class CategoryService {
      */
     @Transactional
     public void removeCategory(TaskCategory category) throws ValidationException {
-        // TODO: Implement category persistence
+        if (category == null || category.name() == null) {
+            throw ValidationException.requiredFieldMissing("category");
+        }
+        
+        Category entityCategory = Category.findByName(category.name())
+            .orElseThrow(() -> ValidationException.invalidInput("category", 
+                "Category '" + category.name() + "' does not exist"));
+        
+        if (!entityCategory.delete()) {
+            throw ValidationException.invalidInput("category", 
+                "Failed to delete category '" + category.name() + "'");
+        }
+        
         logger.info("Removed category: {}", category.getName());
     }
     
@@ -150,15 +166,26 @@ public class CategoryService {
         if (newName == null || newName.trim().isEmpty()) {
             throw ValidationException.requiredFieldMissing("newName");
         }
-        // TODO: Implement category existence check
-        // if (categoryExists(newName)) {
-        //     throw ValidationException.invalidInput("newName", "Category with name " + newName + " already exists.");
-        // }
         
-        // TODO: Implement category persistence
-        // Delete old category and create new one
-        TaskCategory newCategory = new TaskCategory(newName);
-        logger.info("Renamed category from '{}' to '{}'", category.getName(), newName);
+        if (category == null || category.name() == null) {
+            throw ValidationException.requiredFieldMissing("category");
+        }
+        
+        String trimmedNewName = newName.trim();
+        
+        if (Category.existsByName(trimmedNewName)) {
+            throw ValidationException.invalidInput("newName", "Category with name '" + trimmedNewName + "' already exists");
+        }
+        
+        Category existingCategory = Category.findByName(category.name())
+            .orElseThrow(() -> ValidationException.invalidInput("category", 
+                "Category '" + category.name() + "' does not exist"));
+        
+        // Update the existing category's name
+        existingCategory.setName(trimmedNewName);
+        existingCategory.save();
+        
+        logger.info("Renamed category from '{}' to '{}'", category.getName(), trimmedNewName);
     }
     
     /**
@@ -173,7 +200,6 @@ public class CategoryService {
      */
     @Transactional(readOnly = true)
     public boolean categoryExists(String categoryName) {
-        // TODO: Implement category existence check
-        return false; // For now, return false
+        return Category.existsByName(categoryName);
     }
 }
