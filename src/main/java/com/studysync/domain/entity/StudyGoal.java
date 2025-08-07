@@ -91,6 +91,9 @@ public class StudyGoal {
     
     /** Points deducted due to delays (accumulates over time). */
     private int pointsDeducted;
+    
+    /** Optional ID of the task this goal is linked to. */
+    private String taskId;
 
     /**
      * Default constructor creating a study goal with auto-generated ID and current date.
@@ -118,6 +121,17 @@ public class StudyGoal {
     public StudyGoal(String description) {
         this();
         this.description = description;
+    }
+    
+    /**
+     * Creates a study goal with the specified description and optional task link.
+     * 
+     * @param description what the user wants to achieve
+     * @param taskId optional ID of the task this goal is linked to
+     */
+    public StudyGoal(String description, String taskId) {
+        this(description);
+        this.taskId = taskId;
     }
 
     /**
@@ -155,7 +169,7 @@ public class StudyGoal {
      */
     public StudyGoal(String id, LocalDate date, String description, boolean achieved, 
                     String reasonIfNotAchieved, LocalDate originalDate, int daysDelayed, 
-                    boolean isDelayed, int pointsDeducted) {
+                    boolean isDelayed, int pointsDeducted, String taskId) {
         this.id = id != null ? id : java.util.UUID.randomUUID().toString();
         this.date = date != null ? date : LocalDate.now();
         this.originalDate = originalDate != null ? originalDate : this.date;
@@ -165,6 +179,7 @@ public class StudyGoal {
         this.daysDelayed = daysDelayed;
         this.isDelayed = isDelayed;
         this.pointsDeducted = pointsDeducted;
+        this.taskId = taskId;
     }
 
     /**
@@ -300,6 +315,20 @@ public class StudyGoal {
      * @param pointsDeducted points deducted
      */
     public void setPointsDeducted(int pointsDeducted) { this.pointsDeducted = pointsDeducted; }
+    
+    /**
+     * Gets the ID of the task this goal is linked to.
+     * 
+     * @return task ID, or null if not linked to any task
+     */
+    public String getTaskId() { return taskId; }
+    
+    /**
+     * Sets the ID of the task this goal is linked to.
+     * 
+     * @param taskId task ID, or null to unlink from task
+     */
+    public void setTaskId(String taskId) { this.taskId = taskId; }
 
     /**
      * Creates a copy of this goal transferred to the next day with penalty.
@@ -374,13 +403,13 @@ public class StudyGoal {
         
         String sql = """
             MERGE INTO study_goals (id, date, description, achieved, reason_if_not_achieved, 
-                                   original_date, days_delayed, is_delayed, points_deducted, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                   original_date, days_delayed, is_delayed, points_deducted, task_id, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         
         jdbcTemplate.update(sql,
             this.id, this.date, this.description, this.achieved, this.reasonIfNotAchieved,
-            this.originalDate, this.daysDelayed, this.isDelayed, this.pointsDeducted
+            this.originalDate, this.daysDelayed, this.isDelayed, this.pointsDeducted, this.taskId
         );
         
         logger.debug("StudyGoal saved: {} - {}", this.id, this.description);
@@ -563,9 +592,10 @@ public class StudyGoal {
             int daysDelayed = rs.getInt("days_delayed");
             boolean isDelayed = rs.getBoolean("is_delayed");
             int pointsDeducted = rs.getInt("points_deducted");
+            String taskId = rs.getString("task_id");
             
             return new StudyGoal(id, date, description, achieved, reasonIfNotAchieved, 
-                               originalDate, daysDelayed, isDelayed, pointsDeducted);
+                               originalDate, daysDelayed, isDelayed, pointsDeducted, taskId);
         };
     }
 }

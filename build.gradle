@@ -25,9 +25,15 @@ dependencyManagement {
 
 dependencies {
     // Spring Boot starters
-    implementation 'org.springframework.boot:spring-boot-starter-data-jdbc'
-    implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation('org.springframework.boot:spring-boot-starter-data-jdbc') {
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
+    implementation('org.springframework.boot:spring-boot-starter-validation') {
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
+    implementation('org.springframework.boot:spring-boot-starter-security') {
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
     
     // Database dependencies
     implementation 'com.h2database:h2'

@@ -58,10 +58,14 @@ public class StudyService {
     }
 
     public void addStudyGoal(String description, LocalDate date) throws ValidationException {
+        addStudyGoal(description, date, null);
+    }
+    
+    public void addStudyGoal(String description, LocalDate date, String taskId) throws ValidationException {
         if (description == null || description.trim().isEmpty()) {
             throw ValidationException.requiredFieldMissing("description");
         }
-        StudyGoal goal = new StudyGoal(null, date, description, false, null);
+        StudyGoal goal = new StudyGoal(null, date, description, false, null, date, 0, false, 0, taskId);
         goal.save();
     }
 

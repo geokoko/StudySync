@@ -27,6 +27,7 @@ public class DailyReflection {
     private int completedSessions;
     private int totalGoalsAchieved;
     private String notes;
+    private String reflectionText;
     private boolean deserveReward;
 
     public DailyReflection() {
@@ -44,6 +45,7 @@ public class DailyReflection {
                           @JsonProperty("completedSessions") int completedSessions,
                           @JsonProperty("totalGoalsAchieved") int totalGoalsAchieved,
                           @JsonProperty("notes") String notes,
+                          @JsonProperty("reflectionText") String reflectionText,
                           @JsonProperty("deserveReward") boolean deserveReward) {
         this.id = id != null ? id : java.util.UUID.randomUUID().toString();
         this.date = date != null ? date : LocalDate.now();
@@ -52,6 +54,7 @@ public class DailyReflection {
         this.completedSessions = completedSessions;
         this.totalGoalsAchieved = totalGoalsAchieved;
         this.notes = notes;
+        this.reflectionText = reflectionText;
         this.deserveReward = deserveReward;
     }
 
@@ -80,9 +83,32 @@ public class DailyReflection {
     public boolean isDeserveReward() { return deserveReward; }
     public void setDeserveReward(boolean deserveReward) { this.deserveReward = deserveReward; }
 
-    // Alias methods for reflection text (using notes field)
-    public String getReflectionText() { return notes; }
-    public void setReflectionText(String reflectionText) { this.notes = reflectionText; }
+    public String getReflectionText() { return reflectionText; }
+    public void setReflectionText(String reflectionText) { this.reflectionText = reflectionText; }
+    
+    /**
+     * Calculate penalty points for low overall focus level.
+     * Used to discourage consistently low focus ratings.
+     * 
+     * @return penalty points (negative value)
+     */
+    public int calculateFocusPenalty() {
+        if (overallFocusLevel <= 2) {
+            // Significant daily penalty for poor focus
+            return -30 * (3 - overallFocusLevel); // -30 for level 2, -60 for level 1
+        }
+        return 0; // No penalty for focus level 3 or above
+    }
+    
+    /**
+     * Gets the total daily penalty points for this reflection.
+     * Currently only considers focus penalty, but can be extended.
+     * 
+     * @return total penalty points
+     */
+    public int getTotalDailyPenalty() {
+        return calculateFocusPenalty();
+    }
 
     @Override
     public String toString() {
@@ -103,13 +129,13 @@ public class DailyReflection {
         
         String sql = """
             MERGE INTO daily_reflections (id, date, overall_focus_level, what_to_change_tomorrow, 
-                                         completed_sessions, total_goals_achieved, notes, deserve_reward, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                         completed_sessions, total_goals_achieved, notes, reflection_text, deserve_reward, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         
         jdbcTemplate.update(sql,
             this.id, this.date, this.overallFocusLevel, this.whatToChangeTomorrow,
-            this.completedSessions, this.totalGoalsAchieved, this.notes, this.deserveReward
+            this.completedSessions, this.totalGoalsAchieved, this.notes, this.reflectionText, this.deserveReward
         );
         
         logger.debug("DailyReflection saved: {} for date: {}", this.id, this.date);
@@ -302,10 +328,11 @@ public class DailyReflection {
             int completedSessions = rs.getInt("completed_sessions");
             int totalGoalsAchieved = rs.getInt("total_goals_achieved");
             String notes = rs.getString("notes");
+            String reflectionText = rs.getString("reflection_text");
             boolean deserveReward = rs.getBoolean("deserve_reward");
             
             return new DailyReflection(id, date, overallFocusLevel, whatToChangeTomorrow,
-                                     completedSessions, totalGoalsAchieved, notes, deserveReward);
+                                     completedSessions, totalGoalsAchieved, notes, reflectionText, deserveReward);
         };
     }
 }

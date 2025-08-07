@@ -6,10 +6,15 @@ import com.studysync.presentation.ui.components.*;
 import com.studysync.domain.service.WindowPreferencesService;
 import com.studysync.config.ActiveRecordConfig;
 import javafx.scene.Scene;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
 import javafx.scene.image.Image;
 import javafx.scene.input.*;
+import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.application.Platform;
 import javafx.stage.Stage;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,13 +39,14 @@ public class StudySyncUI {
     private final ProjectService projectService;
     private final WindowPreferencesService windowPreferencesService;
     private final DataImportService dataImportService;
+    private final DateTimeService dateTimeService;
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
 
     @Autowired
     public StudySyncUI(TaskService taskService, CategoryService categoryService, ReminderService reminderService,
                        StudyService studyService, ProjectService projectService, WindowPreferencesService windowPreferencesService,
-                       DataImportService dataImportService) {
+                       DataImportService dataImportService, DateTimeService dateTimeService) {
         this.taskService = taskService;
         this.categoryService = categoryService;
         this.reminderService = reminderService;
@@ -48,10 +54,12 @@ public class StudySyncUI {
         this.projectService = projectService;
         this.windowPreferencesService = windowPreferencesService;
         this.dataImportService = dataImportService;
+        this.dateTimeService = dateTimeService;
 
         panelMap = Map.of(
             new Tab("📊 Daily View"), new DailyViewPanel(studyService, taskService, projectService),
-            new Tab("📚 Study Planner"), new StudyPlannerPanel(studyService, dataImportService),
+            new Tab("📚 Study Planner"), new StudyPlannerPanel(studyService, dataImportService, dateTimeService, taskService),
+            new Tab("⭐ Reflection Diary"), new ReflectionDiaryPanel(studyService, dateTimeService),
             new Tab("🖊️ Projects"), new ProjectManagementPanel(projectService, categoryService),
             new Tab("📋 Tasks"), new TaskManagementPanel(taskService, categoryService, reminderService)
         );
@@ -87,7 +95,17 @@ public class StudySyncUI {
             savedY = 100;
         }
         
-        Scene scene = new Scene(tabPane, savedWidth, savedHeight);
+        // Create main layout with header
+        BorderPane mainLayout = new BorderPane();
+        
+        // Create header with profile button
+        HBox header = createHeader();
+        mainLayout.setTop(header);
+        
+        // Add tabPane to center
+        mainLayout.setCenter(tabPane);
+        
+        Scene scene = new Scene(mainLayout, savedWidth, savedHeight);
         scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
         
         primaryStage.setTitle("StudySync");
@@ -211,5 +229,51 @@ public class StudySyncUI {
             .filter(tab -> tab.getText().equals(title))
             .findFirst()
             .orElse(null);
+    }
+    
+    private HBox createHeader() {
+        HBox header = new HBox();
+        header.setPadding(new Insets(10, 15, 10, 15));
+        header.setAlignment(Pos.CENTER_LEFT);
+        header.setStyle("-fx-background-color: linear-gradient(to right, #3498db, #2980b9); -fx-border-color: #2980b9; -fx-border-width: 0 0 2 0;");
+        
+        // App title/logo area
+        Label appTitle = new Label("StudySync");
+        appTitle.setFont(Font.font("System", FontWeight.BOLD, 20));
+        appTitle.setTextFill(Color.WHITE);
+        
+        // Spacer to push profile button to the right
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        
+        // Profile button
+        Button profileButton = new Button("👤 Profile");
+        profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;");
+        profileButton.setOnMouseEntered(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.3); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.7); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;"));
+        profileButton.setOnMouseExited(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;"));
+        
+        profileButton.setOnAction(e -> showProfileWindow());
+        
+        header.getChildren().addAll(appTitle, spacer, profileButton);
+        return header;
+    }
+    
+    private void showProfileWindow() {
+        // Create a new stage for the profile window
+        Stage profileStage = new Stage();
+        profileStage.setTitle("Study Profile & Analytics");
+        profileStage.initOwner(tabPane.getScene().getWindow());
+        
+        // Create the profile panel
+        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService);
+        
+        Scene profileScene = new Scene(profilePanel, 1000, 700);
+        profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+        
+        profileStage.setScene(profileScene);
+        profileStage.show();
+        
+        // Update the profile display
+        profilePanel.updateDisplay();
     }
 }

@@ -4,9 +4,12 @@ package com.studysync.presentation.ui.components;
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.StudySessionEnd;
 import com.studysync.domain.service.DataImportService;
+import com.studysync.domain.service.DateTimeService;
+import com.studysync.domain.service.TaskService;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.DailyReflection;
+import com.studysync.domain.entity.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -15,6 +18,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.Node;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
+import java.util.Optional;
 import javafx.util.Callback;
 
 import java.time.LocalDate;
@@ -28,6 +32,8 @@ import javafx.util.Duration;
 public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private final StudyService studyService;
     private final DataImportService dataImportService;
+    private final DateTimeService dateTimeService;
+    private final TaskService taskService;
     private StudySession currentSession;
     private Timeline sessionTimer;
     private VBox goalsContainer;
@@ -35,11 +41,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private TextArea reflectionArea;
     private ProgressBar dailyProgressBar;
     private Label progressLabel;
+    private Label dateLabel;
     private TextArea sessionTextArea;
 
-    public StudyPlannerPanel(StudyService studyService, DataImportService dataImportService) {
+    public StudyPlannerPanel(StudyService studyService, DataImportService dataImportService, DateTimeService dateTimeService, TaskService taskService) {
         this.studyService = studyService;
         this.dataImportService = dataImportService;
+        this.dateTimeService = dateTimeService;
+        this.taskService = taskService;
         
         // Create main content container
         VBox mainContent = new VBox(20);
@@ -55,6 +64,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         this.getStyleClass().add("tab-content-area");
         
         initializeComponents(mainContent);
+        
+        // Register for date change notifications
+        dateTimeService.addDateChangeListener(this::onDateChanged);
+        
         updateDisplay();
     }
 
@@ -76,7 +89,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox header = new VBox(10);
         header.setAlignment(Pos.CENTER);
         
-        Label dateLabel = new Label("📅 " + LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")));
+        dateLabel = new Label("📅 " + dateTimeService.getFormattedCurrentDate());
         dateLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
         dateLabel.setTextFill(Color.web("#2c3e50"));
         
@@ -104,40 +117,38 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         goalsTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
         goalsTitle.setTextFill(Color.web("#2c3e50"));
         
-        TextField newGoalField = new TextField();
-        newGoalField.setPromptText("Add a new goal...");
-        newGoalField.setPrefWidth(250);
-        
         Button addGoalBtn = new Button("➕ Add Goal");
         addGoalBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
-        addGoalBtn.setOnAction(e -> {
-            String goalText = newGoalField.getText().trim();
-            if (!goalText.isEmpty()) {
-                try {
-                    studyService.addStudyGoal(goalText, LocalDate.now());
-                    newGoalField.clear();
-                    updateGoalsDisplay();
-                    updateProgress();
-                } catch (Exception ex) {
-                    // Handle error - could show an alert dialog
-                    System.err.println("Failed to add study goal: " + ex.getMessage());
-                }
-            }
-        });
+        addGoalBtn.setOnAction(e -> showAddGoalDialog());
         
         Button processDelayedBtn = new Button("⚡ Process Delayed Goals");
         processDelayedBtn.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white; -fx-background-radius: 5;");
         processDelayedBtn.setOnAction(e -> {
+            // Disable button to prevent multiple clicks
+            processDelayedBtn.setDisable(true);
+            processDelayedBtn.setText("Processing...");
+            
             try {
                 int transferred = studyService.processYesterdayGoals();
                 if (transferred > 0) {
                     System.out.println("Transferred " + transferred + " delayed goals to today");
+                    processDelayedBtn.setText("✅ Goals Processed");
+                } else {
+                    processDelayedBtn.setText("No Goals to Process");
                 }
                 updateGoalsDisplay();
                 updateProgress();
             } catch (Exception ex) {
                 System.err.println("Failed to process delayed goals: " + ex.getMessage());
+                processDelayedBtn.setText("❌ Error Processing");
             }
+            
+            // Re-enable button after 3 seconds
+            Timeline enableTimer = new Timeline(new KeyFrame(Duration.seconds(3), event -> {
+                processDelayedBtn.setDisable(false);
+                processDelayedBtn.setText("⚡ Process Delayed Goals");
+            }));
+            enableTimer.play();
         });
         
         Button importSessionsBtn = new Button("📥 Import Study Sessions");
@@ -152,7 +163,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             }
         });
         
-        goalsHeader.getChildren().addAll(goalsTitle, new Region(), processDelayedBtn, importSessionsBtn, newGoalField, addGoalBtn);
+        goalsHeader.getChildren().addAll(goalsTitle, new Region(), processDelayedBtn, importSessionsBtn, addGoalBtn);
         HBox.setHgrow(goalsHeader.getChildren().get(1), Priority.ALWAYS);
         
         goalsContainer = new VBox(10);
@@ -270,13 +281,32 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 updateProgress();
             });
             
+            VBox goalTextBox = new VBox(2);
+            
             Label goalLabel = new Label(goal.getDescription());
             goalLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
             if (goal.isAchieved()) {
                 goalLabel.setStyle("-fx-strikethrough: true; -fx-text-fill: #7f8c8d;");
             }
             
-            goalItem.getChildren().addAll(goalCheck, goalLabel);
+            goalTextBox.getChildren().add(goalLabel);
+            
+            // Show linked task if any
+            if (goal.getTaskId() != null) {
+                try {
+                    Optional<Task> linkedTask = Task.findById(goal.getTaskId());
+                    if (linkedTask.isPresent()) {
+                        Label taskLabel = new Label("📋 Linked to: " + linkedTask.get().getTitle());
+                        taskLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+                        taskLabel.setTextFill(javafx.scene.paint.Color.web("#6c757d"));
+                        goalTextBox.getChildren().add(taskLabel);
+                    }
+                } catch (Exception e) {
+                    // Silently ignore task loading errors
+                }
+            }
+            
+            goalItem.getChildren().addAll(goalCheck, goalTextBox);
             goalsContainer.getChildren().add(goalItem);
         }
     }
@@ -346,10 +376,22 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         
         focusBox.getChildren().addAll(focusIconLabel, starsBox, focusValue);
         
-        // Points earned
+        // Points earned with penalty indication
+        VBox pointsContainer = new VBox(2);
         Label pointsLabel = new Label("🏆 " + session.getPointsEarned() + " pts");
         pointsLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 12));
-        pointsLabel.setTextFill(Color.web("#27ae60"));
+        
+        // Show penalty warning for low focus
+        if (session.getFocusLevel() <= 2) {
+            pointsLabel.setTextFill(Color.web("#e74c3c")); // Red for penalties
+            Label penaltyWarning = new Label("⚠️ Focus penalty applied");
+            penaltyWarning.setFont(Font.font("System", FontWeight.NORMAL, 10));
+            penaltyWarning.setTextFill(Color.web("#e74c3c"));
+            pointsContainer.getChildren().addAll(pointsLabel, penaltyWarning);
+        } else {
+            pointsLabel.setTextFill(Color.web("#27ae60")); // Green for normal
+            pointsContainer.getChildren().add(pointsLabel);
+        }
         
         // Efficiency indicator
         double efficiency = (double) session.getPointsEarned() / Math.max(1, session.getDurationMinutes()) * 60;
@@ -358,7 +400,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         efficiencyLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         efficiencyLabel.setTextFill(Color.web("#8e44ad"));
         
-        metricsBox.getChildren().addAll(focusBox, pointsLabel, efficiencyLabel);
+        metricsBox.getChildren().addAll(focusBox, pointsContainer, efficiencyLabel);
         
         // Notes preview (if available)
         if (session.getSessionText() != null && !session.getSessionText().trim().isEmpty()) {
@@ -792,12 +834,36 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         focusSlider.setMajorTickUnit(1);
         focusSlider.setSnapToTicks(true);
         
+        // Dynamic focus warning label
+        Label focusWarningLabel = new Label();
+        focusWarningLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+        focusWarningLabel.setWrapText(true);
+        
+        // Update warning based on focus level
+        focusSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
+            int focusLevel = newVal.intValue();
+            if (focusLevel <= 2) {
+                focusWarningLabel.setText("⚠️ Low focus rating will result in point penalties. Consider what caused the distraction and how to improve next time.");
+                focusWarningLabel.setTextFill(Color.web("#e74c3c"));
+            } else if (focusLevel == 3) {
+                focusWarningLabel.setText("💡 Average focus. Think about what could help you stay more concentrated.");
+                focusWarningLabel.setTextFill(Color.web("#f39c12"));
+            } else {
+                focusWarningLabel.setText("✅ Great focus! You'll earn bonus points for staying concentrated.");
+                focusWarningLabel.setTextFill(Color.web("#27ae60"));
+            }
+        });
+        
+        // Initialize warning for default value
+        focusWarningLabel.setText("💡 Average focus. Think about what could help you stay more concentrated.");
+        focusWarningLabel.setTextFill(Color.web("#f39c12"));
+        
         Label notesLabel = new Label("Notes:");
         TextArea notesArea = new TextArea();
         notesArea.setPromptText("What did you accomplish?");
         notesArea.setPrefRowCount(3);
         
-        content.getChildren().addAll(focusLabel, focusSlider, notesLabel, notesArea);
+        content.getChildren().addAll(focusLabel, focusSlider, focusWarningLabel, notesLabel, notesArea);
         
         dialog.getDialogPane().setContent(content);
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
@@ -874,6 +940,20 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             sessionStatus.setTextFill(Color.web("#2c3e50"));
         }
     }
+    
+    /**
+     * Handle date change events (called when date changes at midnight).
+     * @param newDate The new current date
+     */
+    private void onDateChanged(LocalDate newDate) {
+        // Update the date label
+        dateLabel.setText("📅 " + dateTimeService.getFormattedCurrentDate());
+        
+        // Refresh the entire display for the new day
+        updateDisplay();
+        
+        System.out.println("Date changed to: " + newDate);
+    }
 
     public void updateDisplay() {
         updateGoalsDisplay();
@@ -885,6 +965,124 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (todayReflection != null) {
             reflectionArea.setText(todayReflection.getReflectionText());
         }
+    }
+    
+    private void showAddGoalDialog() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Add Study Goal");
+        dialog.setHeaderText("Create a new daily study goal");
+        
+        DialogPane dialogPane = dialog.getDialogPane();
+        dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        
+        VBox content = new VBox(15);
+        content.setPadding(new Insets(20));
+        
+        // Goal description
+        Label descLabel = new Label("Goal Description:");
+        descLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
+        
+        TextArea goalTextArea = new TextArea();
+        goalTextArea.setPromptText("e.g., Complete Chapter 5 of Java Programming, Practice 10 math problems, Review yesterday's notes...");
+        goalTextArea.setPrefRowCount(3);
+        goalTextArea.setWrapText(true);
+        
+        // Task selection (optional)
+        Label taskLabel = new Label("Link to Task (optional):");
+        taskLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
+        
+        ComboBox<Task> taskComboBox = new ComboBox<>();
+        taskComboBox.setPromptText("Select a task to link with this goal (optional)");
+        taskComboBox.setPrefWidth(400);
+        
+        // Load active tasks
+        try {
+            List<Task> activeTasks = taskService.getActiveTasks();
+            taskComboBox.getItems().add(null); // Add "None" option
+            taskComboBox.getItems().addAll(activeTasks);
+            
+            // Custom cell factory to show task title and description
+            taskComboBox.setCellFactory(param -> new ListCell<Task>() {
+                @Override
+                protected void updateItem(Task item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setText("None (No task linked)");
+                    } else {
+                        String text = item.getTitle();
+                        if (item.getDescription() != null && !item.getDescription().trim().isEmpty()) {
+                            text += " - " + (item.getDescription().length() > 50 ? 
+                                    item.getDescription().substring(0, 50) + "..." : 
+                                    item.getDescription());
+                        }
+                        setText(text);
+                    }
+                }
+            });
+            
+            taskComboBox.setButtonCell(new ListCell<Task>() {
+                @Override
+                protected void updateItem(Task item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setText("None (No task linked)");
+                    } else {
+                        setText(item.getTitle());
+                    }
+                }
+            });
+            
+        } catch (Exception ex) {
+            Label errorLabel = new Label("Could not load tasks: " + ex.getMessage());
+            errorLabel.setTextFill(javafx.scene.paint.Color.RED);
+            content.getChildren().add(errorLabel);
+        }
+        
+        content.getChildren().addAll(descLabel, goalTextArea, taskLabel, taskComboBox);
+        dialogPane.setContent(content);
+        
+        // Enable/disable OK button based on input
+        Button okButton = (Button) dialogPane.lookupButton(ButtonType.OK);
+        okButton.setDisable(true);
+        goalTextArea.textProperty().addListener((observable, oldValue, newValue) -> {
+            okButton.setDisable(newValue.trim().isEmpty());
+        });
+        
+        // Set result converter
+        dialog.setResultConverter(dialogButton -> dialogButton);
+        
+        dialog.showAndWait().ifPresent(result -> {
+            if (result == ButtonType.OK) {
+                String goalDescription = goalTextArea.getText().trim();
+                Task selectedTask = taskComboBox.getValue();
+                
+                if (!goalDescription.isEmpty()) {
+                    try {
+                        String taskId = selectedTask != null ? selectedTask.getId() : null;
+                        studyService.addStudyGoal(goalDescription, dateTimeService.getCurrentDate(), taskId);
+                        updateGoalsDisplay();
+                        updateProgress();
+                        
+                        Alert success = new Alert(Alert.AlertType.INFORMATION);
+                        success.setTitle("Success");
+                        success.setHeaderText(null);
+                        String msg = "Study goal added successfully!";
+                        if (selectedTask != null) {
+                            msg += "\nLinked to task: " + selectedTask.getTitle();
+                        }
+                        success.setContentText(msg);
+                        success.showAndWait();
+                        
+                    } catch (Exception e) {
+                        Alert error = new Alert(Alert.AlertType.ERROR);
+                        error.setTitle("Error");
+                        error.setHeaderText(null);
+                        error.setContentText("Failed to add study goal: " + e.getMessage());
+                        error.showAndWait();
+                    }
+                }
+            }
+        });
     }
     
     @Override

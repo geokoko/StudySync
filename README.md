@@ -25,7 +25,7 @@ Perfect for students who want to integrate their academic calendar with task man
 
 StudySync provides comprehensive academic management with three main modules:
 
-## 📚 Study Planner Features
+## 📚 Study Planner Features, with Daily Reflections Logging
 * **Study Sessions**: Track study time with built-in timer and focus level monitoring
 * **Study Goals**: Set and manage daily/weekly study objectives  
 * **Daily Reflections**: Record daily study insights and progress notes
@@ -56,8 +56,13 @@ StudySync provides comprehensive academic management with three main modules:
     git clone https://github.com/geokoko/StudySync.git
     cd StudySync
     ```
+2. Enable application.yml configuration
+    ```bash
+    cd ./src/main/resources
+    mv application.yml.template application.yml
+    ```
 
-2. Run the Application
+3. Run the Application
     * Use the Gradle wrapper (recommended):
         ``` bash
         ./gradlew run   # (Linux/macOS)
@@ -65,10 +70,12 @@ StudySync provides comprehensive academic management with three main modules:
         ```
 
     * Use Gradle if you have it installed:
-        If you have Gradle>=8.12.1, then run:
+        If you have Gradle>=8.5, then run:
         ``` bash
+        gradle build
         gradle run
         ```
+        **Note**: Some dependencies of this application are not compatible with the latest version of Gradle (9.0.0) as of right now.
 
     Gradle will:
     * Automatically download all dependencies (JavaFX, H2 Database, Spring Boot, etc.)

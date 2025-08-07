@@ -331,10 +331,23 @@ public class StudySession {
 
     public static int calculatePoints(int durationMinutes, int focusLevel, int confidenceLevel, boolean completed) {
         int basePoints = Math.min(durationMinutes / 10, 60);
-        int focusBonus = focusLevel * 10;
+        
+        // Focus scoring with penalties for low focus (1-2 stars)
+        int focusScore;
+        if (focusLevel <= 2) {
+            // Penalty for low focus: significant point reduction
+            focusScore = -20 * (3 - focusLevel); // -20 for level 2, -40 for level 1
+        } else {
+            // Bonus for good focus levels (3-5)
+            focusScore = (focusLevel - 2) * 15; // +15 for level 3, +30 for level 4, +45 for level 5
+        }
+        
         int confidenceBonus = confidenceLevel * 5;
         int completionBonus = completed ? 20 : 0;
-        return basePoints + focusBonus + confidenceBonus + completionBonus;
+        
+        // Ensure minimum score is 0 (can't go negative)
+        int totalPoints = basePoints + focusScore + confidenceBonus + completionBonus;
+        return Math.max(0, totalPoints);
     }
 
     public void calculateAndSetPoints() {

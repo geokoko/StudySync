@@ -180,6 +180,15 @@ public class TaskService {
     }
     
     @Transactional(readOnly = true)
+    public List<Task> getActiveTasks() {
+        List<Task> openTasks = Task.findByStatus(TaskStatus.OPEN);
+        List<Task> inProgressTasks = Task.findByStatus(TaskStatus.IN_PROGRESS);
+        
+        openTasks.addAll(inProgressTasks);
+        return openTasks;
+    }
+    
+    @Transactional(readOnly = true)
     public List<Task> getTasksDueWithinDays(int days) {
         if (days < 0) {
             throw new IllegalArgumentException("Days cannot be negative");

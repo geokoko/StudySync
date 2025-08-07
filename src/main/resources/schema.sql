@@ -104,8 +104,10 @@ CREATE TABLE IF NOT EXISTS study_goals (
     days_delayed INTEGER DEFAULT 0,
     is_delayed BOOLEAN DEFAULT FALSE,
     points_deducted INTEGER DEFAULT 0,
+    task_id VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
 );
 
 -- ===================================
@@ -119,6 +121,7 @@ CREATE TABLE IF NOT EXISTS daily_reflections (
     completed_sessions INTEGER DEFAULT 0,
     total_goals_achieved INTEGER DEFAULT 0,
     notes TEXT,
+    reflection_text TEXT,
     deserve_reward BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
