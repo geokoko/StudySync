@@ -56,7 +56,7 @@ import java.util.List;
  * to validate category existence before creating or updating tasks, ensuring referential
  * integrity in the domain model.</p>
  * 
- * @author StudySync Development Team
+ * @author geokoko 
  * @version 0.1.0-BETA
  * @since 0.1.0
  * @see TaskCategory
