@@ -37,9 +37,11 @@ public class StudyService {
         return StudyGoal.findAll();
     }
 
-    @Transactional(readOnly = true)
     public List<StudyGoal> getStudyGoalsForDate(LocalDate date) {
-        return StudyGoal.findByDate(date);
+        // Ensure delayed goals are properly processed before retrieving
+        processAllDelayedGoals();
+        
+        return StudyGoal.findByDateIncludingDelayed(date);
     }
 
     @Transactional(readOnly = true)
@@ -65,7 +67,7 @@ public class StudyService {
         if (description == null || description.trim().isEmpty()) {
             throw ValidationException.requiredFieldMissing("description");
         }
-        StudyGoal goal = new StudyGoal(null, date, description, false, null, date, 0, false, 0, taskId);
+        StudyGoal goal = new StudyGoal(null, date, description, false, null, 0, false, 0, taskId);
         goal.save();
     }
 
@@ -79,8 +81,8 @@ public class StudyService {
         }
     }
 
-    public void deleteStudyGoal(String goalId) {
-        StudyGoal.deleteById(goalId);
+    public boolean deleteStudyGoal(String goalId) {
+        return StudyGoal.deleteById(goalId);
     }
 
     public StudySession startStudySession() {
@@ -171,45 +173,61 @@ public class StudyService {
     // ================================================================
     
     /**
-     * Process unachieved goals from a specific date and transfer them to the next day.
-     * Applies point penalties and marks goals as delayed.
+     * Process all goals and update delay penalties for overdue goals.
+     * Only unachieved goals with dates in the past are considered delayed.
+     * This should be called daily (e.g., via scheduled task or on app startup).
      * 
-     * @param fromDate the date to process
-     * @param toDate the date to transfer goals to (usually next day)
-     * @return number of goals transferred
+     * @return number of delayed goals processed
      */
-    public int transferUnachievedGoals(LocalDate fromDate, LocalDate toDate) {
-        List<StudyGoal> unachievedGoals = StudyGoal.findUnachievedByDate(fromDate);
-        int transferredCount = 0;
+    public int processAllDelayedGoals() {
+        LocalDate today = LocalDate.now();
+        List<StudyGoal> allGoals = StudyGoal.findAll();
+        int totalProcessed = 0;
         
-        for (StudyGoal goal : unachievedGoals) {
-            // Calculate penalty for this delay
-            int penalty = goal.calculateDelayPenalty();
+        for (StudyGoal goal : allGoals) {
+            // Skip if goal is achieved
+            if (goal.isAchieved()) {
+                continue;
+            }
             
-            // Create transferred goal
-            StudyGoal transferred = goal.transferToNextDay(toDate, penalty);
-            transferred.save();
-            
-            // Mark original goal as processed (could delete or mark differently)
-            // For now, we'll keep the original goal but could add a processed flag
-            
-            transferredCount++;
+            // Check if goal date is in the past (delayed)
+            if (goal.getDate().isBefore(today)) {
+                // Calculate days delayed and penalty
+                int daysDelayed = (int) java.time.temporal.ChronoUnit.DAYS.between(goal.getDate(), today);
+                int penalty = calculateAccumulatedPenalty(daysDelayed);
+                
+                // Update goal with delay information
+                goal.setDelayed(true);
+                goal.setDaysDelayed(daysDelayed);
+                goal.setPointsDeducted(penalty);
+                goal.save();
+                
+                totalProcessed++;
+            } else {
+                // Goal is not delayed - ensure delay flags are cleared
+                if (goal.isDelayed()) {
+                    goal.setDelayed(false);
+                    goal.setDaysDelayed(0);
+                    goal.setPointsDeducted(0);
+                    goal.save();
+                }
+            }
         }
         
-        return transferredCount;
+        return totalProcessed;
     }
     
     /**
-     * Automatically process yesterday's unachieved goals and transfer them to today.
-     * This should be called daily (e.g., via scheduled task or on app startup).
+     * Calculate accumulated penalty for delayed goals.
+     * Formula: 5 points for first delay, then 2 points per additional day.
      * 
-     * @return number of goals transferred
+     * @param totalDaysDelayed total days the goal has been delayed
+     * @return total penalty points
      */
-    public int processYesterdayGoals() {
-        LocalDate yesterday = LocalDate.now().minusDays(1);
-        LocalDate today = LocalDate.now();
-        
-        return transferUnachievedGoals(yesterday, today);
+    private int calculateAccumulatedPenalty(int totalDaysDelayed) {
+        if (totalDaysDelayed <= 0) return 0;
+        if (totalDaysDelayed == 1) return 5; // First delay
+        return 5 + (totalDaysDelayed - 1) * 2; // Additional days
     }
     
     /**

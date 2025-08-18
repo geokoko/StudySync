@@ -64,14 +64,23 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         VBox mainContent = new VBox(15);
         mainContent.setPadding(new Insets(20));
         mainContent.setStyle("-fx-background-color: linear-gradient(to bottom, #f1f2f6, #dfe4ea);");
+        mainContent.setFillWidth(true);
+        mainContent.setPrefWidth(Region.USE_COMPUTED_SIZE);
+        mainContent.setMaxWidth(Double.MAX_VALUE);
         
-        // Set up ScrollPane properties
+        // Set up ScrollPane properties for full screen and proper scrolling
         this.setContent(mainContent);
         this.setFitToWidth(true);
         this.setFitToHeight(true);
         this.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.getStyleClass().add("tab-content-area");
+        this.setPannable(true);
+        
+        // Ensure scroll pane uses full available space
+        this.setPrefViewportWidth(Region.USE_COMPUTED_SIZE);
+        this.setPrefViewportHeight(Region.USE_COMPUTED_SIZE);
+        this.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         
         initializeComponents(mainContent);
         updateDisplay();
@@ -86,6 +95,9 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         // Create main layout with tabs
         TabPane mainTabPane = new TabPane();
         mainTabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        mainTabPane.setPrefSize(Region.USE_COMPUTED_SIZE, Region.USE_COMPUTED_SIZE);
+        mainTabPane.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+        VBox.setVgrow(mainTabPane, Priority.ALWAYS);
         
         // Projects tab
         Tab projectsTab = new Tab("📁 Projects", createProjectsTab());
@@ -104,6 +116,9 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     private VBox createProjectsTab() {
         VBox container = new VBox(15);
         container.setPadding(new Insets(15));
+        container.setFillWidth(true);
+        container.setPrefWidth(Region.USE_COMPUTED_SIZE);
+        container.setMaxWidth(Double.MAX_VALUE);
         
         // Project list
         VBox listSection = new VBox(10);
@@ -114,7 +129,9 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         
         projectListView = new ListView<>();
         projectListView.setPrefHeight(200);
+        projectListView.setMaxHeight(Double.MAX_VALUE);
         projectListView.setCellFactory(lv -> new ProjectListCell());
+        VBox.setVgrow(projectListView, Priority.SOMETIMES);
         projectListView.getSelectionModel().selectedItemProperty().addListener((obs, old, newProject) -> {
             selectedProject = newProject;
             populateProjectForm();
@@ -238,6 +255,9 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     private VBox createSessionTab() {
         VBox container = new VBox(15);
         container.setPadding(new Insets(15));
+        container.setFillWidth(true);
+        container.setPrefWidth(Region.USE_COMPUTED_SIZE);
+        container.setMaxWidth(Double.MAX_VALUE);
         
         // Current project selection
         VBox projectSection = new VBox(10);
@@ -388,6 +408,9 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     private VBox createHistoryTab() {
         VBox container = new VBox(15);
         container.setPadding(new Insets(15));
+        container.setFillWidth(true);
+        container.setPrefWidth(Region.USE_COMPUTED_SIZE);
+        container.setMaxWidth(Double.MAX_VALUE);
         
         // Project selection for history
         HBox filterBox = new HBox(10);
@@ -433,7 +456,9 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         // Session history list
         sessionListView = new ListView<>();
         sessionListView.setPrefHeight(400);
+        sessionListView.setMaxHeight(Double.MAX_VALUE);
         sessionListView.setCellFactory(lv -> new SessionListCell());
+        VBox.setVgrow(sessionListView, Priority.ALWAYS);
         
         container.getChildren().addAll(filterBox, sessionListView);
         return container;
@@ -620,6 +645,19 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
             nextStepsArea.clear();
             challengesArea.clear();
             notesArea.clear();
+            
+            // Ensure scrollpane adjusts to new content height
+            this.requestLayout();
+            
+            // Scroll to show the form
+            javafx.application.Platform.runLater(() -> {
+                double formY = sessionFormContainer.getBoundsInParent().getMinY();
+                double viewportHeight = this.getViewportBounds().getHeight();
+                double contentHeight = ((VBox) this.getContent()).getHeight();
+                if (contentHeight > viewportHeight) {
+                    this.setVvalue(Math.min(1.0, formY / (contentHeight - viewportHeight)));
+                }
+            });
         }
     }
     
@@ -639,6 +677,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                 stopSessionTimer();
                 currentSession = null;
                 sessionFormContainer.setVisible(false);
+                this.requestLayout();
                 sessionTimerLabel.setText("Session completed!");
                 updateSessionControls();
                 updateDisplay();
@@ -651,6 +690,8 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     
     private void cancelSession() {
         sessionFormContainer.setVisible(false);
+        this.requestLayout();
+        
         if (currentSession != null) {
             // Remove the session that was started but not completed
             projectService.deleteProjectSession(currentSession.getId());

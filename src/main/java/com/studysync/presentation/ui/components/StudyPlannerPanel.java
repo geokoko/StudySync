@@ -3,7 +3,6 @@ package com.studysync.presentation.ui.components;
 
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.StudySessionEnd;
-import com.studysync.domain.service.DataImportService;
 import com.studysync.domain.service.DateTimeService;
 import com.studysync.domain.service.TaskService;
 import com.studysync.domain.entity.StudyGoal;
@@ -24,6 +23,7 @@ import javafx.util.Callback;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import javafx.animation.Timeline;
 import javafx.animation.KeyFrame;
@@ -31,7 +31,6 @@ import javafx.util.Duration;
 
 public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private final StudyService studyService;
-    private final DataImportService dataImportService;
     private final DateTimeService dateTimeService;
     private final TaskService taskService;
     private StudySession currentSession;
@@ -44,9 +43,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private Label dateLabel;
     private TextArea sessionTextArea;
 
-    public StudyPlannerPanel(StudyService studyService, DataImportService dataImportService, DateTimeService dateTimeService, TaskService taskService) {
+    public StudyPlannerPanel(StudyService studyService, DateTimeService dateTimeService, TaskService taskService) {
         this.studyService = studyService;
-        this.dataImportService = dataImportService;
         this.dateTimeService = dateTimeService;
         this.taskService = taskService;
         
@@ -121,49 +119,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         addGoalBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
         addGoalBtn.setOnAction(e -> showAddGoalDialog());
         
-        Button processDelayedBtn = new Button("⚡ Process Delayed Goals");
-        processDelayedBtn.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white; -fx-background-radius: 5;");
-        processDelayedBtn.setOnAction(e -> {
-            // Disable button to prevent multiple clicks
-            processDelayedBtn.setDisable(true);
-            processDelayedBtn.setText("Processing...");
-            
-            try {
-                int transferred = studyService.processYesterdayGoals();
-                if (transferred > 0) {
-                    System.out.println("Transferred " + transferred + " delayed goals to today");
-                    processDelayedBtn.setText("✅ Goals Processed");
-                } else {
-                    processDelayedBtn.setText("No Goals to Process");
-                }
-                updateGoalsDisplay();
-                updateProgress();
-            } catch (Exception ex) {
-                System.err.println("Failed to process delayed goals: " + ex.getMessage());
-                processDelayedBtn.setText("❌ Error Processing");
-            }
-            
-            // Re-enable button after 3 seconds
-            Timeline enableTimer = new Timeline(new KeyFrame(Duration.seconds(3), event -> {
-                processDelayedBtn.setDisable(false);
-                processDelayedBtn.setText("⚡ Process Delayed Goals");
-            }));
-            enableTimer.play();
-        });
-        
-        Button importSessionsBtn = new Button("📥 Import Study Sessions");
-        importSessionsBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
-        importSessionsBtn.setOnAction(e -> {
-            try {
-                dataImportService.importPreviousDaysSessions();
-                System.out.println("Successfully imported study sessions for previous days");
-                updateDisplay();
-            } catch (Exception ex) {
-                System.err.println("Failed to import study sessions: " + ex.getMessage());
-            }
-        });
-        
-        goalsHeader.getChildren().addAll(goalsTitle, new Region(), processDelayedBtn, importSessionsBtn, addGoalBtn);
+        goalsHeader.getChildren().addAll(goalsTitle, new Region(), addGoalBtn);
         HBox.setHgrow(goalsHeader.getChildren().get(1), Priority.ALWAYS);
         
         goalsContainer = new VBox(10);
@@ -267,12 +223,32 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private void updateGoalsDisplay() {
         goalsContainer.getChildren().clear();
         List<StudyGoal> todayGoals = studyService.getTodayGoals();
+        List<StudyGoal> delayedGoals = studyService.getAllDelayedGoals();
         
-        for (StudyGoal goal : todayGoals) {
+        // Combine today's goals with delayed goals (remove duplicates)
+        List<StudyGoal> allGoals = new ArrayList<>(todayGoals);
+        for (StudyGoal delayed : delayedGoals) {
+            if (!todayGoals.contains(delayed)) {
+                allGoals.add(delayed);
+            }
+        }
+        
+        for (StudyGoal goal : allGoals) {
             HBox goalItem = new HBox(10);
             goalItem.setAlignment(Pos.CENTER_LEFT);
             goalItem.setPadding(new Insets(8));
-            goalItem.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 5;");
+            
+            // Style based on delay status
+            String backgroundColor = "#f8f9fa"; // Default
+            if (goal.isDelayed()) {
+                double intensity = goal.getDelayColorIntensity();
+                if (intensity < 0.5) {
+                    backgroundColor = "#fff3cd"; // Light orange
+                } else {
+                    backgroundColor = "#f8d7da"; // Light red
+                }
+            }
+            goalItem.setStyle("-fx-background-color: " + backgroundColor + "; -fx-background-radius: 5;");
             
             CheckBox goalCheck = new CheckBox();
             goalCheck.setSelected(goal.isAchieved());
@@ -290,6 +266,15 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             }
             
             goalTextBox.getChildren().add(goalLabel);
+            
+            // Show delay information if applicable
+            if (goal.isDelayed()) {
+                Label delayLabel = new Label(String.format("Delayed %d day(s) - Penalty: %d points", 
+                    goal.getDaysDelayed(), goal.getPointsDeducted()));
+                delayLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+                delayLabel.setStyle("-fx-text-fill: #dc3545;"); // Red text
+                goalTextBox.getChildren().add(delayLabel);
+            }
             
             // Show linked task if any
             if (goal.getTaskId() != null) {

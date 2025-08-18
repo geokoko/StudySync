@@ -100,7 +100,6 @@ CREATE TABLE IF NOT EXISTS study_goals (
     description TEXT NOT NULL,
     achieved BOOLEAN DEFAULT FALSE,
     reason_if_not_achieved TEXT,
-    original_date DATE NOT NULL,
     days_delayed INTEGER DEFAULT 0,
     is_delayed BOOLEAN DEFAULT FALSE,
     points_deducted INTEGER DEFAULT 0,
@@ -160,6 +159,5 @@ CREATE INDEX IF NOT EXISTS idx_project_sessions_date ON project_sessions(date);
 CREATE INDEX IF NOT EXISTS idx_project_sessions_project_id ON project_sessions(project_id);
 
 CREATE INDEX IF NOT EXISTS idx_study_goals_date ON study_goals(date);
-CREATE INDEX IF NOT EXISTS idx_study_goals_original_date ON study_goals(original_date);
 CREATE INDEX IF NOT EXISTS idx_study_goals_is_delayed ON study_goals(is_delayed);
 CREATE INDEX IF NOT EXISTS idx_daily_reflections_date ON daily_reflections(date);
