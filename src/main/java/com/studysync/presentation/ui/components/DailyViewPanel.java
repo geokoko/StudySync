@@ -154,7 +154,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         
         // Update stats - with safety check for database initialization
         try {
-            List<StudyGoal> studyGoals = studyService.getStudyGoalsForDate(date);
+            List<StudyGoal> studyGoals = getFilteredStudyGoalsForDate(date);
             List<StudySession> studySessions = studyService.getSessionsForDate(date);
             List<ProjectSession> projectSessions = projectService.getProjectSessionsForDate(date);
         
@@ -180,8 +180,8 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         dailyContentContainer.getChildren().clear();
         
         try {
-            // Load study goals for the date
-            List<StudyGoal> studyGoals = studyService.getStudyGoalsForDate(date);
+            // Load study goals for the date - filtered based on whether it's today or a previous day
+            List<StudyGoal> studyGoals = getFilteredStudyGoalsForDate(date);
             
             // Load study sessions for the date
             List<StudySession> studySessions = studyService.getSessionsForDate(date);
@@ -259,6 +259,26 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             loadingLabel.setTextFill(Color.GRAY);
             loadingLabel.setPadding(new Insets(20));
             dailyContentContainer.getChildren().add(loadingLabel);
+        }
+    }
+    
+    /**
+     * Get filtered study goals for a specific date based on business rules:
+     * - For today: show all goals (achieved, pending, and delayed from previous days)
+     * - For previous days: show only goals that were achieved OR set on that specific day
+     */
+    private List<StudyGoal> getFilteredStudyGoalsForDate(LocalDate date) {
+        LocalDate today = LocalDate.now();
+        
+        if (date.equals(today)) {
+            // For today, show all goals including delayed ones
+            return studyService.getStudyGoalsForDate(date);
+        } else {
+            // For previous days, show only goals achieved that day OR goals originally set for that day
+            List<StudyGoal> allGoalsForDate = studyService.getStudyGoalsForDate(date);
+            return allGoalsForDate.stream()
+                    .filter(goal -> goal.isAchieved() || goal.getDate().equals(date))
+                    .toList();
         }
     }
     
@@ -349,7 +369,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         // Delay information for delayed goals
         if (goal.isDelayed()) {
             String delayInfo = String.format("📅 Originally from: %s • 🔥 %d days delayed • ⚡ -%d points penalty", 
-                goal.getOriginalDate().toString(), goal.getDaysDelayed(), goal.getPointsDeducted());
+                goal.getDate().toString(), goal.getDaysDelayed(), goal.getPointsDeducted());
             Label delayLabel = new Label(delayInfo);
             delayLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
             delayLabel.setTextFill(Color.web("#ff5722"));
@@ -788,8 +808,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         
         confirmation.showAndWait().ifPresent(response -> {
             if (response == ButtonType.OK) {
-                studyService.deleteStudyGoal(goal.getId());
-                boolean deleted = true;
+                boolean deleted = studyService.deleteStudyGoal(goal.getId());
                 if (deleted) {
                     updateDailyView(); // Refresh the view
                     showAlert("Success", "Study goal deleted successfully!");
