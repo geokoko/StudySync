@@ -3,14 +3,21 @@ spring:
     name: studysync
   
   datasource:
-    url: jdbc:h2:${DB_PATH:./data/studysync};AUTO_SERVER=TRUE;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:file:./data/studysync;DB_CLOSE_DELAY=-1;CACHE_SIZE=65536
     driver-class-name: org.h2.Driver
-    username: ${DB_USERNAME:sa}
-    password: ${DB_PASSWORD:}
+    username: sa
+    password: 
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
     
   h2:
     console:
-      enabled: true
+      enabled: false  # Set to true for development only
       path: /h2-console
       
   sql:
@@ -20,20 +27,20 @@ spring:
 
 logging:
   level:
-    com.todo: DEBUG
-    org.springframework.jdbc: DEBUG
+    com.studysync: INFO  # Change to DEBUG for development
+    org.springframework.jdbc: INFO
     com.zaxxer.hikari: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
   file:
-    name: ${LOG_PATH:logs/studysync.log}
+    name: logs/studysync.log
 
 app:
   datasource:
-    maximum-pool-size: ${DB_MAX_POOL_SIZE:10}
-    minimum-idle: ${DB_MIN_IDLE:2}
-    connection-timeout: ${DB_CONNECTION_TIMEOUT:30000}
-    idle-timeout: ${DB_IDLE_TIMEOUT:600000}
-    max-lifetime: ${DB_MAX_LIFETIME:1800000}
-    leak-detection-threshold: ${DB_LEAK_DETECTION:60000}
+    maximum-pool-size: 10
+    minimum-idle: 2
+    connection-timeout: 30000
+    idle-timeout: 600000
+    max-lifetime: 1800000
+    leak-detection-threshold: 60000
