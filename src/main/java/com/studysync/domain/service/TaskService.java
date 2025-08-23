@@ -66,7 +66,7 @@ public class TaskService {
         Task savedTask = taskToSave.save();
         
         logger.info("Successfully added task '{}' with priority {} and status {}", 
-                   savedTask.getTitle(), savedTask.getPriority().getStars(), savedTask.getStatus());
+                   savedTask.getTitle(), savedTask.getPriority().stars(), savedTask.getStatus());
         
         return savedTask;
     }
@@ -144,7 +144,7 @@ public class TaskService {
             .filter(task -> titleFilter.map(f -> f.test(task.getTitle())).orElse(true))
             .filter(task -> categoryFilter.map(c -> c.equalsIgnoreCase(task.getCategory())).orElse(true))
             .filter(task -> statusFilter.map(s -> s.equals(task.getStatus())).orElse(true))
-            .filter(task -> priorityFilter.map(p -> task.getPriority() != null && task.getPriority().getStars() == p).orElse(true))
+            .filter(task -> priorityFilter.map(p -> task.getPriority() != null && task.getPriority().stars() == p).orElse(true))
             .collect(Collectors.toList());
     }
     
@@ -274,7 +274,7 @@ public class TaskService {
     
     private boolean matchesPriority(Task task, Integer priorityStars) {
         return priorityStars == null || 
-               (task.getPriority() != null && task.getPriority().getStars() == priorityStars);
+               (task.getPriority() != null && task.getPriority().stars() == priorityStars);
     }
     
     private void validateTaskExists(Task task) throws ValidationException {

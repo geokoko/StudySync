@@ -68,7 +68,7 @@ public class StudyGoal {
     /** Unique identifier for this study goal. */
     private String id;
     
-    /** The date this goal was created (typically the target achievement date). */
+    /** The date this goal was created for (target achievement date). */
     private LocalDate date;
     
     /** Description of what the user wants to achieve. */
@@ -79,9 +79,6 @@ public class StudyGoal {
     
     /** Optional explanation of why the goal was not achieved (for reflection). */
     private String reasonIfNotAchieved;
-    
-    /** The original date when this goal was first created (remains unchanged when transferred). */
-    private LocalDate originalDate;
     
     /** Number of days this goal has been delayed (0 for goals on original date). */
     private int daysDelayed;
@@ -103,7 +100,6 @@ public class StudyGoal {
     public StudyGoal() {
         this.id = java.util.UUID.randomUUID().toString();
         this.date = LocalDate.now();
-        this.originalDate = LocalDate.now();
         this.achieved = false;
         this.daysDelayed = 0;
         this.isDelayed = false;
@@ -154,7 +150,6 @@ public class StudyGoal {
                     @JsonProperty("reasonIfNotAchieved") String reasonIfNotAchieved) {
         this.id = id != null ? id : java.util.UUID.randomUUID().toString();
         this.date = date != null ? date : LocalDate.now();
-        this.originalDate = this.date; // Default original date to current date
         this.description = description;
         this.achieved = achieved;
         this.reasonIfNotAchieved = reasonIfNotAchieved;
@@ -165,14 +160,13 @@ public class StudyGoal {
     
     /**
      * Full constructor for creating StudyGoal with all delay tracking fields.
-     * Used internally for database operations and goal transfers.
+     * Used internally for database operations.
      */
     public StudyGoal(String id, LocalDate date, String description, boolean achieved, 
-                    String reasonIfNotAchieved, LocalDate originalDate, int daysDelayed, 
+                    String reasonIfNotAchieved, int daysDelayed, 
                     boolean isDelayed, int pointsDeducted, String taskId) {
         this.id = id != null ? id : java.util.UUID.randomUUID().toString();
         this.date = date != null ? date : LocalDate.now();
-        this.originalDate = originalDate != null ? originalDate : this.date;
         this.description = description;
         this.achieved = achieved;
         this.reasonIfNotAchieved = reasonIfNotAchieved;
@@ -197,7 +191,7 @@ public class StudyGoal {
     public void setId(String id) { this.id = id; }
 
     /**
-     * Gets the date this goal was created.
+     * Gets the date this goal was created for.
      * 
      * @return the goal date
      */
@@ -260,19 +254,6 @@ public class StudyGoal {
         this.reasonIfNotAchieved = reasonIfNotAchieved; 
     }
 
-    /**
-     * Gets the original date when this goal was first created.
-     * 
-     * @return the original creation date
-     */
-    public LocalDate getOriginalDate() { return originalDate; }
-    
-    /**
-     * Sets the original date for this goal.
-     * 
-     * @param originalDate the original creation date
-     */
-    public void setOriginalDate(LocalDate originalDate) { this.originalDate = originalDate; }
 
     /**
      * Gets the number of days this goal has been delayed.
@@ -330,27 +311,6 @@ public class StudyGoal {
      */
     public void setTaskId(String taskId) { this.taskId = taskId; }
 
-    /**
-     * Creates a copy of this goal transferred to the next day with penalty.
-     * 
-     * @param newDate the new date to transfer to
-     * @param penaltyPoints points to deduct for the delay
-     * @return new StudyGoal instance for the new date
-     */
-    public StudyGoal transferToNextDay(LocalDate newDate, int penaltyPoints) {
-        StudyGoal transferred = new StudyGoal();
-        transferred.id = java.util.UUID.randomUUID().toString(); // New ID for new goal
-        transferred.date = newDate;
-        transferred.originalDate = this.originalDate; // Keep original date
-        transferred.description = this.description;
-        transferred.achieved = false; // Reset achievement status
-        transferred.reasonIfNotAchieved = null; // Reset reason
-        transferred.daysDelayed = this.daysDelayed + 1;
-        transferred.isDelayed = true;
-        transferred.pointsDeducted = this.pointsDeducted + penaltyPoints;
-        
-        return transferred;
-    }
     
     /**
      * Calculate the delay penalty based on days delayed.
@@ -403,13 +363,13 @@ public class StudyGoal {
         
         String sql = """
             MERGE INTO study_goals (id, date, description, achieved, reason_if_not_achieved, 
-                                   original_date, days_delayed, is_delayed, points_deducted, task_id, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                   days_delayed, is_delayed, points_deducted, task_id, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         
         jdbcTemplate.update(sql,
             this.id, this.date, this.description, this.achieved, this.reasonIfNotAchieved,
-            this.originalDate, this.daysDelayed, this.isDelayed, this.pointsDeducted, this.taskId
+            this.daysDelayed, this.isDelayed, this.pointsDeducted, this.taskId
         );
         
         logger.debug("StudyGoal saved: {} - {}", this.id, this.description);
@@ -485,6 +445,34 @@ public class StudyGoal {
         String sql = "SELECT * FROM study_goals WHERE date = ? ORDER BY created_at";
         List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date);
         logger.debug("Retrieved {} study goals for date: {}", goals.size(), date);
+        return goals;
+    }
+    
+    /**
+     * Get study goals for a specific date including delayed goals that should appear on this date.
+     * This method returns:
+     * <ul>
+     *   <li>Goals originally created for the specified date</li>
+     *   <li>Unachieved goals from previous dates that are now delayed</li>
+     * </ul>
+     * 
+     * @param date the date to retrieve goals for
+     * @return list of study goals including delayed ones, ordered by delay status and creation time
+     */
+    public static List<StudyGoal> findByDateIncludingDelayed(LocalDate date) {
+        if (jdbcTemplate == null || date == null) {
+            return List.of();
+        }
+        
+        String sql = """
+            SELECT * FROM study_goals 
+            WHERE date = ? 
+               OR (is_delayed = TRUE AND achieved = FALSE AND date < ?)
+            ORDER BY is_delayed ASC, days_delayed DESC, created_at ASC
+            """;
+        
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
+        logger.debug("Retrieved {} study goals (including delayed) for date: {}", goals.size(), date);
         return goals;
     }
     
@@ -588,14 +576,13 @@ public class StudyGoal {
             String description = rs.getString("description");
             boolean achieved = rs.getBoolean("achieved");
             String reasonIfNotAchieved = rs.getString("reason_if_not_achieved");
-            LocalDate originalDate = rs.getObject("original_date", LocalDate.class);
             int daysDelayed = rs.getInt("days_delayed");
             boolean isDelayed = rs.getBoolean("is_delayed");
             int pointsDeducted = rs.getInt("points_deducted");
             String taskId = rs.getString("task_id");
             
             return new StudyGoal(id, date, description, achieved, reasonIfNotAchieved, 
-                               originalDate, daysDelayed, isDelayed, pointsDeducted, taskId);
+                               daysDelayed, isDelayed, pointsDeducted, taskId);
         };
     }
 }

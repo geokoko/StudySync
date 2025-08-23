@@ -38,7 +38,6 @@ public class StudySyncUI {
     private final StudyService studyService;
     private final ProjectService projectService;
     private final WindowPreferencesService windowPreferencesService;
-    private final DataImportService dataImportService;
     private final DateTimeService dateTimeService;
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
@@ -46,19 +45,18 @@ public class StudySyncUI {
     @Autowired
     public StudySyncUI(TaskService taskService, CategoryService categoryService, ReminderService reminderService,
                        StudyService studyService, ProjectService projectService, WindowPreferencesService windowPreferencesService,
-                       DataImportService dataImportService, DateTimeService dateTimeService) {
+                       DateTimeService dateTimeService) {
         this.taskService = taskService;
         this.categoryService = categoryService;
         this.reminderService = reminderService;
         this.studyService = studyService;
         this.projectService = projectService;
         this.windowPreferencesService = windowPreferencesService;
-        this.dataImportService = dataImportService;
         this.dateTimeService = dateTimeService;
 
         panelMap = Map.of(
             new Tab("📊 Daily View"), new DailyViewPanel(studyService, taskService, projectService),
-            new Tab("📚 Study Planner"), new StudyPlannerPanel(studyService, dataImportService, dateTimeService, taskService),
+            new Tab("📚 Study Planner"), new StudyPlannerPanel(studyService, dateTimeService, taskService),
             new Tab("⭐ Reflection Diary"), new ReflectionDiaryPanel(studyService, dateTimeService),
             new Tab("🖊️ Projects"), new ProjectManagementPanel(projectService, categoryService),
             new Tab("📋 Tasks"), new TaskManagementPanel(taskService, categoryService, reminderService)
@@ -134,6 +132,9 @@ public class StudySyncUI {
         });
         
         primaryStage.show();
+        
+        // Process yesterday's unachieved goals automatically
+        processDelayedGoalsOnStartup();
         
         // Initialize the default tab after showing the window (to ensure Spring context is fully loaded)
         Tab selectedTab = tabPane.getSelectionModel().getSelectedItem();
@@ -256,6 +257,17 @@ public class StudySyncUI {
         
         header.getChildren().addAll(appTitle, spacer, profileButton);
         return header;
+    }
+    
+    private void processDelayedGoalsOnStartup() {
+        try {
+            int transferredGoals = studyService.processAllDelayedGoals();
+            if (transferredGoals > 0) {
+                logger.info("Transferred {} unachieved goals from all previous days to today's queue", transferredGoals);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to process delayed goals on startup", e);
+        }
     }
     
     private void showProfileWindow() {
