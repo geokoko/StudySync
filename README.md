@@ -1,7 +1,7 @@
 # StudySync
 
 <div align="center">
-  <img src="icon.png" alt="StudySync Logo" width="128" height="128">
+  <img src="src/main/resources/icon.png" alt="StudySync Logo" width="128" height="128">
   
   **A comprehensive Study Management System for academic productivity**
 </div>
@@ -56,10 +56,11 @@ StudySync provides comprehensive academic management with three main modules:
     git clone https://github.com/geokoko/StudySync.git
     cd StudySync
     ```
-2. Enable application.yml configuration
+2. Configure the application
     ```bash
     cd ./src/main/resources
-    mv application.yml.template application.yml
+    cp application.yml.template application.yml
+    # Edit application.yml if needed (optional for basic usage)
     ```
 
 3. Run the Application
@@ -87,7 +88,7 @@ StudySync provides comprehensive academic management with three main modules:
 
 * **Fast startup** (skip some initialization):
     ```bash
-    ./start-fast.sh
+    ./scripts/start-fast.sh
     ```
 
 ## Architecture
