@@ -295,7 +295,7 @@ public class Project {
         
         jdbcTemplate.update(sql,
             this.id, this.title, this.description, this.category,
-            this.status.name(), this.priority != null ? this.priority.getStars() : 1,
+            this.status.name(), this.priority != null ? this.priority.stars() : 1,
             this.startDate, this.targetEndDate, completionDate,
             progressPercentage, null, // estimated_hours can be null for now
             actualHours, this.description, // using description as notes for now

@@ -241,7 +241,7 @@ public class Task {
             this.title,
             this.description,
             this.category,
-            this.priority != null ? this.priority.getStars() : 1,
+            this.priority != null ? this.priority.stars() : 1,
             this.deadline,
             this.status != null ? this.status.name() : TaskStatus.OPEN.name(),
             this.points

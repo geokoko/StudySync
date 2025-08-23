@@ -479,7 +479,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         
         // Check if category already exists
         boolean categoryExists = categoryService.getCategories().stream()
-                .anyMatch(cat -> cat.getName().equalsIgnoreCase(categoryName));
+                .anyMatch(cat -> cat.name().equalsIgnoreCase(categoryName));
                 
         if (categoryExists) {
             showAlert("Error", "Category '" + categoryName + "' already exists.");
@@ -492,7 +492,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
             
             // Select the newly created category
             TaskCategory newCategory = categoryService.getCategories().stream()
-                    .filter(cat -> cat.getName().equals(categoryName))
+                    .filter(cat -> cat.name().equals(categoryName))
                     .findFirst()
                     .orElse(null);
             if (newCategory != null) {
@@ -541,7 +541,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
             
             if (selectedProject == null) {
                 // Create new project
-                Project newProject = Project.create(title, description, category.getName(), priority, targetEnd);
+                Project newProject = Project.create(title, description, category.name(), priority, targetEnd);
                 projectService.addProject(newProject);
             } else {
                 // Update existing project - create new record with updated values
@@ -549,7 +549,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                     selectedProject.getId(),
                     title,
                     description,
-                    category.getName(),
+                    category.name(),
                     priority,
                     selectedProject.getStartDate(),
                     targetEnd,
@@ -590,13 +590,13 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
             // Find and select category
             projectCategoryCombo.getSelectionModel().select(
                 categoryService.getCategories().stream()
-                    .filter(c -> c.getName().equals(selectedProject.getCategory()))
+                    .filter(c -> c.name().equals(selectedProject.getCategory()))
                     .findFirst().orElse(null)
             );
             
             // Select priority stars
             if (selectedProject.getPriority() != null) {
-                projectPriorityCombo.getSelectionModel().select(selectedProject.getPriority().getStars());
+                projectPriorityCombo.getSelectionModel().select(selectedProject.getPriority().stars());
             }
             
             targetEndDatePicker.setValue(selectedProject.getTargetEndDate());

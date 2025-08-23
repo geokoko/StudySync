@@ -467,7 +467,7 @@ public class StudyGoal {
         String sql = """
             SELECT * FROM study_goals 
             WHERE date = ? 
-               OR (is_delayed = TRUE AND achieved = FALSE AND original_date < ?)
+               OR (is_delayed = TRUE AND achieved = FALSE AND date < ?)
             ORDER BY is_delayed ASC, days_delayed DESC, created_at ASC
             """;
         

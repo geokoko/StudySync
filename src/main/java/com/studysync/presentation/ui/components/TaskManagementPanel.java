@@ -218,7 +218,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         
         // Check if category already exists
         boolean categoryExists = categoryService.getCategories().stream()
-                .anyMatch(cat -> cat.getName().equalsIgnoreCase(categoryName));
+                .anyMatch(cat -> cat.name().equalsIgnoreCase(categoryName));
                 
         if (categoryExists) {
             showAlert("Error", "Category '" + categoryName + "' already exists.");
@@ -231,7 +231,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             
             // Select the newly created category
             TaskCategory newCategory = categoryService.getCategories().stream()
-                    .filter(cat -> cat.getName().equals(categoryName))
+                    .filter(cat -> cat.name().equals(categoryName))
                     .findFirst()
                     .orElse(null);
             if (newCategory != null) {
@@ -259,13 +259,13 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             // Find and select category
             categoryCombo.getSelectionModel().select(
                 categoryService.getCategories().stream()
-                    .filter(c -> c.getName().equals(task.getCategory()))
+                    .filter(c -> c.name().equals(task.getCategory()))
                     .findFirst().orElse(null)
             );
             
             // Select priority stars
             if (task.getPriority() != null) {
-                priorityCombo.getSelectionModel().select(task.getPriority().getStars());
+                priorityCombo.getSelectionModel().select(task.getPriority().stars());
             }
             
             deadlinePicker.setValue(task.getDeadline());
@@ -294,12 +294,12 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         try {
             if (selectedTask == null) {
                 // Create new task
-                Task newTask = new Task(null, title, description, category.getName(), 
+                Task newTask = new Task(null, title, description, category.name(), 
                                        priority, deadline, TaskStatus.OPEN, 0);
                 taskService.addTask(newTask);
             } else {
                 // Update existing task
-                TaskUpdate update = new TaskUpdate(title, description, category.getName(), priority, deadline);
+                TaskUpdate update = new TaskUpdate(title, description, category.name(), priority, deadline);
                 taskService.updateTask(selectedTask, update);
             }
             
