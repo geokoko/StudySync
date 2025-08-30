@@ -1,4 +1,5 @@
 # Data and logs
+current_schema.sql
 data/
 logs/
 *.log

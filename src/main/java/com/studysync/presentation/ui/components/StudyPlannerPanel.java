@@ -233,7 +233,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             }
         }
         
-        for (StudyGoal goal : allGoals) {
+        // Filter out achieved goals - they should not be shown in the daily goals panel
+        List<StudyGoal> pendingGoals = allGoals.stream()
+            .filter(goal -> !goal.isAchieved())
+            .toList();
+        
+        for (StudyGoal goal : pendingGoals) {
             HBox goalItem = new HBox(10);
             goalItem.setAlignment(Pos.CENTER_LEFT);
             goalItem.setPadding(new Insets(8));

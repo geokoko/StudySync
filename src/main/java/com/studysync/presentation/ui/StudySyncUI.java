@@ -55,7 +55,7 @@ public class StudySyncUI {
         this.dateTimeService = dateTimeService;
 
         panelMap = Map.of(
-            new Tab("📊 Daily View"), new DailyViewPanel(studyService, taskService, projectService),
+            new Tab("📅 Calendar View"), new CalendarViewPanel(studyService, taskService, projectService),
             new Tab("📚 Study Planner"), new StudyPlannerPanel(studyService, dateTimeService, taskService),
             new Tab("⭐ Reflection Diary"), new ReflectionDiaryPanel(studyService, dateTimeService),
             new Tab("🖊️ Projects"), new ProjectManagementPanel(projectService, categoryService),
