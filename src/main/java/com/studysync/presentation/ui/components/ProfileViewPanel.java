@@ -17,6 +17,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.Node;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
+import javafx.scene.text.FontPosture;
 import javafx.scene.chart.*;
 
 import java.time.LocalDate;
@@ -78,10 +79,13 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         // Statistics cards
         HBox statsSection = createStatsSection();
         
+        // Achieved goals section
+        VBox achievedGoalsSection = createAchievedGoalsSection();
+        
         // Charts section
         VBox chartsSection = createChartsSection();
         
-        mainContent.getChildren().addAll(headerLabel, profileSection, statsSection, chartsSection);
+        mainContent.getChildren().addAll(headerLabel, profileSection, statsSection, achievedGoalsSection, chartsSection);
     }
     
     private VBox createProfileSummarySection() {
@@ -127,6 +131,204 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         
         section.getChildren().add(statsContainer);
         return section;
+    }
+    
+    private VBox createAchievedGoalsSection() {
+        VBox section = new VBox(15);
+        section.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 20; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+        
+        HBox header = new HBox(15);
+        header.setAlignment(Pos.CENTER_LEFT);
+        
+        Label sectionTitle = new Label("🏆 Achieved Goals");
+        sectionTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
+        sectionTitle.setTextFill(Color.web("#2c3e50"));
+        
+        // Get recent achieved goals count
+        List<StudyGoal> allAchievedGoals = studyService.getStudyGoals().stream()
+            .filter(StudyGoal::isAchieved)
+            .collect(Collectors.toList());
+        
+        Label countLabel = new Label("(" + allAchievedGoals.size() + " total)");
+        countLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
+        countLabel.setTextFill(Color.web("#7f8c8d"));
+        
+        Button viewAllBtn = new Button("📋 View All Achieved Goals");
+        viewAllBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 5;");
+        viewAllBtn.setOnAction(e -> showAllAchievedGoalsDialog());
+        
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        
+        header.getChildren().addAll(sectionTitle, countLabel, spacer, viewAllBtn);
+        
+        // Show recent achieved goals (last 5)
+        VBox recentGoalsContainer = new VBox(8);
+        List<StudyGoal> recentAchievedGoals = allAchievedGoals.stream()
+            .sorted((g1, g2) -> g2.getDate().compareTo(g1.getDate())) // Sort by date descending
+            .limit(5)
+            .collect(Collectors.toList());
+        
+        if (recentAchievedGoals.isEmpty()) {
+            Label noGoalsLabel = new Label("No goals achieved yet. Start setting and completing goals to see them here!");
+            noGoalsLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+            noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
+            noGoalsLabel.setPadding(new Insets(10, 0, 0, 0));
+            recentGoalsContainer.getChildren().add(noGoalsLabel);
+        } else {
+            Label recentLabel = new Label("Recent Achievements:");
+            recentLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 12));
+            recentLabel.setTextFill(Color.web("#2c3e50"));
+            recentGoalsContainer.getChildren().add(recentLabel);
+            
+            for (StudyGoal goal : recentAchievedGoals) {
+                HBox goalItem = createAchievedGoalItem(goal);
+                recentGoalsContainer.getChildren().add(goalItem);
+            }
+            
+            if (allAchievedGoals.size() > 5) {
+                Label moreLabel = new Label("... and " + (allAchievedGoals.size() - 5) + " more. Click 'View All' to see them.");
+                moreLabel.setFont(Font.font("System", FontPosture.ITALIC, 11));
+                moreLabel.setTextFill(Color.web("#95a5a6"));
+                recentGoalsContainer.getChildren().add(moreLabel);
+            }
+        }
+        
+        section.getChildren().addAll(header, recentGoalsContainer);
+        return section;
+    }
+    
+    private HBox createAchievedGoalItem(StudyGoal goal) {
+        HBox item = new HBox(10);
+        item.setAlignment(Pos.CENTER_LEFT);
+        item.setPadding(new Insets(8, 12, 8, 12));
+        item.setStyle("-fx-background-color: #e8f5e8; -fx-background-radius: 5; -fx-border-color: #27ae60; -fx-border-radius: 5;");
+        
+        Label checkLabel = new Label("✅");
+        checkLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
+        
+        VBox textContainer = new VBox(2);
+        
+        Label descLabel = new Label(goal.getDescription());
+        descLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        descLabel.setTextFill(Color.web("#2c3e50"));
+        descLabel.setWrapText(true);
+        
+        Label dateLabel = new Label("Achieved on " + goal.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
+        dateLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
+        dateLabel.setTextFill(Color.web("#7f8c8d"));
+        
+        textContainer.getChildren().addAll(descLabel, dateLabel);
+        
+        item.getChildren().addAll(checkLabel, textContainer);
+        return item;
+    }
+    
+    private void showAllAchievedGoalsDialog() {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("All Achieved Goals");
+        dialog.setHeaderText("🏆 Your Achievement History");
+        
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(20));
+        content.setPrefWidth(600);
+        content.setPrefHeight(500);
+        
+        // Get all achieved goals sorted by date (most recent first)
+        List<StudyGoal> allAchievedGoals = studyService.getStudyGoals().stream()
+            .filter(StudyGoal::isAchieved)
+            .sorted((g1, g2) -> g2.getDate().compareTo(g1.getDate()))
+            .collect(Collectors.toList());
+        
+        if (allAchievedGoals.isEmpty()) {
+            Label noGoalsLabel = new Label("You haven't achieved any goals yet.\n\nStart by setting daily study goals and completing them to build your achievement history!");
+            noGoalsLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
+            noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
+            noGoalsLabel.setWrapText(true);
+            noGoalsLabel.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
+            noGoalsLabel.setPadding(new Insets(50, 20, 50, 20));
+            content.getChildren().add(noGoalsLabel);
+        } else {
+            Label totalLabel = new Label("Total Achieved Goals: " + allAchievedGoals.size());
+            totalLabel.setFont(Font.font("System", FontWeight.BOLD, 14));
+            totalLabel.setTextFill(Color.web("#27ae60"));
+            content.getChildren().add(totalLabel);
+            
+            ScrollPane scrollPane = new ScrollPane();
+            VBox goalsContainer = new VBox(8);
+            goalsContainer.setPadding(new Insets(10));
+            
+            // Group goals by month for better organization
+            Map<String, List<StudyGoal>> goalsByMonth = allAchievedGoals.stream()
+                .collect(Collectors.groupingBy(goal -> 
+                    goal.getDate().format(DateTimeFormatter.ofPattern("MMMM yyyy"))));
+            
+            for (Map.Entry<String, List<StudyGoal>> monthEntry : goalsByMonth.entrySet()) {
+                // Month header
+                Label monthLabel = new Label("📅 " + monthEntry.getKey());
+                monthLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+                monthLabel.setTextFill(Color.web("#2c3e50"));
+                monthLabel.setPadding(new Insets(15, 0, 5, 0));
+                goalsContainer.getChildren().add(monthLabel);
+                
+                // Goals for this month
+                for (StudyGoal goal : monthEntry.getValue()) {
+                    HBox goalItem = createDetailedAchievedGoalItem(goal);
+                    goalsContainer.getChildren().add(goalItem);
+                }
+            }
+            
+            scrollPane.setContent(goalsContainer);
+            scrollPane.setFitToWidth(true);
+            scrollPane.setPrefHeight(400);
+            content.getChildren().add(scrollPane);
+        }
+        
+        dialog.getDialogPane().setContent(content);
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        dialog.setResizable(true);
+        
+        dialog.showAndWait();
+    }
+    
+    private HBox createDetailedAchievedGoalItem(StudyGoal goal) {
+        HBox item = new HBox(12);
+        item.setAlignment(Pos.CENTER_LEFT);
+        item.setPadding(new Insets(10, 15, 10, 15));
+        item.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 8; -fx-border-color: #27ae60; -fx-border-radius: 8; -fx-border-width: 1;");
+        
+        Label checkLabel = new Label("✅");
+        checkLabel.setFont(Font.font("System", FontWeight.NORMAL, 16));
+        
+        VBox textContainer = new VBox(4);
+        HBox.setHgrow(textContainer, Priority.ALWAYS);
+        
+        Label descLabel = new Label(goal.getDescription());
+        descLabel.setFont(Font.font("System", FontWeight.NORMAL, 13));
+        descLabel.setTextFill(Color.web("#2c3e50"));
+        descLabel.setWrapText(true);
+        
+        HBox detailsBox = new HBox(15);
+        detailsBox.setAlignment(Pos.CENTER_LEFT);
+        
+        Label dateLabel = new Label("📅 " + goal.getDate().format(DateTimeFormatter.ofPattern("EEE, MMM dd, yyyy")));
+        dateLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+        dateLabel.setTextFill(Color.web("#7f8c8d"));
+        
+        // Show if it was delayed before achievement
+        if (goal.isDelayed()) {
+            Label delayLabel = new Label("⚠️ Delayed " + goal.getDaysDelayed() + " day(s)");
+            delayLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+            delayLabel.setTextFill(Color.web("#e67e22"));
+            detailsBox.getChildren().addAll(dateLabel, delayLabel);
+        } else {
+            detailsBox.getChildren().add(dateLabel);
+        }
+        
+        textContainer.getChildren().addAll(descLabel, detailsBox);
+        
+        item.getChildren().addAll(checkLabel, textContainer);
+        return item;
     }
     
     private VBox createChartsSection() {
