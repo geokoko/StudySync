@@ -5,11 +5,14 @@ import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.service.StudySessionEnd;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,6 +25,7 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class StudyService {
+    private static final Logger logger = LoggerFactory.getLogger(StudyService.class);
     
     public StudyService() {
         // No dependencies needed - Active Record pattern
@@ -59,11 +63,11 @@ public class StudyService {
         return StudySession.findByDate(LocalDate.now());
     }
 
-    public void addStudyGoal(String description, LocalDate date) throws ValidationException {
+    public void addStudyGoal(String description, LocalDate date) {
         addStudyGoal(description, date, null);
     }
     
-    public void addStudyGoal(String description, LocalDate date, String taskId) throws ValidationException {
+    public void addStudyGoal(String description, LocalDate date, String taskId) {
         if (description == null || description.trim().isEmpty()) {
             throw ValidationException.requiredFieldMissing("description");
         }
@@ -82,7 +86,14 @@ public class StudyService {
     }
 
     public boolean deleteStudyGoal(String goalId) {
-        return StudyGoal.deleteById(goalId);
+        if (goalId == null || goalId.isBlank()) {
+            throw ValidationException.requiredFieldMissing("goalId");
+        }
+        boolean deleted = StudyGoal.deleteById(goalId);
+        if (!deleted) {
+            logger.warn("Requested deletion for study goal '{}' but it did not exist", goalId);
+        }
+        return deleted;
     }
 
     public StudySession startStudySession() {
@@ -175,14 +186,16 @@ public class StudyService {
     /**
      * Process all goals and update delay penalties for overdue goals.
      * Only unachieved goals with dates in the past are considered delayed.
+     * Goals overdue by two weeks or more are automatically deleted.
      * This should be called daily (e.g., via scheduled task or on app startup).
-     * 
-     * @return number of delayed goals processed
+     *
+     * @return summary of how many goals were updated or auto-removed
      */
-    public int processAllDelayedGoals() {
+    public GoalDelayProcessingResult processAllDelayedGoals() {
         LocalDate today = LocalDate.now();
         List<StudyGoal> allGoals = StudyGoal.findAll();
-        int totalProcessed = 0;
+        int updatedGoals = 0;
+        int removedGoals = 0;
         
         for (StudyGoal goal : allGoals) {
             // Skip if goal is achieved
@@ -192,17 +205,31 @@ public class StudyService {
             
             // Check if goal date is in the past (delayed)
             if (goal.getDate().isBefore(today)) {
-                // Calculate days delayed and penalty
-                int daysDelayed = (int) java.time.temporal.ChronoUnit.DAYS.between(goal.getDate(), today);
+                int daysDelayed = (int) ChronoUnit.DAYS.between(goal.getDate(), today);
+                if (daysDelayed >= 14) {
+                    String goalLabel = (goal.getDescription() != null && !goal.getDescription().isBlank())
+                        ? goal.getDescription()
+                        : goal.getId();
+                    boolean deleted = StudyGoal.deleteById(goal.getId());
+                    if (deleted) {
+                        removedGoals++;
+                        logger.info("Removed study goal '{}' after {} days overdue",
+                                goalLabel, daysDelayed);
+                    } else {
+                        logger.warn("Failed to auto-remove overdue goal '{}'", goal.getId());
+                    }
+                    continue;
+                }
+
                 int penalty = calculateAccumulatedPenalty(daysDelayed);
-                
+
                 // Update goal with delay information
                 goal.setDelayed(true);
                 goal.setDaysDelayed(daysDelayed);
                 goal.setPointsDeducted(penalty);
                 goal.save();
-                
-                totalProcessed++;
+
+                updatedGoals++;
             } else {
                 // Goal is not delayed - ensure delay flags are cleared
                 if (goal.isDelayed()) {
@@ -214,7 +241,18 @@ public class StudyService {
             }
         }
         
-        return totalProcessed;
+        return new GoalDelayProcessingResult(updatedGoals, removedGoals);
+    }
+
+    /**
+     * Summary of delayed-goal processing.
+     * @param updatedGoals number of existing goals updated with delay metadata
+     * @param removedGoals number of goals deleted because they exceeded the delay threshold
+     */
+    public record GoalDelayProcessingResult(int updatedGoals, int removedGoals) {
+        public boolean hasChanges() {
+            return updatedGoals > 0 || removedGoals > 0;
+        }
     }
     
     /**

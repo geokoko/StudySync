@@ -1,10 +1,19 @@
-
 package com.studysync.presentation.ui;
 
-import com.studysync.domain.service.*;
-import com.studysync.presentation.ui.components.*;
+import com.studysync.domain.service.CategoryService;
+import com.studysync.domain.service.DateTimeService;
+import com.studysync.domain.service.ProjectService;
+import com.studysync.domain.service.ReminderService;
+import com.studysync.domain.service.StudyService;
+import com.studysync.domain.service.TaskService;
 import com.studysync.domain.service.WindowPreferencesService;
-import com.studysync.config.ActiveRecordConfig;
+import com.studysync.presentation.ui.components.CalendarViewPanel;
+import com.studysync.presentation.ui.components.ProjectManagementPanel;
+import com.studysync.presentation.ui.components.ProfileViewPanel;
+import com.studysync.presentation.ui.components.RefreshablePanel;
+import com.studysync.presentation.ui.components.ReflectionDiaryPanel;
+import com.studysync.presentation.ui.components.StudyPlannerPanel;
+import com.studysync.presentation.ui.components.TaskManagementPanel;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
@@ -17,13 +26,17 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.application.Platform;
 import javafx.stage.Stage;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-import org.springframework.context.annotation.DependsOn;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.DependsOn;
+import org.springframework.stereotype.Component;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Component
@@ -44,23 +57,23 @@ public class StudySyncUI {
 
     @Autowired
     public StudySyncUI(TaskService taskService, CategoryService categoryService, ReminderService reminderService,
-                       StudyService studyService, ProjectService projectService, WindowPreferencesService windowPreferencesService,
-                       DateTimeService dateTimeService) {
-        this.taskService = taskService;
-        this.categoryService = categoryService;
-        this.reminderService = reminderService;
-        this.studyService = studyService;
-        this.projectService = projectService;
-        this.windowPreferencesService = windowPreferencesService;
-        this.dateTimeService = dateTimeService;
+                       StudyService studyService, ProjectService projectService,
+                       WindowPreferencesService windowPreferencesService, DateTimeService dateTimeService) {
+        this.taskService = Objects.requireNonNull(taskService, "taskService");
+        this.categoryService = Objects.requireNonNull(categoryService, "categoryService");
+        this.reminderService = Objects.requireNonNull(reminderService, "reminderService");
+        this.studyService = Objects.requireNonNull(studyService, "studyService");
+        this.projectService = Objects.requireNonNull(projectService, "projectService");
+        this.windowPreferencesService = Objects.requireNonNull(windowPreferencesService, "windowPreferencesService");
+        this.dateTimeService = Objects.requireNonNull(dateTimeService, "dateTimeService");
 
-        panelMap = Map.of(
-            new Tab("📅 Calendar View"), new CalendarViewPanel(studyService, taskService, projectService),
-            new Tab("📚 Study Planner"), new StudyPlannerPanel(studyService, dateTimeService, taskService),
-            new Tab("⭐ Reflection Diary"), new ReflectionDiaryPanel(studyService, dateTimeService),
-            new Tab("🖊️ Projects"), new ProjectManagementPanel(projectService, categoryService),
-            new Tab("📋 Tasks"), new TaskManagementPanel(taskService, categoryService, reminderService)
-        );
+        Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
+        panels.put(new Tab("📅 Calendar View"), new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
+        panels.put(new Tab("📚 Study Planner"), new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService));
+        panels.put(new Tab("⭐ Reflection Diary"), new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
+        panels.put(new Tab("🖊️ Projects"), new ProjectManagementPanel(this.projectService, this.categoryService));
+        panels.put(new Tab("📋 Tasks"), new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService));
+        panelMap = Collections.unmodifiableMap(panels);
     }
 
     public void start(Stage primaryStage) {
@@ -225,13 +238,6 @@ public class StudySyncUI {
         });
     }
     
-    private Tab findTabByTitle(String title) {
-        return tabPane.getTabs().stream()
-            .filter(tab -> tab.getText().equals(title))
-            .findFirst()
-            .orElse(null);
-    }
-    
     private HBox createHeader() {
         HBox header = new HBox();
         header.setPadding(new Insets(10, 15, 10, 15));
@@ -261,9 +267,12 @@ public class StudySyncUI {
     
     private void processDelayedGoalsOnStartup() {
         try {
-            int transferredGoals = studyService.processAllDelayedGoals();
-            if (transferredGoals > 0) {
-                logger.info("Transferred {} unachieved goals from all previous days to today's queue", transferredGoals);
+            StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
+            if (result.updatedGoals() > 0) {
+                logger.info("Updated delay status for {} study goals carried over from previous days", result.updatedGoals());
+            }
+            if (result.removedGoals() > 0) {
+                logger.info("Auto-removed {} study goals overdue by at least two weeks", result.removedGoals());
             }
         } catch (Exception e) {
             logger.error("Failed to process delayed goals on startup", e);
