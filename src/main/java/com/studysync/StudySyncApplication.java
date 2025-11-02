@@ -1,11 +1,9 @@
 package com.studysync;
 
-import com.studysync.config.AppProperties;
 import com.studysync.application.StudySyncJavaFXApp;
 import javafx.application.Application;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ConfigurableApplicationContext;
 
 /**
@@ -28,7 +26,6 @@ import org.springframework.context.ConfigurableApplicationContext;
  * @since 0.1.0
  */
 @SpringBootApplication
-@EnableConfigurationProperties(AppProperties.class)
 public class StudySyncApplication {
     
     /** The Spring application context instance shared across the application. */

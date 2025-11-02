@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -105,7 +104,7 @@ public class CategoryService {
      * @throws ValidationException if name is null, empty, or already exists
      */
     @Transactional
-    public void addCategory(String name) throws ValidationException {
+    public void addCategory(String name) {
         if (name == null || name.trim().isEmpty()) {
             throw ValidationException.requiredFieldMissing("name");
         }
@@ -130,7 +129,7 @@ public class CategoryService {
      * @throws ValidationException if the category doesn't exist
      */
     @Transactional
-    public void removeCategory(TaskCategory category) throws ValidationException {
+    public void removeCategory(TaskCategory category) {
         if (category == null || category.name() == null) {
             throw ValidationException.requiredFieldMissing("category");
         }
@@ -162,7 +161,7 @@ public class CategoryService {
      * @throws ValidationException if newName is null, empty, or already exists
      */
     @Transactional
-    public void renameCategory(TaskCategory category, String newName) throws ValidationException {
+    public void renameCategory(TaskCategory category, String newName) {
         if (newName == null || newName.trim().isEmpty()) {
             throw ValidationException.requiredFieldMissing("newName");
         }

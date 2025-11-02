@@ -1,6 +1,5 @@
 package com.studysync.domain.service;
 
-import com.studysync.domain.exception.DatabaseException;
 import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.entity.Task;
 import com.studysync.domain.valueobject.TaskPriority;
@@ -48,7 +47,7 @@ public class TaskService {
     }
     
     @Transactional
-    public Task addTask(@Valid @NotNull Task task) throws ValidationException, DatabaseException {
+    public Task addTask(@Valid @NotNull Task task) {
         logger.debug("Adding task: {}", task.getTitle());
         
         if (!categoryService.categoryExists(task.getCategory())) {
@@ -72,7 +71,7 @@ public class TaskService {
     }
     
     @Transactional
-    public void removeTask(@NotNull Task task) throws ValidationException {
+    public void removeTask(@NotNull Task task) {
         if (task == null) {
             throw ValidationException.requiredFieldMissing("task");
         }
@@ -89,7 +88,7 @@ public class TaskService {
     }
     
     @Transactional
-    public Task updateTask(@NotNull Task task, @NotNull TaskUpdate update) throws ValidationException, DatabaseException {
+    public Task updateTask(@NotNull Task task, @NotNull TaskUpdate update) {
         validateTaskExists(task);
         Task updated = applyTaskUpdates(task, update);
         Task finalTask = applyBusinessRules(updated);
@@ -100,7 +99,7 @@ public class TaskService {
     }
     
     @Transactional
-    public void updateTaskStatus(@NotNull Task task, @NotNull TaskStatus newStatus) throws ValidationException {
+    public void updateTaskStatus(@NotNull Task task, @NotNull TaskStatus newStatus) {
         validateTaskExists(task);
         if (newStatus == null) {
             throw new IllegalArgumentException("Task status cannot be null");
@@ -277,13 +276,13 @@ public class TaskService {
                (task.getPriority() != null && task.getPriority().stars() == priorityStars);
     }
     
-    private void validateTaskExists(Task task) throws ValidationException {
+    private void validateTaskExists(Task task) {
         if (task.getId() == null || !Task.existsById(task.getId())) {
             throw ValidationException.invalidInput("taskId", task.getTitle());
         }
     }
     
-    private Task applyTaskUpdates(Task task, TaskUpdate update) throws ValidationException {
+    private Task applyTaskUpdates(Task task, TaskUpdate update) {
         String newTitle = Optional.ofNullable(update.title()).filter(t -> !t.isBlank()).orElse(task.getTitle());
         String newDescription = Optional.ofNullable(update.description()).filter(d -> !d.isBlank()).orElse(task.getDescription());
         TaskPriority newPriority = Optional.ofNullable(update.priority()).orElse(task.getPriority());
