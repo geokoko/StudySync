@@ -1,0 +1,21 @@
+# Copy this file to config/google/drive.properties and fill in your Google API credentials.
+# NEVER commit the filled file with your secrets.
+
+# Enable Google Drive sync (true/false)
+google.drive.enabled=false
+
+# OAuth 2.0 client information for an "Installed App" of type Desktop
+google.drive.client-id=YOUR_CLIENT_ID.apps.googleusercontent.com
+google.drive.client-secret=YOUR_CLIENT_SECRET
+
+# Local server receiver port used during OAuth callback (must match the authorized redirect URI)
+google.drive.redirect-port=8888
+
+# Optional customization
+google.drive.application-name=StudySync
+google.drive.folder-name=StudySync
+google.drive.remote-file-name=studysync.mv.db
+
+# Local filesystem paths
+google.drive.credentials-dir=${user.home}/.studysync/google
+google.drive.local-database-path=data/studysync.mv.db

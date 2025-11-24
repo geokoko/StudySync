@@ -9,6 +9,7 @@ logs/
 src/main/resources/application.yml
 src/main/resources/application-*.yml
 src/main/resources/database.properties
+config/google/drive.properties
 
 # Build artifacts
 .gradle/

@@ -7,6 +7,7 @@ import com.studysync.domain.service.ReminderService;
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskService;
 import com.studysync.domain.service.WindowPreferencesService;
+import com.studysync.integration.drive.GoogleDriveService;
 import com.studysync.presentation.ui.components.CalendarViewPanel;
 import com.studysync.presentation.ui.components.ProjectManagementPanel;
 import com.studysync.presentation.ui.components.ProfileViewPanel;
@@ -52,13 +53,15 @@ public class StudySyncUI {
     private final ProjectService projectService;
     private final WindowPreferencesService windowPreferencesService;
     private final DateTimeService dateTimeService;
+    private final GoogleDriveService googleDriveService;
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
 
     @Autowired
     public StudySyncUI(TaskService taskService, CategoryService categoryService, ReminderService reminderService,
                        StudyService studyService, ProjectService projectService,
-                       WindowPreferencesService windowPreferencesService, DateTimeService dateTimeService) {
+                       WindowPreferencesService windowPreferencesService, DateTimeService dateTimeService,
+                       GoogleDriveService googleDriveService) {
         this.taskService = Objects.requireNonNull(taskService, "taskService");
         this.categoryService = Objects.requireNonNull(categoryService, "categoryService");
         this.reminderService = Objects.requireNonNull(reminderService, "reminderService");
@@ -66,6 +69,7 @@ public class StudySyncUI {
         this.projectService = Objects.requireNonNull(projectService, "projectService");
         this.windowPreferencesService = Objects.requireNonNull(windowPreferencesService, "windowPreferencesService");
         this.dateTimeService = Objects.requireNonNull(dateTimeService, "dateTimeService");
+        this.googleDriveService = Objects.requireNonNull(googleDriveService, "googleDriveService");
 
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
         panels.put(new Tab("📅 Calendar View"), new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
@@ -286,7 +290,7 @@ public class StudySyncUI {
         profileStage.initOwner(tabPane.getScene().getWindow());
         
         // Create the profile panel
-        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService);
+        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService, googleDriveService);
         
         Scene profileScene = new Scene(profilePanel, 1000, 700);
         profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());

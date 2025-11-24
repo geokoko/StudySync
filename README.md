@@ -47,6 +47,13 @@ StudySync provides comprehensive academic management with three main modules:
 * **Seamless Integration**: Calendar events displayed alongside study tasks
 * **Privacy Focused**: Local credential storage with easy disconnect option
 
+## ☁️ Google Drive Sync
+* **Google Sign-in**: Connect your personal Google account directly from the Profile window
+* **Drive Storage**: The embedded H2 database is uploaded to a private `StudySync` folder inside your Drive
+* **Multi-device ready**: Latest Drive copy is downloaded before the database bootstraps and uploaded whenever the app closes
+* **Manual Sync**: Trigger `Sync to Drive now` anytime you want an extra backup mid-session
+* **Purely local**: No StudySync backend—OAuth tokens and the H2 file never leave your machine + Google Drive
+
 ## Installation & Running the Application
 
 ### Running the application with gradle
@@ -91,6 +98,29 @@ StudySync provides comprehensive academic management with three main modules:
     ./scripts/start-fast.sh
     ```
 
+## Google Drive Sync Setup (Optional)
+
+1. **Create Google API credentials**
+   * Visit [Google Cloud Console](https://console.cloud.google.com/)
+   * Enable the **Google Drive API** for your project
+   * Create OAuth client credentials of type **Desktop application** and note the client ID/secret
+2. **Provide the credentials to StudySync**
+   * Copy the template file and fill in the values:
+     ```bash
+     cp config/google/drive.properties.template config/google/drive.properties
+     # edit config/google/drive.properties with your client id/secret
+     ```
+   * You can override the Drive folder name, redirect port, or where credentials are cached as needed
+3. **Run StudySync and connect your Google account**
+   * Launch the app, open the **Profile → Google Drive Sync** panel, and click **Sign in with Google**
+   * Your browser will handle OAuth locally; tokens are stored in `~/.studysync/google`
+4. **Understand the sync flow**
+   * On startup, StudySync downloads the latest `studysync.mv.db` from your Drive folder *before* H2 is initialized
+   * When the app closes (or you press `Sync to Drive now`), the local database is uploaded back to Google Drive
+   * On a brand-new device, sign in once and restart StudySync so the Drive copy is used on the next launch
+
+> The actual database file lives inside `My Drive/StudySync/studysync.mv.db`. No remote StudySync server is involved—the desktop app talks to Google APIs directly.
+
 ## Architecture
 
 StudySync uses the **Active Record pattern** with Spring Boot for a clean, maintainable architecture.
@@ -99,6 +129,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architectural information an
 ## Data Storage
 
 * **Database**: H2 embedded database (`data/studysync.mv.db`)
+* **Cloud Backup (optional)**: When Drive sync is enabled, the same file is mirrored to `My Drive/StudySync/studysync.mv.db`
 * **Logs**: Application logs stored in `logs/` directory
 * **Configuration**: YAML configuration files in `src/main/resources/`
 * **Security**: Encrypted credentials stored locally
