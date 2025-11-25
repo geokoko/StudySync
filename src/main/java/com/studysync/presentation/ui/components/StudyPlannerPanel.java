@@ -56,7 +56,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         // Set up ScrollPane properties
         this.setContent(mainContent);
         this.setFitToWidth(true);
-        this.setFitToHeight(true);
+        this.setFitToHeight(false);
         this.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.getStyleClass().add("tab-content-area");
@@ -474,7 +474,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         
         ScrollPane scrollPane = new ScrollPane(mainContent);
         scrollPane.setFitToWidth(true);
-        scrollPane.setFitToHeight(true);
+        scrollPane.setFitToHeight(false);
         
         dialog.getDialogPane().setContent(scrollPane);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);

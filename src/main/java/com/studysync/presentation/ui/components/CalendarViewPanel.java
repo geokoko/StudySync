@@ -67,7 +67,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         // Set up ScrollPane properties
         this.setContent(mainContainer);
         this.setFitToWidth(true);
-        this.setFitToHeight(true);
+        this.setFitToHeight(false);
         this.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.getStyleClass().add("tab-content-area");
