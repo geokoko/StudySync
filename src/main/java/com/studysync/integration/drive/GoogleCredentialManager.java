@@ -62,10 +62,13 @@ public class GoogleCredentialManager {
 
     public Credential authorizeInteractively() throws IOException {
         GoogleAuthorizationCodeFlow flow = buildFlow();
-        try (LocalServerReceiver receiver = new LocalServerReceiver.Builder()
+        LocalServerReceiver receiver = new LocalServerReceiver.Builder()
             .setPort(settings.redirectPort())
-            .build()) {
+            .build();
+        try {
             return new AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
+        } finally {
+            receiver.stop();
         }
     }
 
