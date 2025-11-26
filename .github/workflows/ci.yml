@@ -26,4 +26,4 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build and test
-        run: ./gradlew build --warn-mode all
+        run: ./gradlew build --warning-mode all
