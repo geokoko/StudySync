@@ -41,14 +41,32 @@ public class GoogleDriveService {
         return settings != null && settings.isReady();
     }
 
+    /**
+     * Checks if a user is currently signed in with Google.
+     *
+     * @return true if a valid Google credential is present, false otherwise
+     */
     public boolean isSignedIn() {
         return activeCredential != null;
     }
 
+    /**
+     * Returns the email address of the currently signed-in Google account, if available.
+     *
+     * @return an {@link Optional} containing the signed-in account's email, or empty if not signed in
+     */
     public Optional<String> getSignedInAccountEmail() {
         return Optional.ofNullable(cachedAccountEmail);
     }
 
+    /**
+     * Returns the local file system path to the StudySync database.
+     * <p>
+     * If Google Drive integration is enabled, returns the configured path; otherwise,
+     * returns the default path {@code data/studysync.mv.db}.
+     *
+     * @return the {@link Path} to the local StudySync database file
+     */
     public Path getLocalDatabasePath() {
         return settings != null ? settings.localDatabasePath() : Path.of("data", "studysync.mv.db");
     }
