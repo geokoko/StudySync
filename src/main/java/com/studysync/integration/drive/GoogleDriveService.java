@@ -30,7 +30,16 @@ public class GoogleDriveService {
             this.credentialManager = new GoogleCredentialManager(settings);
             this.gateway = new GoogleDriveGateway(settings, credentialManager);
             this.activeCredential = loadStoredCredential();
-            this.cachedAccountEmail = gateway.fetchAccountEmail(activeCredential).orElse(null);
+            if (this.activeCredential != null) {
+                this.cachedAccountEmail = gateway.fetchAccountEmail(activeCredential).orElse(null);
+                if (this.cachedAccountEmail != null) {
+                    logger.info("Loaded stored Google credentials for account: {}", cachedAccountEmail);
+                } else {
+                    logger.warn("Stored credential exists but failed to fetch account email");
+                }
+            } else {
+                logger.info("No stored Google credentials found during initialization");
+            }
         } else {
             this.credentialManager = null;
             this.gateway = null;
