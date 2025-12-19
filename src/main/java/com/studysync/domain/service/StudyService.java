@@ -5,8 +5,10 @@ import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.service.StudySessionEnd;
+import com.studysync.integration.drive.GoogleDriveService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,8 +29,11 @@ import java.util.stream.Collectors;
 public class StudyService {
     private static final Logger logger = LoggerFactory.getLogger(StudyService.class);
     
-    public StudyService() {
-        // No dependencies needed - Active Record pattern
+    private final GoogleDriveService googleDriveService;
+
+    @Autowired
+    public StudyService(GoogleDriveService googleDriveService) {
+        this.googleDriveService = googleDriveService;
     }
 
     @Transactional(readOnly = true)
@@ -90,7 +95,9 @@ public class StudyService {
             throw ValidationException.requiredFieldMissing("goalId");
         }
         boolean deleted = StudyGoal.deleteById(goalId);
-        if (!deleted) {
+        if (deleted) {
+            // Deleted
+        } else {
             logger.warn("Requested deletion for study goal '{}' but it did not exist", goalId);
         }
         return deleted;
@@ -135,7 +142,10 @@ public class StudyService {
     }
 
     public void deleteDailyReflection(LocalDate date) {
-        DailyReflection.deleteByDate(date);
+        boolean deleted = DailyReflection.deleteByDate(date);
+        if (deleted) {
+            // Deleted
+        }
     }
 
     @Transactional(readOnly = true)
@@ -155,7 +165,10 @@ public class StudyService {
     }
 
     public void deleteStudySession(String sessionId) {
-        StudySession.deleteById(sessionId);
+        boolean deleted = StudySession.deleteById(sessionId);
+        if (deleted) {
+            // Deleted
+        }
     }
 
     @Transactional(readOnly = true)

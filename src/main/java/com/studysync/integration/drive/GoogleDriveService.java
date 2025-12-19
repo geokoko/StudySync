@@ -86,6 +86,13 @@ public class GoogleDriveService {
         return gateway.uploadDatabaseToDrive(activeCredential);
     }
 
+    public synchronized boolean downloadDatabaseSnapshot() {
+        if (!isIntegrationEnabled() || activeCredential == null) {
+            return false;
+        }
+        return gateway.downloadDatabaseFromDrive(activeCredential);
+    }
+
     @PreDestroy
     public void onShutdown() {
         if (isIntegrationEnabled() && activeCredential != null) {

@@ -55,6 +55,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private Button driveSignInButton;
     private Button driveSignOutButton;
     private Button driveSyncButton;
+    private Button driveDownloadButton;
     
     public ProfileViewPanel(StudyService studyService, ProjectService projectService, 
                            TaskService taskService, DateTimeService dateTimeService,
@@ -156,8 +157,31 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Upload complete!",
             "Upload failed. Check your connection and credentials."
         ));
+
+        driveDownloadButton = new Button("⬇️ Download from Drive");
+        driveDownloadButton.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-background-radius: 6;");
+        driveDownloadButton.setOnAction(e -> runDriveAction(
+            "Downloading database from Google Drive…",
+            () -> {
+                boolean success = googleDriveService.downloadDatabaseSnapshot();
+                if (success) {
+                    Platform.runLater(() -> {
+                        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                        alert.setTitle("Download Complete");
+                        alert.setHeaderText("Database Downloaded Successfully");
+                        alert.setContentText("The database has been updated from Google Drive.\n\nPlease restart the application to apply the changes.");
+                        alert.showAndWait();
+                        Platform.exit();
+                        System.exit(0);
+                    });
+                }
+                return success;
+            },
+            "Download complete! Restarting...",
+            "Download failed. Check your connection and credentials."
+        ));
         
-        HBox buttonRow = new HBox(12, driveSignInButton, driveSignOutButton, driveSyncButton);
+        HBox buttonRow = new HBox(12, driveSignInButton, driveSignOutButton, driveSyncButton, driveDownloadButton);
         buttonRow.setAlignment(Pos.CENTER_LEFT);
         
         section.getChildren().addAll(title, driveStatusLabel, driveHintLabel, buttonRow, driveActionStatusLabel);
@@ -173,6 +197,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             driveSignInButton.setDisable(true);
             driveSignOutButton.setDisable(true);
             driveSyncButton.setDisable(true);
+            driveDownloadButton.setDisable(true);
             return;
         }
         if (googleDriveService.isSignedIn()) {
@@ -182,12 +207,14 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             driveSignInButton.setDisable(true);
             driveSignOutButton.setDisable(false);
             driveSyncButton.setDisable(false);
+            driveDownloadButton.setDisable(false);
         } else {
             driveStatusLabel.setText("Not signed in with Google yet.");
             driveHintLabel.setText("Sign in to store your StudySync H2 database in your private Google Drive for safe multi-device access.");
             driveSignInButton.setDisable(false);
             driveSignOutButton.setDisable(true);
             driveSyncButton.setDisable(true);
+            driveDownloadButton.setDisable(true);
         }
     }
     
@@ -214,6 +241,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         driveSignInButton.setDisable(disabled || (googleDriveService != null && googleDriveService.isSignedIn()));
         driveSignOutButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
         driveSyncButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
+        driveDownloadButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
     }
     
     private VBox createProfileSummarySection() {

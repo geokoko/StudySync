@@ -32,8 +32,8 @@ public final class GoogleDriveBootstrap {
                 logger.info("No stored Google credentials. Sign in from the UI to enable Drive sync.");
                 return settings;
             }
-            GoogleDriveGateway gateway = new GoogleDriveGateway(settings, credentialManager);
-            gateway.downloadDatabaseFromDrive(storedCredential);
+            // Automatic download on startup is disabled.
+            logger.info("Google Drive sync enabled. Database download must be triggered manually.");
         } catch (IOException e) {
             logger.warn("Unable to load stored Google credentials: {}", e.getMessage());
         }
