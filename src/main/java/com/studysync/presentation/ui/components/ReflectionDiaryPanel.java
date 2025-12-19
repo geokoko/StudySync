@@ -280,7 +280,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
                 reflection.setReflectionText(reflectionText);
             }
             
-            reflection.save();
+            studyService.addDailyReflection(reflection);
             
             // Show success message
             Alert success = new Alert(Alert.AlertType.INFORMATION);
