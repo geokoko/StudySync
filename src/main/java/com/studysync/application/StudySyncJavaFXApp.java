@@ -1,13 +1,19 @@
 package com.studysync.application;
 
 import com.studysync.StudySyncApplication;
+import com.studysync.integration.drive.GoogleDriveService;
 import com.studysync.presentation.ui.StudySyncUI;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
 import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ConfigurableApplicationContext;
+
+import java.util.Optional;
 
 /**
  * JavaFX Application class that integrates with Spring Boot dependency injection.
@@ -95,8 +101,46 @@ public class StudySyncJavaFXApp extends Application {
             
             // Ensure proper cleanup when window is closed
             primaryStage.setOnCloseRequest(event -> {
-                logger.info("Application close requested, initiating shutdown");
-                Platform.exit();
+                logger.info("Application close requested, initiating shutdown check");
+                try {
+                    GoogleDriveService driveService = springContext.getBean(GoogleDriveService.class);
+
+                    if (driveService.isSignedIn()) {
+                        event.consume(); // Prevent immediate close
+
+                        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+                        alert.setTitle("Sync to Google Drive");
+                        alert.setHeaderText("Save changes to Google Drive?");
+                        alert.setContentText("Do you want to upload your latest data to Google Drive before exiting?");
+
+                        ButtonType buttonSave = new ButtonType("Save & Exit");
+                        ButtonType buttonExit = new ButtonType("Exit Only");
+                        ButtonType buttonCancel = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+                        alert.getButtonTypes().setAll(buttonSave, buttonExit, buttonCancel);
+
+                        Optional<ButtonType> result = alert.showAndWait();
+
+                        if (result.isPresent()) {
+                            if (result.get() == buttonSave) {
+                                logger.info("User chose to save and exit");
+                                driveService.setShutdownSaveEnabled(true);
+                                Platform.exit();
+                            } else if (result.get() == buttonExit) {
+                                logger.info("User chose to exit without saving to Drive");
+                                driveService.setShutdownSaveEnabled(false);
+                                Platform.exit();
+                            } else {
+                                logger.info("User cancelled exit");
+                            }
+                        }
+                    } else {
+                        Platform.exit();
+                    }
+                } catch (Exception e) {
+                    logger.error("Error during close request handling", e);
+                    Platform.exit();
+                }
             });
             
         } catch (final Exception e) {

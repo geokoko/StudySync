@@ -23,6 +23,7 @@ public class GoogleDriveService {
     private final GoogleDriveGateway gateway;
     private Credential activeCredential;
     private String cachedAccountEmail;
+    private boolean shutdownSaveEnabled = true;
 
     public GoogleDriveService(GoogleDriveSettings settings) {
         this.settings = settings;
@@ -44,6 +45,10 @@ public class GoogleDriveService {
             this.credentialManager = null;
             this.gateway = null;
         }
+    }
+
+    public void setShutdownSaveEnabled(boolean enabled) {
+        this.shutdownSaveEnabled = enabled;
     }
 
     public boolean isIntegrationEnabled() {
@@ -122,7 +127,7 @@ public class GoogleDriveService {
 
     @PreDestroy
     public void onShutdown() {
-        if (isIntegrationEnabled() && activeCredential != null) {
+        if (isIntegrationEnabled() && activeCredential != null && shutdownSaveEnabled) {
             logger.info("Uploading StudySync database to Google Drive before shutdown");
             gateway.uploadDatabaseToDrive(activeCredential);
         }
