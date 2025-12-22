@@ -9,6 +9,8 @@ import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.Task;
 import com.studysync.domain.valueobject.TaskStatus;
+import com.studysync.integration.drive.GoogleDriveService;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -19,11 +21,14 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.FontPosture;
 import javafx.scene.chart.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -31,10 +36,12 @@ import java.util.stream.Collectors;
  * productivity metrics, and visual graphs for self-assessment and improvement.
  */
 public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
+    private static final Logger logger = LoggerFactory.getLogger(ProfileViewPanel.class);
     private final StudyService studyService;
     private final ProjectService projectService;
     private final TaskService taskService;
     private final DateTimeService dateTimeService;
+    private final GoogleDriveService googleDriveService;
     
     // UI Components for dynamic updates
     private VBox statsContainer;
@@ -42,13 +49,22 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private Label profileSummaryLabel;
     private ProgressBar productivityRating;
     private Label productivityLabel;
+    private Label driveStatusLabel;
+    private Label driveHintLabel;
+    private Label driveActionStatusLabel;
+    private Button driveSignInButton;
+    private Button driveSignOutButton;
+    private Button driveSyncButton;
+    private Button driveDownloadButton;
     
     public ProfileViewPanel(StudyService studyService, ProjectService projectService, 
-                           TaskService taskService, DateTimeService dateTimeService) {
+                           TaskService taskService, DateTimeService dateTimeService,
+                           GoogleDriveService googleDriveService) {
         this.studyService = studyService;
         this.projectService = projectService;
         this.taskService = taskService;
         this.dateTimeService = dateTimeService;
+        this.googleDriveService = googleDriveService;
         
         // Create main content container
         VBox mainContent = new VBox(20);
@@ -58,7 +74,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         // Set up ScrollPane properties
         this.setContent(mainContent);
         this.setFitToWidth(true);
-        this.setFitToHeight(true);
+        this.setFitToHeight(false);
         this.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.getStyleClass().add("tab-content-area");
@@ -73,6 +89,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         headerLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
         headerLabel.setTextFill(Color.web("#2c3e50"));
         
+        VBox driveSyncSection = createDriveSyncSection();
+        
         // Profile summary
         VBox profileSection = createProfileSummarySection();
         
@@ -85,7 +103,145 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         // Charts section
         VBox chartsSection = createChartsSection();
         
-        mainContent.getChildren().addAll(headerLabel, profileSection, statsSection, achievedGoalsSection, chartsSection);
+        mainContent.getChildren().addAll(headerLabel, driveSyncSection, profileSection, statsSection, achievedGoalsSection, chartsSection);
+    }
+    
+    private VBox createDriveSyncSection() {
+        VBox section = new VBox(12);
+        section.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 20; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 6, 0, 0, 2);");
+        
+        Label title = new Label("☁️ Google Drive Sync");
+        title.setFont(Font.font("System", FontWeight.BOLD, 18));
+        title.setTextFill(Color.web("#2c3e50"));
+        
+        driveStatusLabel = new Label();
+        driveStatusLabel.setWrapText(true);
+        driveStatusLabel.setFont(Font.font("System", FontWeight.NORMAL, 13));
+        
+        driveHintLabel = new Label();
+        driveHintLabel.setWrapText(true);
+        driveHintLabel.setFont(Font.font("System", FontPosture.ITALIC, 12));
+        driveHintLabel.setTextFill(Color.web("#7f8c8d"));
+        
+        driveActionStatusLabel = new Label();
+        driveActionStatusLabel.setWrapText(true);
+        driveActionStatusLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        driveActionStatusLabel.setTextFill(Color.web("#16a085"));
+        
+        driveSignInButton = new Button("🔐 Sign in with Google");
+        driveSignInButton.setStyle("-fx-background-color: #4285F4; -fx-text-fill: white; -fx-background-radius: 6;");
+        driveSignInButton.setOnAction(e -> runDriveAction(
+            "Opening Google sign-in…",
+            () -> googleDriveService.signInWithGoogle(),
+            "Signed in successfully. Restart the app on this device to load your Drive data.",
+            "Unable to sign in with Google. Please try again."
+        ));
+        
+        driveSignOutButton = new Button("🔓 Sign out");
+        driveSignOutButton.setStyle("-fx-background-color: #bdc3c7; -fx-text-fill: #2c3e50; -fx-background-radius: 6;");
+        driveSignOutButton.setOnAction(e -> runDriveAction(
+            "Signing out…",
+            () -> {
+                googleDriveService.signOut();
+                return true;
+            },
+            "Disconnected from Google Drive.",
+            "Failed to sign out from Google."
+        ));
+        
+        driveSyncButton = new Button("⬆️ Sync to Drive now");
+        driveSyncButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 6;");
+        driveSyncButton.setOnAction(e -> runDriveAction(
+            "Uploading database to Google Drive…",
+            () -> googleDriveService.uploadDatabaseSnapshot(),
+            "Upload complete!",
+            "Upload failed. Check your connection and credentials."
+        ));
+
+        driveDownloadButton = new Button("⬇️ Download from Drive");
+        driveDownloadButton.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-background-radius: 6;");
+        driveDownloadButton.setOnAction(e -> runDriveAction(
+            "Downloading database from Google Drive…",
+            () -> {
+                boolean success = googleDriveService.downloadDatabaseSnapshot();
+                if (success) {
+                    Platform.runLater(() -> {
+                        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                        alert.setTitle("Download Complete");
+                        alert.setHeaderText("Database Downloaded Successfully");
+                        alert.setContentText("The database has been updated from Google Drive.\n\nPlease restart the application to apply the changes.");
+                        alert.showAndWait();
+                        Platform.exit();
+                        System.exit(0);
+                    });
+                }
+                return success;
+            },
+            "Download complete! Restarting...",
+            "Download failed. Check your connection and credentials."
+        ));
+        
+        HBox buttonRow = new HBox(12, driveSignInButton, driveSignOutButton, driveSyncButton, driveDownloadButton);
+        buttonRow.setAlignment(Pos.CENTER_LEFT);
+        
+        section.getChildren().addAll(title, driveStatusLabel, driveHintLabel, buttonRow, driveActionStatusLabel);
+        refreshDriveSyncState();
+        return section;
+    }
+    
+    private void refreshDriveSyncState() {
+        if (googleDriveService == null || !googleDriveService.isIntegrationEnabled()) {
+            driveStatusLabel.setText("Google Drive sync is currently disabled. Configure config/google/drive.properties to enable it.");
+            driveHintLabel.setText("Once enabled, StudySync will store the H2 database inside a private folder in your Google Drive account.");
+            driveActionStatusLabel.setText("");
+            driveSignInButton.setDisable(true);
+            driveSignOutButton.setDisable(true);
+            driveSyncButton.setDisable(true);
+            driveDownloadButton.setDisable(true);
+            return;
+        }
+        if (googleDriveService.isSignedIn()) {
+            String email = googleDriveService.getSignedInAccountEmail().orElse("Google Account");
+            driveStatusLabel.setText("Connected as " + email + ". Your StudySync database uploads to Drive when you close the app.");
+            driveHintLabel.setText("After signing in on a new device, restart the app once so the latest Drive copy downloads before the database opens.");
+            driveSignInButton.setDisable(true);
+            driveSignOutButton.setDisable(false);
+            driveSyncButton.setDisable(false);
+            driveDownloadButton.setDisable(false);
+        } else {
+            driveStatusLabel.setText("Not signed in with Google yet.");
+            driveHintLabel.setText("Sign in to store your StudySync H2 database in your private Google Drive for safe multi-device access.");
+            driveSignInButton.setDisable(false);
+            driveSignOutButton.setDisable(true);
+            driveSyncButton.setDisable(true);
+            driveDownloadButton.setDisable(true);
+        }
+    }
+    
+    private void runDriveAction(String pendingMessage, java.util.function.Supplier<Boolean> action,
+                                String successMessage, String failureMessage) {
+        setDriveButtonsDisabled(true);
+        driveActionStatusLabel.setText(pendingMessage);
+        CompletableFuture.supplyAsync(action)
+            .whenComplete((result, error) -> Platform.runLater(() -> {
+                setDriveButtonsDisabled(false);
+                if (error != null) {
+                    logger.warn("Google Drive action failed", error);
+                    driveActionStatusLabel.setText(failureMessage);
+                } else if (Boolean.TRUE.equals(result)) {
+                    driveActionStatusLabel.setText(successMessage);
+                } else {
+                    driveActionStatusLabel.setText(failureMessage);
+                }
+                refreshDriveSyncState();
+            }));
+    }
+    
+    private void setDriveButtonsDisabled(boolean disabled) {
+        driveSignInButton.setDisable(disabled || (googleDriveService != null && googleDriveService.isSignedIn()));
+        driveSignOutButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
+        driveSyncButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
+        driveDownloadButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
     }
     
     private VBox createProfileSummarySection() {
@@ -628,6 +784,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         updateProfileSummary();
         updateStatsCards();
         updateCharts();
+        refreshDriveSyncState();
     }
     
     @Override

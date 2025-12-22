@@ -1,0 +1,36 @@
+# ============================================================================
+# SECURITY WARNING
+# ============================================================================
+# Copy this file to config/google/drive.properties and fill in your Google API credentials.
+#
+# *** IMPORTANT SECURITY NOTES ***
+# 1. NEVER commit the filled file with your secrets to version control!
+# 2. Set proper file permissions on your properties file:
+#    - Unix/Linux/macOS: chmod 600 config/google/drive.properties
+#    - This restricts read/write access to the file owner only
+# 3. Never share screenshots or logs that might expose your credentials
+# 4. For CI/CD environments, consider using environment variables instead:
+#    - GOOGLE_DRIVE_CLIENT_ID
+#    - GOOGLE_DRIVE_CLIENT_SECRET
+#    (You would need to modify the application to support reading from environment variables)
+# ============================================================================
+
+# Enable Google Drive sync (true/false)
+google.drive.enabled=false
+
+# OAuth 2.0 client information for an "Installed App" of type Desktop
+# Keep these credentials secure - see security notes above
+google.drive.client-id=YOUR_CLIENT_ID.apps.googleusercontent.com
+google.drive.client-secret=YOUR_CLIENT_SECRET
+
+# Local server receiver port used during OAuth callback (must match the authorized redirect URI)
+google.drive.redirect-port=8888
+
+# Optional customization
+google.drive.application-name=StudySync
+google.drive.folder-name=StudySync
+google.drive.remote-file-name=studysync.mv.db
+
+# Local filesystem paths
+google.drive.credentials-dir=${user.home}/.studysync/google
+google.drive.local-database-path=data/studysync.mv.db

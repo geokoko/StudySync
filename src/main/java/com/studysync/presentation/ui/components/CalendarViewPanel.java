@@ -67,7 +67,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         // Set up ScrollPane properties
         this.setContent(mainContainer);
         this.setFitToWidth(true);
-        this.setFitToHeight(true);
+        this.setFitToHeight(false);
         this.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.getStyleClass().add("tab-content-area");
@@ -796,6 +796,30 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             goalBox.getChildren().add(delayLabel);
         }
         
+        // Action buttons
+        HBox actionBox = new HBox(8);
+        actionBox.setAlignment(Pos.CENTER_RIGHT);
+        
+        Button deleteBtn = new Button("🗑️ Delete");
+        deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
+        deleteBtn.setOnAction(e -> {
+            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
+            confirmation.setTitle("Delete Study Goal");
+            confirmation.setHeaderText("Are you sure you want to delete this study goal?");
+            confirmation.setContentText("Goal: " + goal.getDescription());
+            
+            confirmation.showAndWait().ifPresent(response -> {
+                if (response == ButtonType.OK) {
+                    studyService.deleteStudyGoal(goal.getId());
+                    updateCalendarDisplay();
+                    ((VBox) goalBox.getParent()).getChildren().remove(goalBox);
+                }
+            });
+        });
+        
+        actionBox.getChildren().add(deleteBtn);
+        goalBox.getChildren().add(actionBox);
+        
         return goalBox;
     }
     
@@ -831,6 +855,29 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             sessionBox.getChildren().add(subjectLabel);
         }
         
+        // Action buttons
+        HBox actionBox = new HBox(8);
+        actionBox.setAlignment(Pos.CENTER_RIGHT);
+        
+        Button deleteBtn = new Button("🗑️ Delete");
+        deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
+        deleteBtn.setOnAction(e -> {
+            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
+            confirmation.setTitle("Delete Study Session");
+            confirmation.setHeaderText("Are you sure you want to delete this study session?");
+            
+            confirmation.showAndWait().ifPresent(response -> {
+                if (response == ButtonType.OK) {
+                    studyService.deleteStudySession(session.getId());
+                    updateCalendarDisplay();
+                    ((VBox) sessionBox.getParent()).getChildren().remove(sessionBox);
+                }
+            });
+        });
+        
+        actionBox.getChildren().add(deleteBtn);
+        sessionBox.getChildren().add(actionBox);
+        
         return sessionBox;
     }
     
@@ -858,6 +905,29 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         pointsLabel.setTextFill(Color.web("#27ae60"));
         
         sessionBox.getChildren().addAll(projectLabel, timeLabel, pointsLabel);
+        
+        // Action buttons
+        HBox actionBox = new HBox(8);
+        actionBox.setAlignment(Pos.CENTER_RIGHT);
+        
+        Button deleteBtn = new Button("🗑️ Delete");
+        deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
+        deleteBtn.setOnAction(e -> {
+            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
+            confirmation.setTitle("Delete Project Session");
+            confirmation.setHeaderText("Are you sure you want to delete this project session?");
+            
+            confirmation.showAndWait().ifPresent(response -> {
+                if (response == ButtonType.OK) {
+                    projectService.deleteProjectSession(session.getId());
+                    updateCalendarDisplay();
+                    ((VBox) sessionBox.getParent()).getChildren().remove(sessionBox);
+                }
+            });
+        });
+        
+        actionBox.getChildren().add(deleteBtn);
+        sessionBox.getChildren().add(actionBox);
         
         return sessionBox;
     }

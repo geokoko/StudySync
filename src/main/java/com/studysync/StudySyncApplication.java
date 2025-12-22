@@ -1,6 +1,7 @@
 package com.studysync;
 
 import com.studysync.application.StudySyncJavaFXApp;
+import com.studysync.integration.drive.GoogleDriveBootstrap;
 import javafx.application.Application;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -46,6 +47,9 @@ public class StudySyncApplication {
     public static void main(final String[] args) {
         // Disable Spring Boot's automatic shutdown when main method ends
         System.setProperty("java.awt.headless", "false");
+        
+        // Attempt to sync Google Drive hosted data (if configured) before Spring initializes the database
+        GoogleDriveBootstrap.initialize();
         
         // Configure Spring Boot for faster startup
         SpringApplication app = new SpringApplication(StudySyncApplication.class);

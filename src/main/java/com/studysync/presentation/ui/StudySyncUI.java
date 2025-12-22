@@ -6,7 +6,7 @@ import com.studysync.domain.service.ProjectService;
 import com.studysync.domain.service.ReminderService;
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskService;
-import com.studysync.domain.service.WindowPreferencesService;
+import com.studysync.integration.drive.GoogleDriveService;
 import com.studysync.presentation.ui.components.CalendarViewPanel;
 import com.studysync.presentation.ui.components.ProjectManagementPanel;
 import com.studysync.presentation.ui.components.ProfileViewPanel;
@@ -34,38 +34,38 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 @Component
 @DependsOn("activeRecordConfig")
 public class StudySyncUI {
     
     private static final Logger logger = LoggerFactory.getLogger(StudySyncUI.class);
+    private static final double DEFAULT_WINDOW_WIDTH = 1200;
+    private static final double DEFAULT_WINDOW_HEIGHT = 800;
     
     private final TaskService taskService;
     private final CategoryService categoryService;
     private final ReminderService reminderService;
     private final StudyService studyService;
     private final ProjectService projectService;
-    private final WindowPreferencesService windowPreferencesService;
     private final DateTimeService dateTimeService;
+    private final GoogleDriveService googleDriveService;
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
 
     @Autowired
     public StudySyncUI(TaskService taskService, CategoryService categoryService, ReminderService reminderService,
                        StudyService studyService, ProjectService projectService,
-                       WindowPreferencesService windowPreferencesService, DateTimeService dateTimeService) {
+                       DateTimeService dateTimeService, GoogleDriveService googleDriveService) {
         this.taskService = Objects.requireNonNull(taskService, "taskService");
         this.categoryService = Objects.requireNonNull(categoryService, "categoryService");
         this.reminderService = Objects.requireNonNull(reminderService, "reminderService");
         this.studyService = Objects.requireNonNull(studyService, "studyService");
         this.projectService = Objects.requireNonNull(projectService, "projectService");
-        this.windowPreferencesService = Objects.requireNonNull(windowPreferencesService, "windowPreferencesService");
         this.dateTimeService = Objects.requireNonNull(dateTimeService, "dateTimeService");
+        this.googleDriveService = Objects.requireNonNull(googleDriveService, "googleDriveService");
 
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
         panels.put(new Tab("📅 Calendar View"), new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
@@ -82,7 +82,7 @@ public class StudySyncUI {
         
         panelMap.forEach((tab, panel) -> tab.setContent(panel.getView()));
         
-        // Restore tab order from preferences or use default order
+        // Initialize tabs in the default order
         restoreTabOrder();
         
         // Setup drag and drop functionality for tabs (delayed to allow tab rendering)
@@ -94,18 +94,6 @@ public class StudySyncUI {
             }
         });
         
-        double savedWidth = windowPreferencesService.getWindowWidth();
-        double savedHeight = windowPreferencesService.getWindowHeight();
-        double savedX = windowPreferencesService.getWindowX();
-        double savedY = windowPreferencesService.getWindowY();
-        boolean wasMaximized = windowPreferencesService.isWindowMaximized();
-        
-        if (!windowPreferencesService.isWindowPositionValid(savedX, savedY, savedWidth, savedHeight)) {
-            logger.info("Saved window position is invalid, using defaults");
-            savedX = 100;
-            savedY = 100;
-        }
-        
         // Create main layout with header
         BorderPane mainLayout = new BorderPane();
         
@@ -116,13 +104,10 @@ public class StudySyncUI {
         // Add tabPane to center
         mainLayout.setCenter(tabPane);
         
-        Scene scene = new Scene(mainLayout, savedWidth, savedHeight);
+        Scene scene = new Scene(mainLayout, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
         scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
         
         primaryStage.setTitle("StudySync");
-        primaryStage.setX(savedX);
-        primaryStage.setY(savedY);
-        primaryStage.setMaximized(wasMaximized);
         
         try {
             var iconStream = getClass().getResourceAsStream("/icon.png");
@@ -136,14 +121,8 @@ public class StudySyncUI {
         }
         
         primaryStage.setScene(scene);
-        
-        setupWindowStateListeners(primaryStage);
-        
-        primaryStage.setOnCloseRequest(e -> {
-            saveCurrentWindowState(primaryStage);
-            saveCurrentTabOrder();
-        });
-        
+        primaryStage.centerOnScreen();
+
         primaryStage.show();
         
         // Process yesterday's unachieved goals automatically
@@ -156,60 +135,8 @@ public class StudySyncUI {
         }
     }
     
-    private void setupWindowStateListeners(Stage primaryStage) {
-        primaryStage.widthProperty().addListener((obs, oldVal, newVal) -> saveCurrentWindowState(primaryStage));
-        primaryStage.heightProperty().addListener((obs, oldVal, newVal) -> saveCurrentWindowState(primaryStage));
-        primaryStage.xProperty().addListener((obs, oldVal, newVal) -> saveCurrentWindowState(primaryStage));
-        primaryStage.yProperty().addListener((obs, oldVal, newVal) -> saveCurrentWindowState(primaryStage));
-        primaryStage.maximizedProperty().addListener((obs, oldVal, newVal) -> saveCurrentWindowState(primaryStage));
-    }
-    
-    private void saveCurrentWindowState(Stage primaryStage) {
-        if (!primaryStage.isMaximized()) {
-            windowPreferencesService.saveWindowState(
-                primaryStage.getWidth(),
-                primaryStage.getHeight(),
-                primaryStage.getX(),
-                primaryStage.getY(),
-                false
-            );
-        } else {
-            windowPreferencesService.saveWindowMaximized(true);
-        }
-    }
-    
     private void restoreTabOrder() {
-        List<String> savedOrder = windowPreferencesService.getTabOrder();
-        
-        if (savedOrder != null && savedOrder.size() == panelMap.size()) {
-            // Restore tabs in saved order
-            Map<String, Tab> tabsByTitle = panelMap.keySet().stream()
-                .collect(Collectors.toMap(Tab::getText, tab -> tab));
-            
-            for (String title : savedOrder) {
-                Tab tab = tabsByTitle.get(title);
-                if (tab != null) {
-                    tabPane.getTabs().add(tab);
-                }
-            }
-            
-            // Add any missing tabs (in case of version changes)
-            for (Tab tab : panelMap.keySet()) {
-                if (!tabPane.getTabs().contains(tab)) {
-                    tabPane.getTabs().add(tab);
-                }
-            }
-        } else {
-            // Use default order
-            tabPane.getTabs().addAll(panelMap.keySet());
-        }
-    }
-    
-    private void saveCurrentTabOrder() {
-        List<String> currentOrder = tabPane.getTabs().stream()
-            .map(Tab::getText)
-            .collect(Collectors.toList());
-        windowPreferencesService.saveTabOrder(currentOrder);
+        tabPane.getTabs().addAll(panelMap.keySet());
     }
     
     private void setupTabDragAndDrop() {
@@ -231,7 +158,6 @@ public class StudySyncUI {
                     tabPane.getTabs().remove(currentIndex);
                     tabPane.getTabs().add(newIndex, selectedTab);
                     tabPane.getSelectionModel().select(selectedTab);
-                    saveCurrentTabOrder();
                     event.consume();
                 }
             }
@@ -286,7 +212,7 @@ public class StudySyncUI {
         profileStage.initOwner(tabPane.getScene().getWindow());
         
         // Create the profile panel
-        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService);
+        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService, googleDriveService);
         
         Scene profileScene = new Scene(profilePanel, 1000, 700);
         profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());

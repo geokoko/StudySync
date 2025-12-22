@@ -71,7 +71,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         // Set up ScrollPane properties for full screen and proper scrolling
         this.setContent(mainContent);
         this.setFitToWidth(true);
-        this.setFitToHeight(true);
+        this.setFitToHeight(false);
         this.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         this.getStyleClass().add("tab-content-area");

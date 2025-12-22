@@ -53,11 +53,6 @@
     -fx-background-color: #ecf0f1;
 }
 
-/* Make panel content scrollable */
-.tab-content-area {
-    -fx-max-height: 650px;
-}
-
 .tab-content-area .scroll-pane {
     -fx-fit-to-width: true;
     -fx-fit-to-height: true;
