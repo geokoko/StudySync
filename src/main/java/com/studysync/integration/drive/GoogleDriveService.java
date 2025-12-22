@@ -25,11 +25,12 @@ public class GoogleDriveService {
     private String cachedAccountEmail;
     private boolean shutdownSaveEnabled = true;
 
-    public GoogleDriveService(GoogleDriveSettings settings) {
+    public GoogleDriveService(GoogleDriveSettings settings, GoogleCredentialManager credentialManager, GoogleDriveGateway gateway) {
         this.settings = settings;
+        this.credentialManager = credentialManager;
+        this.gateway = gateway;
+
         if (settings != null && settings.isReady()) {
-            this.credentialManager = new GoogleCredentialManager(settings);
-            this.gateway = new GoogleDriveGateway(settings, credentialManager);
             this.activeCredential = loadStoredCredential();
             if (this.activeCredential != null) {
                 this.cachedAccountEmail = gateway.fetchAccountEmail(activeCredential).orElse(null);
@@ -41,9 +42,6 @@ public class GoogleDriveService {
             } else {
                 logger.info("No stored Google credentials found during initialization");
             }
-        } else {
-            this.credentialManager = null;
-            this.gateway = null;
         }
     }
 
