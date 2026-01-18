@@ -19,10 +19,11 @@ import javafx.scene.text.FontWeight;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
+
 import javafx.animation.Timeline;
 import javafx.animation.KeyFrame;
 import javafx.util.Duration;
+import java.util.function.Consumer;
 
 public class ProjectManagementPanel extends ScrollPane implements RefreshablePanel {
     private final ProjectService projectService;
@@ -48,9 +49,17 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     private Button endSessionBtn;
     private Label sessionTimerLabel;
 
-    public ProjectManagementPanel(ProjectService projectService, CategoryService categoryService) {
+
+    
+    private final Consumer<Node> showModal;
+    private final Runnable closeModal;
+
+    public ProjectManagementPanel(ProjectService projectService, CategoryService categoryService,
+                                Consumer<Node> showModal, Runnable closeModal) {
         this.projectService = projectService;
         this.categoryService = categoryService;
+        this.showModal = showModal;
+        this.closeModal = closeModal;
         // Create main content container
         VBox mainContent = new VBox(15);
         mainContent.setPadding(new Insets(20));
@@ -529,19 +538,46 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     
     private void deleteSelectedProject() {
         if (selectedProject != null) {
-            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
-            confirmation.setTitle("Delete Project");
-            confirmation.setHeaderText("Are you sure you want to delete this project?");
-            confirmation.setContentText("This will also delete all associated sessions. This action cannot be undone.");
+            VBox content = new VBox(20);
+            content.setPadding(new Insets(20));
+            content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+            content.setMaxWidth(400);
+            content.setMaxHeight(Region.USE_PREF_SIZE);
             
-            confirmation.showAndWait().ifPresent(response -> {
-                if (response == ButtonType.OK) {
+            Label titleLabel = new Label("Delete Project");
+            titleLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+            
+            Label msgLabel = new Label("Are you sure you want to delete this project?\nThis will also delete all associated sessions. This action cannot be undone.");
+            msgLabel.setWrapText(true);
+            
+            HBox buttons = new HBox(10);
+            buttons.setAlignment(Pos.CENTER_RIGHT);
+            
+            Button yesButton = new Button("Delete");
+            yesButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+            
+            Button noButton = new Button("Cancel");
+            
+            buttons.getChildren().addAll(noButton, yesButton);
+            
+            yesButton.setOnAction(e -> {
+                try {
                     projectService.deleteProject(selectedProject.getId());
                     updateDisplay();
                     clearProjectForm();
+                    closeModal.run();
                     showAlert("Success", "Project deleted successfully!");
+                } catch (Exception ex) {
+                    closeModal.run();
+                    showAlert("Error", "Failed to delete project: " + ex.getMessage());
                 }
             });
+            
+            noButton.setOnAction(e -> closeModal.run());
+            
+            content.getChildren().addAll(titleLabel, msgLabel, buttons);
+            
+            showModal.accept(content);
         }
     }
     
@@ -562,14 +598,16 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     private void showEndSessionDialog() {
         if (currentSession == null) return;
         
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("End Project Session");
-        dialog.setHeaderText("Session Summary for " + (selectedProject != null ? selectedProject.getTitle() : "Project"));
+        // Use in-window modal
         
-        // Build form content
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
-        content.setPrefWidth(500);
+        content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.setMaxWidth(500);
+        content.setMaxHeight(Region.USE_PREF_SIZE);
+        
+        Label headerLabel = new Label("Session Summary for " + (selectedProject != null ? selectedProject.getTitle() : "Project"));
+        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
         
         GridPane formGrid = new GridPane();
         formGrid.setHgap(10);
@@ -617,52 +655,68 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         formGrid.add(new Label("Notes:"), 0, 5);
         formGrid.add(notesArea, 1, 5);
         
-        content.getChildren().add(formGrid);
+        // Buttons
+        HBox buttonBox = new HBox(10);
+        buttonBox.setAlignment(Pos.CENTER_RIGHT);
+        buttonBox.setPadding(new Insets(10, 0, 0, 0));
         
-        dialog.getDialogPane().setContent(content);
-        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        Button saveButton = new Button("Save Session");
+        saveButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
         
-        // Rename buttons
-        Button okButton = (Button) dialog.getDialogPane().lookupButton(ButtonType.OK);
-        okButton.setText("Save Session");
+        Button cancelButton = new Button("Cancel Session");
+        cancelButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
         
-        Button cancelButton = (Button) dialog.getDialogPane().lookupButton(ButtonType.CANCEL);
-        cancelButton.setText("Cancel Session");
+        buttonBox.getChildren().addAll(cancelButton, saveButton);
         
-        dialog.setResultConverter(buttonType -> buttonType);
+        // Wrap grid in ScrollPane for safety
+        ScrollPane gridScroll = new ScrollPane(formGrid);
+        gridScroll.setFitToWidth(true);
+        gridScroll.setMaxHeight(400); 
+        gridScroll.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+
+        content.getChildren().addAll(headerLabel, gridScroll, buttonBox);
         
-        dialog.showAndWait().ifPresent(result -> {
-            if (result == ButtonType.OK) {
-                // Save session
-                try {
-                    String sessionTitle = sessionTitleField.getText().trim();
-                    String objectives = objectivesArea.getText().trim();
-                    String progress = progressArea.getText().trim();
-                    String nextSteps = nextStepsArea.getText().trim();
-                    String challenges = challengesArea.getText().trim();
-                    String notes = notesArea.getText().trim();
-                    
-                    ProjectSessionEnd sessionEnd = new ProjectSessionEnd(sessionTitle, objectives, progress, nextSteps, challenges, notes);
-                    projectService.endProjectSession(currentSession, sessionEnd);
-                    
-                    stopSessionTimer();
-                    currentSession = null;
-                    sessionTimerLabel.setText("Session completed!");
-                    updateSessionControls();
-                    updateDisplay();
-                    showAlert("Success", "Session saved successfully!");
-                } catch (Exception e) {
-                    showAlert("Error", e.getMessage());
-                }
-            } else {
-                // Cancel session
-                projectService.deleteProjectSession(currentSession.getId());
+        // Handle button actions
+        saveButton.setOnAction(e -> {
+            try {
+                String sessionTitle = sessionTitleField.getText().trim();
+                String objectives = objectivesArea.getText().trim();
+                String progress = progressArea.getText().trim();
+                String nextSteps = nextStepsArea.getText().trim();
+                String challenges = challengesArea.getText().trim();
+                String notes = notesArea.getText().trim();
+                
+                ProjectSessionEnd sessionEnd = new ProjectSessionEnd(sessionTitle, objectives, progress, nextSteps, challenges, notes);
+                projectService.endProjectSession(currentSession, sessionEnd);
+                
                 stopSessionTimer();
                 currentSession = null;
-                sessionTimerLabel.setText("Session cancelled");
+                sessionTimerLabel.setText("✓ Session saved successfully!");
+                sessionTimerLabel.setStyle("-fx-text-fill: #27ae60;");
                 updateSessionControls();
+                updateDisplay();
+                
+                closeModal.run();
+            } catch (Exception ex) {
+                sessionTimerLabel.setText("✗ Error: " + ex.getMessage());
+                sessionTimerLabel.setStyle("-fx-text-fill: #e74c3c;");
+                closeModal.run();
             }
         });
+        
+        cancelButton.setOnAction(e -> {
+            // Cancel session
+            projectService.deleteProjectSession(currentSession.getId());
+            stopSessionTimer();
+            currentSession = null;
+            sessionTimerLabel.setText("Session cancelled");
+            sessionTimerLabel.setStyle("-fx-text-fill: #95a5a6;");
+            updateSessionControls();
+            
+            closeModal.run();
+        });
+        
+        showModal.accept(content);
     }
     
     private void updateSessionHistory(Project filterProject) {
@@ -684,11 +738,29 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     }
     
     private void showAlert(String title, String message) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        alert.setContentText(message);
-        alert.showAndWait();
+        VBox content = new VBox(20);
+        content.setPadding(new Insets(20));
+        content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.setMaxWidth(300);
+        content.setMaxHeight(Region.USE_PREF_SIZE);
+        
+        Label titleLabel = new Label(title);
+        titleLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        
+        Label msgLabel = new Label(message);
+        msgLabel.setWrapText(true);
+        
+        Button okButton = new Button("OK");
+        okButton.setOnAction(e -> closeModal.run());
+        okButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        
+        HBox buttonBox = new HBox();
+        buttonBox.setAlignment(Pos.CENTER_RIGHT);
+        buttonBox.getChildren().add(okButton);
+        
+        content.getChildren().addAll(titleLabel, msgLabel, buttonBox);
+        
+        showModal.accept(content);
     }
     
     // Custom list cells

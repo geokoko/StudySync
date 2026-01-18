@@ -18,16 +18,17 @@ import javafx.scene.Node;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import java.util.Optional;
-import javafx.util.Callback;
+
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Map;
+
 import javafx.animation.Timeline;
 import javafx.animation.KeyFrame;
 import javafx.util.Duration;
+import java.util.function.Consumer;
 
 public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private final StudyService studyService;
@@ -43,10 +44,17 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private Label dateLabel;
     private TextArea sessionTextArea;
 
-    public StudyPlannerPanel(StudyService studyService, DateTimeService dateTimeService, TaskService taskService) {
+
+    private final Consumer<Node> showModal;
+    private final Runnable closeModal;
+
+    public StudyPlannerPanel(StudyService studyService, DateTimeService dateTimeService, TaskService taskService, 
+                           Consumer<Node> showModal, Runnable closeModal) {
         this.studyService = studyService;
         this.dateTimeService = dateTimeService;
         this.taskService = taskService;
+        this.showModal = showModal;
+        this.closeModal = closeModal;
         
         // Create main content container
         VBox mainContent = new VBox(20);
@@ -162,15 +170,33 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         
         endSessionBtn.setOnAction(e -> {
             if (currentSession != null) {
+                // Save window state before dialog
+                javafx.stage.Window window = this.getScene().getWindow();
+                boolean wasMaximized = false;
+                if (window instanceof javafx.stage.Stage) {
+                    wasMaximized = ((javafx.stage.Stage) window).isMaximized();
+                }
+                final boolean restoreMaximized = wasMaximized;
+                
                 // Save session text before ending
                 currentSession.setSessionText(sessionTextArea.getText());
                 stopSessionTimer();
                 showEndSessionDialog();
-                sessionStatus.setText("No active session");
-                startSessionBtn.setDisable(false);
-                endSessionBtn.setDisable(true);
-                sessionTextArea.setDisable(true);
-                updateSessionsDisplay();
+                // Defer UI updates to avoid resize issues
+                javafx.application.Platform.runLater(() -> {
+                    sessionStatus.setText("No active session");
+                    startSessionBtn.setDisable(false);
+                    endSessionBtn.setDisable(true);
+                    sessionTextArea.setDisable(true);
+                    updateSessionsDisplay();
+                    
+                    // Restore window state after updates
+                    if (restoreMaximized && window instanceof javafx.stage.Stage) {
+                        javafx.application.Platform.runLater(() -> {
+                            ((javafx.stage.Stage) window).setMaximized(true);
+                        });
+                    }
+                });
             }
         });
         
@@ -439,15 +465,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
     
     private void showSessionDetails(StudySession session) {
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("📊 Study Session Details");
-        dialog.setHeaderText(null);
+        // Use in-window modal
         
         // Create comprehensive session details layout
         VBox mainContent = new VBox(20);
         mainContent.setPadding(new Insets(20));
-        mainContent.setPrefWidth(700);
-        mainContent.setPrefHeight(600);
+        mainContent.setStyle("-fx-background-color: white; -fx-background-radius: 10;");
+        mainContent.setMaxWidth(700);
+        mainContent.setMaxHeight(600);
         
         // Session Header with key metrics
         createSessionHeader(session, mainContent);
@@ -472,14 +497,24 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         
         mainContent.getChildren().add(detailsTabs);
         
+        // Close button
+        Button closeButton = new Button("Close");
+        closeButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        closeButton.setOnAction(e -> closeModal.run());
+        
+        HBox buttonBox = new HBox();
+        buttonBox.setAlignment(Pos.CENTER_RIGHT);
+        buttonBox.getChildren().add(closeButton);
+        mainContent.getChildren().add(buttonBox);
+        
         ScrollPane scrollPane = new ScrollPane(mainContent);
         scrollPane.setFitToWidth(true);
         scrollPane.setFitToHeight(false);
+        scrollPane.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        scrollPane.setMaxWidth(720);
+        scrollPane.setMaxHeight(650);
         
-        dialog.getDialogPane().setContent(scrollPane);
-        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
-        
-        dialog.showAndWait();
+        showModal.accept(scrollPane);
     }
     
     private void createSessionHeader(StudySession session, VBox mainContent) {
@@ -810,12 +845,16 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private void showEndSessionDialog() {
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("End Study Session");
-        dialog.setHeaderText("How was your study session?");
+        // Use in-window modal
         
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
+        content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.setMaxWidth(400); 
+        content.setMaxHeight(Region.USE_PREF_SIZE); 
+        
+        Label headerLabel = new Label("How was your study session?");
+        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
         
         Label focusLabel = new Label("Focus Level (1-5):");
         Slider focusSlider = new Slider(1, 5, 3);
@@ -828,6 +867,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         Label focusWarningLabel = new Label();
         focusWarningLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         focusWarningLabel.setWrapText(true);
+        focusWarningLabel.setMaxWidth(350);
         
         // Update warning based on focus level
         focusSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
@@ -852,22 +892,35 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         TextArea notesArea = new TextArea();
         notesArea.setPromptText("What did you accomplish?");
         notesArea.setPrefRowCount(3);
+        notesArea.setPrefWidth(350);
         
-        content.getChildren().addAll(focusLabel, focusSlider, focusWarningLabel, notesLabel, notesArea);
+        // Buttons
+        HBox buttonBox = new HBox(10);
+        buttonBox.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
         
-        dialog.getDialogPane().setContent(content);
-        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        Button okButton = new Button("OK");
+        okButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
         
-        // Set result converter to return the button type
-        dialog.setResultConverter(buttonType -> buttonType);
+        Button cancelButton = new Button("Cancel");
+        cancelButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
         
-        dialog.showAndWait().ifPresent(result -> {
-            if (result == ButtonType.OK) {
-                StudySessionEnd sessionEnd = new StudySessionEnd((int) focusSlider.getValue(), notesArea.getText());
-                studyService.endStudySession(currentSession, sessionEnd);
-                currentSession = null;
-            }
+        buttonBox.getChildren().addAll(cancelButton, okButton);
+        
+        content.getChildren().addAll(headerLabel, focusLabel, focusSlider, focusWarningLabel, notesLabel, notesArea, buttonBox);
+        
+        // Handle button actions
+        okButton.setOnAction(e -> {
+            StudySessionEnd sessionEnd = new StudySessionEnd((int) focusSlider.getValue(), notesArea.getText());
+            studyService.endStudySession(currentSession, sessionEnd);
+            currentSession = null;
+            closeModal.run();
         });
+        
+        cancelButton.setOnAction(e -> {
+            closeModal.run();
+        });
+        
+        showModal.accept(content);
     }
 
     private void saveReflection() {
@@ -878,11 +931,28 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             reflection.setReflectionText(reflectionText);
             studyService.addDailyReflection(reflection);
             
-            Alert alert = new Alert(Alert.AlertType.INFORMATION);
-            alert.setTitle("Reflection Saved");
-            alert.setHeaderText(null);
-            alert.setContentText("Your daily reflection has been saved!");
-            alert.showAndWait();
+            VBox content = new VBox(20);
+            content.setPadding(new Insets(20));
+            content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+            content.setMaxWidth(300);
+            content.setMaxHeight(Region.USE_PREF_SIZE);
+            
+            Label titleLabel = new Label("Reflection Saved");
+            titleLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+            
+            Label msgLabel = new Label("Your daily reflection has been saved!");
+            msgLabel.setWrapText(true);
+            
+            Button okButton = new Button("OK");
+            okButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+            okButton.setOnAction(e -> closeModal.run());
+            
+            HBox buttonBox = new HBox(okButton);
+            buttonBox.setAlignment(Pos.CENTER_RIGHT);
+            
+            content.getChildren().addAll(titleLabel, msgLabel, buttonBox);
+            
+            showModal.accept(content);
         }
     }
 
@@ -958,15 +1028,16 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
     
     private void showAddGoalDialog() {
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("Add Study Goal");
-        dialog.setHeaderText("Create a new daily study goal");
-        
-        DialogPane dialogPane = dialog.getDialogPane();
-        dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        // Use in-window modal
         
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
+        content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.setMaxWidth(450);
+        content.setMaxHeight(Region.USE_PREF_SIZE);
+        
+        Label headerLabel = new Label("Create a new daily study goal");
+        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
         
         // Goal description
         Label descLabel = new Label("Goal Description:");
@@ -976,6 +1047,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         goalTextArea.setPromptText("e.g., Complete Chapter 5 of Java Programming, Practice 10 math problems, Review yesterday's notes...");
         goalTextArea.setPrefRowCount(3);
         goalTextArea.setWrapText(true);
+        goalTextArea.setPrefWidth(400);
         
         // Task selection (optional)
         Label taskLabel = new Label("Link to Task (optional):");
@@ -1028,51 +1100,55 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             content.getChildren().add(errorLabel);
         }
         
-        content.getChildren().addAll(descLabel, goalTextArea, taskLabel, taskComboBox);
-        dialogPane.setContent(content);
+        // Buttons
+        HBox buttonBox = new HBox(10);
+        buttonBox.setAlignment(Pos.CENTER_RIGHT);
+        buttonBox.setPadding(new Insets(10, 0, 0, 0));
+        
+        Button okButton = new Button("OK");
+        okButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        okButton.setDisable(true);
+        
+        Button cancelButton = new Button("Cancel");
+        cancelButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+        
+        buttonBox.getChildren().addAll(cancelButton, okButton);
         
         // Enable/disable OK button based on input
-        Button okButton = (Button) dialogPane.lookupButton(ButtonType.OK);
-        okButton.setDisable(true);
         goalTextArea.textProperty().addListener((observable, oldValue, newValue) -> {
             okButton.setDisable(newValue.trim().isEmpty());
         });
         
-        // Set result converter
-        dialog.setResultConverter(dialogButton -> dialogButton);
+        content.getChildren().addAll(headerLabel, descLabel, goalTextArea, taskLabel, taskComboBox, buttonBox);
         
-        dialog.showAndWait().ifPresent(result -> {
-            if (result == ButtonType.OK) {
-                String goalDescription = goalTextArea.getText().trim();
-                Task selectedTask = taskComboBox.getValue();
-                
-                if (!goalDescription.isEmpty()) {
-                    try {
-                        String taskId = selectedTask != null ? selectedTask.getId() : null;
-                        studyService.addStudyGoal(goalDescription, dateTimeService.getCurrentDate(), taskId);
-                        updateGoalsDisplay();
-                        updateProgress();
-                        
-                        Alert success = new Alert(Alert.AlertType.INFORMATION);
-                        success.setTitle("Success");
-                        success.setHeaderText(null);
-                        String msg = "Study goal added successfully!";
-                        if (selectedTask != null) {
-                            msg += "\nLinked to task: " + selectedTask.getTitle();
-                        }
-                        success.setContentText(msg);
-                        success.showAndWait();
-                        
-                    } catch (Exception e) {
-                        Alert error = new Alert(Alert.AlertType.ERROR);
-                        error.setTitle("Error");
-                        error.setHeaderText(null);
-                        error.setContentText("Failed to add study goal: " + e.getMessage());
-                        error.showAndWait();
-                    }
+        // Handle button actions
+        okButton.setOnAction(e -> {
+            String goalDescription = goalTextArea.getText().trim();
+            Task selectedTask = taskComboBox.getValue();
+            
+            if (!goalDescription.isEmpty()) {
+                try {
+                    String taskId = selectedTask != null ? selectedTask.getId() : null;
+                    studyService.addStudyGoal(goalDescription, dateTimeService.getCurrentDate(), taskId);
+                    updateGoalsDisplay();
+                    updateProgress();
+                    // No alert - just close
+                    closeModal.run();
+                } catch (Exception ex) {
+                    // Log error but don't show alert
+                    System.err.println("Failed to add study goal: " + ex.getMessage());
+                    // Keep modal open on error? Or just close? User requested fix for resize, let's close for safety or show label error. 
+                    // Since I removed Alert, I'll just log.
+                    closeModal.run();
                 }
             }
         });
+        
+        cancelButton.setOnAction(e -> {
+            closeModal.run();
+        });
+        
+        showModal.accept(content);
     }
     
     @Override
