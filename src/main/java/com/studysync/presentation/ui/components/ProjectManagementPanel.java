@@ -44,17 +44,8 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     // Session management
     private Label currentProjectLabel;
     private ListView<ProjectSession> sessionListView;
-    private VBox sessionFormContainer;
     private Button startSessionBtn;
     private Button endSessionBtn;
-    
-    // Session form fields
-    private TextField sessionTitleField;
-    private TextArea objectivesArea;
-    private TextArea progressArea;
-    private TextArea nextStepsArea;
-    private TextArea challengesArea;
-    private TextArea notesArea;
     private Label sessionTimerLabel;
 
     public ProjectManagementPanel(ProjectService projectService, CategoryService categoryService) {
@@ -305,11 +296,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         // Session controls
         VBox sessionControls = createSessionControls();
         
-        // Session form (hidden initially)
-        sessionFormContainer = createSessionForm();
-        sessionFormContainer.setVisible(false);
-        
-        container.getChildren().addAll(projectSection, sessionControls, sessionFormContainer);
+        container.getChildren().addAll(projectSection, sessionControls);
         return container;
     }
     
@@ -332,77 +319,13 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         
         endSessionBtn = new Button("End Session");
         endSessionBtn.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white; -fx-padding: 10 20;");
-        endSessionBtn.setOnAction(e -> showEndSessionForm());
+        endSessionBtn.setOnAction(e -> showEndSessionDialog());
         endSessionBtn.setDisable(true);
         
         buttonBox.getChildren().addAll(startSessionBtn, endSessionBtn);
         
         controls.getChildren().addAll(sessionTimerLabel, buttonBox);
         return controls;
-    }
-    
-    private VBox createSessionForm() {
-        VBox form = new VBox(10);
-        form.setStyle("-fx-background-color: white; -fx-padding: 15; -fx-background-radius: 10;");
-        
-        Label formTitle = new Label("Session Summary");
-        formTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
-        
-        GridPane formGrid = new GridPane();
-        formGrid.setHgap(10);
-        formGrid.setVgap(10);
-        
-        sessionTitleField = new TextField();
-        sessionTitleField.setPromptText("Session title (e.g., 'Implemented user authentication')");
-        
-        objectivesArea = new TextArea();
-        objectivesArea.setPromptText("What did you plan to accomplish?");
-        objectivesArea.setPrefRowCount(2);
-        
-        progressArea = new TextArea();
-        progressArea.setPromptText("What did you actually accomplish?");
-        progressArea.setPrefRowCount(3);
-        
-        nextStepsArea = new TextArea();
-        nextStepsArea.setPromptText("What should be done next?");
-        nextStepsArea.setPrefRowCount(2);
-        
-        challengesArea = new TextArea();
-        challengesArea.setPromptText("Any challenges or blockers encountered?");
-        challengesArea.setPrefRowCount(2);
-        
-        notesArea = new TextArea();
-        notesArea.setPromptText("Additional notes or thoughts");
-        notesArea.setPrefRowCount(2);
-        
-        formGrid.add(new Label("Session Title:"), 0, 0);
-        formGrid.add(sessionTitleField, 1, 0);
-        formGrid.add(new Label("Objectives:"), 0, 1);
-        formGrid.add(objectivesArea, 1, 1);
-        formGrid.add(new Label("Progress Made:"), 0, 2);
-        formGrid.add(progressArea, 1, 2);
-        formGrid.add(new Label("Next Steps:"), 0, 3);
-        formGrid.add(nextStepsArea, 1, 3);
-        formGrid.add(new Label("Challenges:"), 0, 4);
-        formGrid.add(challengesArea, 1, 4);
-        formGrid.add(new Label("Notes:"), 0, 5);
-        formGrid.add(notesArea, 1, 5);
-        
-        HBox buttonBox = new HBox(10);
-        buttonBox.setAlignment(Pos.CENTER);
-        
-        Button saveSessionBtn = new Button("Save Session");
-        saveSessionBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
-        saveSessionBtn.setOnAction(e -> saveSession());
-        
-        Button cancelBtn = new Button("Cancel");
-        cancelBtn.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
-        cancelBtn.setOnAction(e -> cancelSession());
-        
-        buttonBox.getChildren().addAll(saveSessionBtn, cancelBtn);
-        
-        form.getChildren().addAll(formTitle, formGrid, buttonBox);
-        return form;
     }
     
     private VBox createHistoryTab() {
@@ -636,70 +559,110 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         }
     }
     
-    private void showEndSessionForm() {
-        if (currentSession != null) {
-            sessionFormContainer.setVisible(true);
-            sessionTitleField.clear();
-            objectivesArea.clear();
-            progressArea.clear();
-            nextStepsArea.clear();
-            challengesArea.clear();
-            notesArea.clear();
-            
-            // Ensure scrollpane adjusts to new content height
-            this.requestLayout();
-            
-            // Scroll to show the form
-            javafx.application.Platform.runLater(() -> {
-                double formY = sessionFormContainer.getBoundsInParent().getMinY();
-                double viewportHeight = this.getViewportBounds().getHeight();
-                double contentHeight = ((VBox) this.getContent()).getHeight();
-                if (contentHeight > viewportHeight) {
-                    this.setVvalue(Math.min(1.0, formY / (contentHeight - viewportHeight)));
+    private void showEndSessionDialog() {
+        if (currentSession == null) return;
+        
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("End Project Session");
+        dialog.setHeaderText("Session Summary for " + (selectedProject != null ? selectedProject.getTitle() : "Project"));
+        
+        // Build form content
+        VBox content = new VBox(15);
+        content.setPadding(new Insets(20));
+        content.setPrefWidth(500);
+        
+        GridPane formGrid = new GridPane();
+        formGrid.setHgap(10);
+        formGrid.setVgap(10);
+        
+        TextField sessionTitleField = new TextField();
+        sessionTitleField.setPromptText("Session title (e.g., 'Implemented user authentication')");
+        sessionTitleField.setPrefWidth(350);
+        
+        TextArea objectivesArea = new TextArea();
+        objectivesArea.setPromptText("What did you plan to accomplish?");
+        objectivesArea.setPrefRowCount(2);
+        objectivesArea.setWrapText(true);
+        
+        TextArea progressArea = new TextArea();
+        progressArea.setPromptText("What did you actually accomplish?");
+        progressArea.setPrefRowCount(3);
+        progressArea.setWrapText(true);
+        
+        TextArea nextStepsArea = new TextArea();
+        nextStepsArea.setPromptText("What should be done next?");
+        nextStepsArea.setPrefRowCount(2);
+        nextStepsArea.setWrapText(true);
+        
+        TextArea challengesArea = new TextArea();
+        challengesArea.setPromptText("Any challenges or blockers encountered?");
+        challengesArea.setPrefRowCount(2);
+        challengesArea.setWrapText(true);
+        
+        TextArea notesArea = new TextArea();
+        notesArea.setPromptText("Additional notes or thoughts");
+        notesArea.setPrefRowCount(2);
+        notesArea.setWrapText(true);
+        
+        formGrid.add(new Label("Session Title:"), 0, 0);
+        formGrid.add(sessionTitleField, 1, 0);
+        formGrid.add(new Label("Objectives:"), 0, 1);
+        formGrid.add(objectivesArea, 1, 1);
+        formGrid.add(new Label("Progress Made:"), 0, 2);
+        formGrid.add(progressArea, 1, 2);
+        formGrid.add(new Label("Next Steps:"), 0, 3);
+        formGrid.add(nextStepsArea, 1, 3);
+        formGrid.add(new Label("Challenges:"), 0, 4);
+        formGrid.add(challengesArea, 1, 4);
+        formGrid.add(new Label("Notes:"), 0, 5);
+        formGrid.add(notesArea, 1, 5);
+        
+        content.getChildren().add(formGrid);
+        
+        dialog.getDialogPane().setContent(content);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        
+        // Rename buttons
+        Button okButton = (Button) dialog.getDialogPane().lookupButton(ButtonType.OK);
+        okButton.setText("Save Session");
+        
+        Button cancelButton = (Button) dialog.getDialogPane().lookupButton(ButtonType.CANCEL);
+        cancelButton.setText("Cancel Session");
+        
+        dialog.setResultConverter(buttonType -> buttonType);
+        
+        dialog.showAndWait().ifPresent(result -> {
+            if (result == ButtonType.OK) {
+                // Save session
+                try {
+                    String sessionTitle = sessionTitleField.getText().trim();
+                    String objectives = objectivesArea.getText().trim();
+                    String progress = progressArea.getText().trim();
+                    String nextSteps = nextStepsArea.getText().trim();
+                    String challenges = challengesArea.getText().trim();
+                    String notes = notesArea.getText().trim();
+                    
+                    ProjectSessionEnd sessionEnd = new ProjectSessionEnd(sessionTitle, objectives, progress, nextSteps, challenges, notes);
+                    projectService.endProjectSession(currentSession, sessionEnd);
+                    
+                    stopSessionTimer();
+                    currentSession = null;
+                    sessionTimerLabel.setText("Session completed!");
+                    updateSessionControls();
+                    updateDisplay();
+                    showAlert("Success", "Session saved successfully!");
+                } catch (Exception e) {
+                    showAlert("Error", e.getMessage());
                 }
-            });
-        }
-    }
-    
-    private void saveSession() {
-        if (currentSession != null) {
-            try {
-                String sessionTitle = sessionTitleField.getText().trim();
-                String objectives = objectivesArea.getText().trim();
-                String progress = progressArea.getText().trim();
-                String nextSteps = nextStepsArea.getText().trim();
-                String challenges = challengesArea.getText().trim();
-                String notes = notesArea.getText().trim();
-                
-                ProjectSessionEnd sessionEnd = new ProjectSessionEnd(sessionTitle, objectives, progress, nextSteps, challenges, notes);
-                projectService.endProjectSession(currentSession, sessionEnd);
-                
+            } else {
+                // Cancel session
+                projectService.deleteProjectSession(currentSession.getId());
                 stopSessionTimer();
                 currentSession = null;
-                sessionFormContainer.setVisible(false);
-                this.requestLayout();
-                sessionTimerLabel.setText("Session completed!");
+                sessionTimerLabel.setText("Session cancelled");
                 updateSessionControls();
-                updateDisplay();
-                showAlert("Success", "Session saved successfully!");
-            } catch (Exception e) {
-                showAlert("Error", e.getMessage());
             }
-        }
-    }
-    
-    private void cancelSession() {
-        sessionFormContainer.setVisible(false);
-        this.requestLayout();
-        
-        if (currentSession != null) {
-            // Remove the session that was started but not completed
-            projectService.deleteProjectSession(currentSession.getId());
-            stopSessionTimer();
-            currentSession = null;
-            sessionTimerLabel.setText("Session cancelled");
-            updateSessionControls();
-        }
+        });
     }
     
     private void updateSessionHistory(Project filterProject) {
