@@ -79,3 +79,26 @@
 .button .text {
     -fx-text-alignment: center;
 }
+
+/* Fix for nested TabPane in Projects page */
+.tab-content-area {
+    -fx-background-color: transparent;
+}
+
+.tab-pane > .tab-content-area {
+    -fx-padding: 0;
+}
+
+/* Ensure tab content properly fills available space */
+.tab-pane .tab-content-area .scroll-pane {
+    -fx-background-color: transparent;
+}
+
+.tab-pane .tab-content-area .scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+
+/* ListView within tab content should expand properly */
+.tab-content-area .list-view {
+    -fx-min-height: 100px;
+}
