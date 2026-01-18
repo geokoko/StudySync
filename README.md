@@ -56,7 +56,35 @@ StudySync provides comprehensive academic management with three main modules:
 
 ## Installation & Running the Application
 
-### Running the application with gradle
+### Quick Install (Linux - Recommended)
+
+**Option 1: Download from GitHub Releases**
+```bash
+# Download the latest release
+curl -LO https://github.com/geokoko/StudySync/releases/latest/download/studysync-linux.tar.gz
+
+# Extract and install
+tar -xzf studysync-linux.tar.gz
+cd studysync-*
+./install.sh
+```
+
+**Option 2: Build from Source**
+```bash
+git clone https://github.com/geokoko/StudySync.git
+cd StudySync
+./scripts/install.sh --build
+```
+
+After installation:
+- **Launch from app menu**: Search "StudySync" in your application launcher (KDE, GNOME, etc.)
+- **Launch from terminal**: Run `studysync`
+
+To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
+
+---
+
+### Running with Gradle (Development)
 
 1. Clone the Repository
     ``` bash
@@ -96,6 +124,12 @@ StudySync provides comprehensive academic management with three main modules:
 * **Fast startup** (skip some initialization):
     ```bash
     ./scripts/start-fast.sh
+    ```
+
+* **Build release package** (for distribution):
+    ```bash
+    ./scripts/build-release.sh
+    # Creates build/release/studysync-VERSION-linux.tar.gz
     ```
 
 ## Google Drive Sync Setup (Optional)

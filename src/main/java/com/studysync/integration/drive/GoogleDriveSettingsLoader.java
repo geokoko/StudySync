@@ -17,6 +17,7 @@ public final class GoogleDriveSettingsLoader {
 
     private static final Logger logger = LoggerFactory.getLogger(GoogleDriveSettingsLoader.class);
     private static final Path CONFIG_PATH = Paths.get("config", "google", "drive.properties");
+    private static final Path USER_CONFIG_PATH = Paths.get(System.getProperty("user.home"), ".config", "studysync", "drive.properties");
     private static final Path DEFAULT_DATABASE = Paths.get("data", "studysync.mv.db");
 
     private GoogleDriveSettingsLoader() {
@@ -24,14 +25,32 @@ public final class GoogleDriveSettingsLoader {
 
     public static GoogleDriveSettings load() {
         Properties properties = new Properties();
-        if (Files.exists(CONFIG_PATH)) {
+        Path loadedPath = null;
+
+        // Try user config first (XDG standard)
+        if (Files.exists(USER_CONFIG_PATH)) {
+            try (InputStream in = Files.newInputStream(USER_CONFIG_PATH)) {
+                properties.load(in);
+                loadedPath = USER_CONFIG_PATH;
+                logger.info("Loaded configuration from user directory: {}", USER_CONFIG_PATH);
+            } catch (IOException e) {
+                logger.warn("Failed to read user config {}: {}", USER_CONFIG_PATH, e.getMessage());
+            }
+        } 
+        
+        // Fallback to install dir config if user config not found or failed
+        if (loadedPath == null && Files.exists(CONFIG_PATH)) {
             try (InputStream in = Files.newInputStream(CONFIG_PATH)) {
                 properties.load(in);
+                loadedPath = CONFIG_PATH;
+                logger.info("Loaded configuration from installation directory: {}", CONFIG_PATH);
             } catch (IOException e) {
                 logger.warn("Failed to read {}: {}", CONFIG_PATH, e.getMessage());
             }
-        } else {
-            logger.info("Google Drive configuration file not found at {}. Using defaults and environment overrides.", CONFIG_PATH);
+        }
+        
+        if (loadedPath == null) {
+            logger.info("No configuration file found. Using defaults and environment overrides.");
         }
 
         boolean enabled = getBoolean("GOOGLE_DRIVE_ENABLED", "google.drive.enabled", properties, false);
