@@ -286,6 +286,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             goalCheck.setOnAction(e -> {
                 studyService.updateStudyGoalAchievement(goal.getId(), goalCheck.isSelected(), null);
                 updateProgress();
+                updateGoalsDisplay();
             });
             
             VBox goalTextBox = new VBox(2);
@@ -914,6 +915,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             studyService.endStudySession(currentSession, sessionEnd);
             currentSession = null;
             closeModal.run();
+            updateSessionsDisplay();
+            updateProgress();
         });
         
         cancelButton.setOnAction(e -> {
