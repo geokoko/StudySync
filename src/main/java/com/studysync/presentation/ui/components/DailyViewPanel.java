@@ -59,7 +59,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
 
     private void initializeComponents(VBox mainContent) {
         // Header
-        Label headerLabel = new Label("📅 Daily Session View");
+        Label headerLabel = new Label("▦ Daily Session View");
         headerLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
         headerLabel.setTextFill(Color.web("#2c3e50"));
         
@@ -123,7 +123,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         VBox contentSection = new VBox(10);
         contentSection.setStyle("-fx-background-color: white; -fx-padding: 15; -fx-background-radius: 10;");
         
-        Label contentTitle = new Label("📊 Daily Activity Summary");
+        Label contentTitle = new Label("▪ Daily Activity Summary");
         contentTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
         contentTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -150,7 +150,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
     
     private void updateSelectedDateLabel(LocalDate date) {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy");
-        selectedDateLabel.setText("📅 " + date.format(formatter));
+        selectedDateLabel.setText("» " + date.format(formatter));
         
         // Update stats - with safety check for database initialization
         try {
@@ -166,9 +166,9 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             int achievedGoals = (int) studyGoals.stream().filter(StudyGoal::isAchieved).count();
             int totalGoals = studyGoals.size();
             
-            String goalsText = totalGoals > 0 ? String.format("🎯 %d/%d goals achieved • ", achievedGoals, totalGoals) : "";
+            String goalsText = totalGoals > 0 ? String.format("◎ %d/%d goals achieved • ", achievedGoals, totalGoals) : "";
             
-            dailyStatsLabel.setText(String.format("%s📈 %d sessions ⏰ %d min study + %d min project 🏆 %d points total", 
+            dailyStatsLabel.setText(String.format("%s↑ %d sessions ⏰ %d min study + %d min project ♦ %d points total", 
                     goalsText, studySessions.size() + projectSessions.size(), totalStudyTime, totalProjectTime, totalPoints));
         } catch (IllegalStateException e) {
             // Database not yet initialized - show basic date only
@@ -202,11 +202,11 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         HBox goalsSectionHeader = new HBox(15);
         goalsSectionHeader.setAlignment(Pos.CENTER_LEFT);
         
-        Label goalsTitle = new Label("🎯 Daily Study Goals (" + studyGoals.size() + ")");
+        Label goalsTitle = new Label("◎ Daily Study Goals (" + studyGoals.size() + ")");
         goalsTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         goalsTitle.setTextFill(Color.web("#9b59b6"));
         
-        Button addGoalBtn = new Button("➕ Add Goal");
+        Button addGoalBtn = new Button("+ Add Goal");
         addGoalBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-size: 11px;");
         addGoalBtn.setOnAction(e -> showAddGoalDialog(date));
         
@@ -228,7 +228,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         
         // Study Sessions Section
         if (!studySessions.isEmpty()) {
-            Label studyTitle = new Label("📚 Study Sessions (" + studySessions.size() + ")");
+            Label studyTitle = new Label("» Study Sessions (" + studySessions.size() + ")");
             studyTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
             studyTitle.setTextFill(Color.web("#3498db"));
             dailyContentContainer.getChildren().add(studyTitle);
@@ -326,7 +326,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             statusText = "Achieved";
             statusColor = Color.web("#27ae60");
         } else if (goal.isDelayed()) {
-            statusIcon = "⚠️";
+            statusIcon = "[!] ";
             statusText = "Delayed (" + goal.getDaysDelayed() + " day" + (goal.getDaysDelayed() > 1 ? "s" : "") + ")";
             double intensity = goal.getDelayColorIntensity();
             if (intensity <= 0.3) {
@@ -337,7 +337,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
                 statusColor = Color.web("#f44336"); // Red
             }
         } else {
-            statusIcon = "⭕";
+            statusIcon = "○";
             statusText = "Pending";
             statusColor = Color.web("#e74c3c");
         }
@@ -349,7 +349,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         headerBox.getChildren().add(statusLabel);
         
         // Goal description
-        Label descriptionLabel = new Label("🎯 " + goal.getDescription());
+        Label descriptionLabel = new Label("◎ " + goal.getDescription());
         descriptionLabel.setFont(Font.font("System", FontWeight.NORMAL, 13));
         descriptionLabel.setTextFill(Color.web("#2c3e50"));
         descriptionLabel.setWrapText(true);
@@ -359,7 +359,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         detailsBox.getChildren().add(descriptionLabel);
         
         if (!goal.isAchieved() && goal.getReasonIfNotAchieved() != null && !goal.getReasonIfNotAchieved().trim().isEmpty()) {
-            Label reasonLabel = new Label("❌ Reason not achieved: " + goal.getReasonIfNotAchieved());
+            Label reasonLabel = new Label("✕ Reason not achieved: " + goal.getReasonIfNotAchieved());
             reasonLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
             reasonLabel.setTextFill(Color.web("#8e44ad"));
             reasonLabel.setWrapText(true);
@@ -368,7 +368,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         
         // Delay information for delayed goals
         if (goal.isDelayed()) {
-            String delayInfo = String.format("📅 Originally from: %s • 🔥 %d days delayed • ⚡ -%d points penalty", 
+            String delayInfo = String.format("» Originally from: %s • ♨ %d days delayed • ↯  -%d points penalty", 
                 goal.getDate().toString(), goal.getDaysDelayed(), goal.getPointsDeducted());
             Label delayLabel = new Label(delayInfo);
             delayLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
@@ -382,7 +382,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         actionBox.setAlignment(Pos.CENTER_RIGHT);
         
         if (!goal.isAchieved()) {
-            Button achieveBtn = new Button("✅ Mark Achieved");
+            Button achieveBtn = new Button("[✓] Mark Achieved");
             achieveBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-size: 10px;");
             achieveBtn.setOnAction(e -> {
                 studyService.updateStudyGoalAchievement(goal.getId(), true, null);
@@ -390,7 +390,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             });
             actionBox.getChildren().add(achieveBtn);
         } else {
-            Button unachieveBtn = new Button("⭕ Mark Pending");
+            Button unachieveBtn = new Button("○ Mark Pending");
             unachieveBtn.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-size: 10px;");
             unachieveBtn.setOnAction(e -> {
                 studyService.updateStudyGoalAchievement(goal.getId(), false, null);
@@ -399,7 +399,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             actionBox.getChildren().add(unachieveBtn);
         }
         
-        Button deleteBtn = new Button("🗑️ Delete");
+        Button deleteBtn = new Button("✕ Delete");
         deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
         deleteBtn.setOnAction(e -> deleteStudyGoal(goal));
         actionBox.getChildren().add(deleteBtn);
@@ -422,11 +422,11 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         timeLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
         timeLabel.setTextFill(Color.web("#2c3e50"));
         
-        Label durationLabel = new Label("⏱️ " + session.getDurationMinutes() + " min");
+        Label durationLabel = new Label("⌚ " + session.getDurationMinutes() + " min");
         durationLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         durationLabel.setTextFill(Color.web("#3498db"));
         
-        Label pointsLabel = new Label("🏆 " + session.getPointsEarned() + " pts");
+        Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " pts");
         pointsLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 11));
         pointsLabel.setTextFill(Color.web("#27ae60"));
         
@@ -443,7 +443,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         }
         
         if (session.getTopic() != null && !session.getTopic().trim().isEmpty()) {
-            Label topicLabel = new Label("📝 Topic: " + session.getTopic());
+            Label topicLabel = new Label("▪ Topic: " + session.getTopic());
             topicLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
             topicLabel.setTextFill(Color.web("#34495e"));
             detailsBox.getChildren().add(topicLabel);
@@ -451,7 +451,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         
         if (session.getFocusLevel() > 0) {
             String focusStars = "⭐".repeat(session.getFocusLevel());
-            Label focusLabel = new Label("🎯 Focus: " + focusStars + " (" + session.getFocusLevel() + "/5)");
+            Label focusLabel = new Label("◎ Focus: " + focusStars + " (" + session.getFocusLevel() + "/5)");
             focusLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
             focusLabel.setTextFill(Color.web("#f39c12"));
             detailsBox.getChildren().add(focusLabel);
@@ -476,7 +476,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         viewBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 10px;");
         viewBtn.setOnAction(e -> showStudySessionDetails(session));
         
-        Button deleteBtn = new Button("🗑️ Delete");
+        Button deleteBtn = new Button("✕ Delete");
         deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
         deleteBtn.setOnAction(e -> deleteStudySession(session));
         
@@ -508,11 +508,11 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         timeLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         timeLabel.setTextFill(Color.web("#7f8c8d"));
         
-        Label durationLabel = new Label("⏱️ " + session.getDurationMinutes() + " min");
+        Label durationLabel = new Label("⌚ " + session.getDurationMinutes() + " min");
         durationLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         durationLabel.setTextFill(Color.web("#e74c3c"));
         
-        Label pointsLabel = new Label("🏆 " + session.getPointsEarned() + " pts");
+        Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " pts");
         pointsLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 11));
         pointsLabel.setTextFill(Color.web("#27ae60"));
         
@@ -522,7 +522,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         VBox detailsBox = new VBox(4);
         
         if (session.getSessionTitle() != null && !session.getSessionTitle().trim().isEmpty()) {
-            Label titleLabel = new Label("📝 Session: " + session.getSessionTitle());
+            Label titleLabel = new Label("▪ Session: " + session.getSessionTitle());
             titleLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
             titleLabel.setTextFill(Color.web("#34495e"));
             detailsBox.getChildren().add(titleLabel);
@@ -532,7 +532,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             String progressPreview = session.getProgress().length() > 80 ? 
                                    session.getProgress().substring(0, 80) + "..." : 
                                    session.getProgress();
-            Label progressLabel = new Label("✅ Progress: " + progressPreview);
+            Label progressLabel = new Label("[✓] Progress: " + progressPreview);
             progressLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
             progressLabel.setTextFill(Color.web("#27ae60"));
             progressLabel.setWrapText(true);
@@ -543,7 +543,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             String nextStepsPreview = session.getNextSteps().length() > 60 ? 
                                     session.getNextSteps().substring(0, 60) + "..." : 
                                     session.getNextSteps();
-            Label nextStepsLabel = new Label("📋 Next: " + nextStepsPreview);
+            Label nextStepsLabel = new Label("» Next: " + nextStepsPreview);
             nextStepsLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
             nextStepsLabel.setTextFill(Color.web("#8e44ad"));
             nextStepsLabel.setWrapText(true);
@@ -558,7 +558,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         viewBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
         viewBtn.setOnAction(e -> showProjectSessionDetails(session));
         
-        Button deleteBtn = new Button("🗑️ Delete");
+        Button deleteBtn = new Button("✕ Delete");
         deleteBtn.setStyle("-fx-background-color: #c0392b; -fx-text-fill: white; -fx-font-size: 10px;");
         deleteBtn.setOnAction(e -> deleteProjectSession(session));
         
@@ -574,7 +574,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         LocalDate today = LocalDate.now();
         Map<LocalDate, List<StudySession>> weeklyStudySessions = studyService.getSessionsGroupedByDate(7);
         
-        Label weekTitle = new Label("📊 Last 7 Days Overview");
+        Label weekTitle = new Label("▪ Last 7 Days Overview");
         weekTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         weekTitle.setTextFill(Color.web("#2c3e50"));
         weekTitle.setPadding(new Insets(0, 0, 10, 0));
@@ -593,7 +593,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
                             date.equals(today.minusDays(1)) ? "Yesterday" : 
                             date.format(DateTimeFormatter.ofPattern("EEEE, MMM dd"));
             
-            Label dateLabel = new Label("📅 " + dayLabel);
+            Label dateLabel = new Label("» " + dayLabel);
             dateLabel.setFont(Font.font("System", FontWeight.BOLD, 14));
             dateLabel.setTextFill(Color.web("#495057"));
             
@@ -602,7 +602,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             int totalPoints = sessions.stream().mapToInt(StudySession::getPointsEarned).sum() +
                             projectSessions.stream().mapToInt(ProjectSession::getPointsEarned).sum();
             
-            Label statsLabel = new Label(String.format("📈 %d sessions • ⏰ %d min • 🏆 %d pts", 
+            Label statsLabel = new Label(String.format("↑ %d sessions • ⏰ %d min • ♦ %d pts", 
                     sessions.size() + projectSessions.size(), totalMinutes, totalPoints));
             statsLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
             statsLabel.setTextFill(Color.web("#6c757d"));
@@ -623,7 +623,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
     private void showStudySessionDetails(StudySession session) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle("Study Session Details");
-        dialog.setHeaderText("📚 Study Session from " + session.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
+        dialog.setHeaderText("» Study Session from " + session.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
         
         VBox content = new VBox(10);
         content.setPadding(new Insets(20));
@@ -633,8 +633,8 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             content.getChildren().add(new Label("Time: " + session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) + 
                 (session.getEndTime() != null ? " - " + session.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "")));
         }
-        content.getChildren().add(new Label("⏱️ Duration: " + session.getDurationMinutes() + " minutes"));
-        content.getChildren().add(new Label("🏆 Points: " + session.getPointsEarned()));
+        content.getChildren().add(new Label("⌚ Duration: " + session.getDurationMinutes() + " minutes"));
+        content.getChildren().add(new Label("♦ Points: " + session.getPointsEarned()));
         
         if (session.getSubject() != null && !session.getSubject().trim().isEmpty()) {
             content.getChildren().add(new Label("Subject: " + session.getSubject()));
@@ -669,7 +669,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         
         // Overview Tab
-        Tab overviewTab = new Tab("📈 Overview");
+        Tab overviewTab = new Tab("↑ Overview");
         VBox overviewContent = new VBox(10);
         overviewContent.setPadding(new Insets(15));
         
@@ -684,13 +684,13 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
             overviewContent.getChildren().add(new Label("Time: " + session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) + 
                 (session.getEndTime() != null ? " - " + session.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "")));
         }
-        overviewContent.getChildren().add(new Label("⏱️ Duration: " + session.getDurationMinutes() + " minutes"));
-        overviewContent.getChildren().add(new Label("🏆 Points: " + session.getPointsEarned()));
+        overviewContent.getChildren().add(new Label("⌚ Duration: " + session.getDurationMinutes() + " minutes"));
+        overviewContent.getChildren().add(new Label("♦ Points: " + session.getPointsEarned()));
         
         overviewTab.setContent(new ScrollPane(overviewContent));
         
         // Progress Tab
-        Tab progressTab = new Tab("✅ Progress");
+        Tab progressTab = new Tab("[✓] Progress");
         VBox progressContent = new VBox(10);
         progressContent.setPadding(new Insets(15));
         
@@ -704,7 +704,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         }
         
         if (session.getProgress() != null && !session.getProgress().trim().isEmpty()) {
-            Label progLabel = new Label("✅ Progress Made:");
+            Label progLabel = new Label("[✓] Progress Made:");
             progLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
             TextArea progArea = new TextArea(session.getProgress());
             progArea.setEditable(false);
@@ -713,7 +713,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         }
         
         if (session.getNextSteps() != null && !session.getNextSteps().trim().isEmpty()) {
-            Label nextLabel = new Label("📋 Next Steps:");
+            Label nextLabel = new Label("» Next Steps:");
             nextLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
             TextArea nextArea = new TextArea(session.getNextSteps());
             nextArea.setEditable(false);
@@ -724,19 +724,19 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         progressTab.setContent(new ScrollPane(progressContent));
         
         // Challenges Tab
-        Tab challengesTab = new Tab("⚠️ Challenges");
+        Tab challengesTab = new Tab("[!]  Challenges");
         VBox challengesContent = new VBox(10);
         challengesContent.setPadding(new Insets(15));
         
         if (session.getChallenges() != null && !session.getChallenges().trim().isEmpty()) {
-            Label chalLabel = new Label("⚠️ Challenges:");
+            Label chalLabel = new Label("[!]  Challenges:");
             chalLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
             TextArea chalArea = new TextArea(session.getChallenges());
             chalArea.setEditable(false);
             chalArea.setPrefRowCount(3);
             challengesContent.getChildren().addAll(chalLabel, chalArea);
         } else {
-            challengesContent.getChildren().add(new Label("✅ No challenges reported for this session"));
+            challengesContent.getChildren().add(new Label("[✓] No challenges reported for this session"));
         }
         
         if (session.getNotes() != null && !session.getNotes().trim().isEmpty()) {

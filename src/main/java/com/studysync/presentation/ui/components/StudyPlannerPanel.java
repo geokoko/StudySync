@@ -95,7 +95,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox header = new VBox(10);
         header.setAlignment(Pos.CENTER);
         
-        dateLabel = new Label("📅 " + dateTimeService.getFormattedCurrentDate());
+        dateLabel = new Label("▦ " + dateTimeService.getFormattedCurrentDate());
         dateLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
         dateLabel.setTextFill(Color.web("#2c3e50"));
         
@@ -119,11 +119,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox goalsHeader = new HBox(15);
         goalsHeader.setAlignment(Pos.CENTER_LEFT);
         
-        Label goalsTitle = new Label("✅ Today's Goals");
+        Label goalsTitle = new Label("☑ Today's Goals");
         goalsTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
         goalsTitle.setTextFill(Color.web("#2c3e50"));
         
-        Button addGoalBtn = new Button("➕ Add Goal");
+        Button addGoalBtn = new Button("+ Add Goal");
         addGoalBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
         addGoalBtn.setOnAction(e -> showAddGoalDialog());
         
@@ -141,7 +141,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         sessionSection.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
         sessionSection.setPadding(new Insets(20));
         
-        Label sessionTitle = new Label("⏱️ Study Session");
+        Label sessionTitle = new Label("✎ Study Session");
         sessionTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
         sessionTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -215,7 +215,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         sessionsScroll.setPrefHeight(200);
         sessionsScroll.setStyle("-fx-background-color: transparent;");
         
-        Label todaySessionsLabel = new Label("📚 Today's Completed Sessions");
+        Label todaySessionsLabel = new Label("☑ Today's Completed Sessions");
         todaySessionsLabel.setFont(Font.font("System", FontWeight.BOLD, 14));
         todaySessionsLabel.setTextFill(Color.web("#2c3e50"));
         
@@ -313,7 +313,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 try {
                     Optional<Task> linkedTask = Task.findById(goal.getTaskId());
                     if (linkedTask.isPresent()) {
-                        Label taskLabel = new Label("📋 Linked to: " + linkedTask.get().getTitle());
+                        Label taskLabel = new Label("↝ Linked to: " + linkedTask.get().getTitle());
                         taskLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
                         taskLabel.setTextFill(javafx.scene.paint.Color.web("#6c757d"));
                         goalTextBox.getChildren().add(taskLabel);
@@ -376,7 +376,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         // Focus level with stars
         HBox focusBox = new HBox(3);
         focusBox.setAlignment(Pos.CENTER_LEFT);
-        Label focusIconLabel = new Label("🎯");
+        Label focusIconLabel = new Label("◎");
         focusIconLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
         
         HBox starsBox = new HBox(1);
@@ -395,13 +395,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         
         // Points earned with penalty indication
         VBox pointsContainer = new VBox(2);
-        Label pointsLabel = new Label("🏆 " + session.getPointsEarned() + " pts");
+        Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " pts");
         pointsLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 12));
         
         // Show penalty warning for low focus
         if (session.getFocusLevel() <= 2) {
             pointsLabel.setTextFill(Color.web("#e74c3c")); // Red for penalties
-            Label penaltyWarning = new Label("⚠️ Focus penalty applied");
+            Label penaltyWarning = new Label("⚠  Focus penalty applied");
             penaltyWarning.setFont(Font.font("System", FontWeight.NORMAL, 10));
             penaltyWarning.setTextFill(Color.web("#e74c3c"));
             pointsContainer.getChildren().addAll(pointsLabel, penaltyWarning);
@@ -412,7 +412,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         
         // Efficiency indicator
         double efficiency = (double) session.getPointsEarned() / Math.max(1, session.getDurationMinutes()) * 60;
-        String efficiencyIcon = efficiency >= 40 ? "🌟" : efficiency >= 20 ? "⭐" : "📈";
+        String efficiencyIcon = efficiency >= 40 ? "★★" : efficiency >= 20 ? "⭐" : "📈";
         Label efficiencyLabel = new Label(efficiencyIcon + " " + String.format("%.1f pts/hr", efficiency));
         efficiencyLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         efficiencyLabel.setTextFill(Color.web("#8e44ad"));
@@ -424,7 +424,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             String preview = session.getSessionText().length() > 80 ? 
                            session.getSessionText().substring(0, 80) + "..." : 
                            session.getSessionText();
-            Label notesLabel = new Label("📝 " + preview);
+            Label notesLabel = new Label("▪ " + preview);
             notesLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
             notesLabel.setTextFill(Color.web("#6c757d"));
             notesLabel.setWrapText(true);
@@ -436,7 +436,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         // Buttons for actions
         HBox buttons = new HBox(5);
         
-        Button viewDetailsBtn = new Button("📊 View Details");
+        Button viewDetailsBtn = new Button("▪ View Details");
         viewDetailsBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 3; -fx-font-size: 10px;");
         viewDetailsBtn.setOnAction(e -> showSessionDetails(session));
         
@@ -483,16 +483,16 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         detailsTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         
         // Overview Tab
-        Tab overviewTab = new Tab("📈 Overview", createOverviewTab(session));
+        Tab overviewTab = new Tab("◎ Overview", createOverviewTab(session));
         
         // Progress Tab  
-        Tab progressTab = new Tab("✅ Progress", createProgressTab(session));
+        Tab progressTab = new Tab("✓ Progress", createProgressTab(session));
         
         // Notes Tab
-        Tab notesTab = new Tab("📝 Notes", createNotesTab(session));
+        Tab notesTab = new Tab("▪ Notes", createNotesTab(session));
         
         // Performance Tab
-        Tab performanceTab = new Tab("⚡ Performance", createPerformanceTab(session));
+        Tab performanceTab = new Tab("↯  Performance", createPerformanceTab(session));
         
         detailsTabs.getTabs().addAll(overviewTab, progressTab, notesTab, performanceTab);
         
@@ -522,7 +522,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox header = new VBox(10);
         header.setStyle("-fx-background-color: linear-gradient(to right, #667eea, #764ba2); -fx-background-radius: 10; -fx-padding: 20;");
         
-        Label sessionTitle = new Label("📚 Study Session");
+        Label sessionTitle = new Label("✎ Study Session");
         sessionTitle.setFont(Font.font("System", FontWeight.BOLD, 24));
         sessionTitle.setTextFill(Color.WHITE);
         
@@ -536,9 +536,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox metricsBox = new HBox(30);
         metricsBox.setAlignment(Pos.CENTER_LEFT);
         
-        VBox durationBox = createMetricBox("⏱️", session.getDurationMinutes() + " min", "Duration");
-        VBox focusBox = createMetricBox("🎯", "★".repeat(session.getFocusLevel()) + "☆".repeat(5 - session.getFocusLevel()), "Focus Level");
-        VBox pointsBox = createMetricBox("🏆", session.getPointsEarned() + " pts", "Points Earned");
+        VBox durationBox = createMetricBox("⌚", session.getDurationMinutes() + " min", "Duration");
+        VBox focusBox = createMetricBox("◎", "★".repeat(session.getFocusLevel()) + "☆".repeat(5 - session.getFocusLevel()), "Focus Level");
+        VBox pointsBox = createMetricBox("♦", session.getPointsEarned() + " pts", "Points Earned");
         
         metricsBox.getChildren().addAll(durationBox, focusBox, pointsBox);
         
@@ -599,14 +599,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox statusSection = new VBox(10);
         statusSection.setStyle("-fx-background-color: #e8f5e8; -fx-background-radius: 10; -fx-padding: 15;");
         
-        Label statusTitle = new Label("📊 Session Status");
+        Label statusTitle = new Label("▪ Session Status");
         statusTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         statusTitle.setTextFill(Color.web("#2c3e50"));
         
-        Label completedLabel = new Label("Status: " + (session.isCompleted() ? "✅ Completed" : "⏸️ Incomplete"));
+        Label completedLabel = new Label("Status: " + (session.isCompleted() ? "✓ Completed" : "‖ Incomplete"));
         completedLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
         
-        Label pointsLabel = new Label("Points Earned: 🏆 " + session.getPointsEarned());
+        Label pointsLabel = new Label("Points Earned: ♦ " + session.getPointsEarned());
         pointsLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
         
         statusSection.getChildren().addAll(statusTitle, completedLabel, pointsLabel);
@@ -623,7 +623,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox focusSection = new VBox(15);
         focusSection.setStyle("-fx-background-color: #fff3cd; -fx-background-radius: 10; -fx-padding: 15;");
         
-        Label focusTitle = new Label("🎯 Focus & Productivity");
+        Label focusTitle = new Label("◎ Focus & Productivity");
         focusTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         focusTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -665,7 +665,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox productivitySection = new VBox(10);
         productivitySection.setStyle("-fx-background-color: #d1ecf1; -fx-background-radius: 10; -fx-padding: 15;");
         
-        Label productivityTitle = new Label("📈 Productivity Metrics");
+        Label productivityTitle = new Label("↑ Productivity Metrics");
         productivityTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         productivityTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -693,7 +693,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
         
-        Label notesTitle = new Label("📝 Session Notes & Reflections");
+        Label notesTitle = new Label("▪ Session Notes & Reflections");
         notesTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
         notesTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -712,7 +712,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             int wordCount = words.length;
             int charCount = sessionText.length();
             
-            Label statsLabel = new Label(String.format("📊 %d words • %d characters", wordCount, charCount));
+            Label statsLabel = new Label(String.format("▪ %d words • %d characters", wordCount, charCount));
             statsLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
             statsLabel.setTextFill(Color.web("#6c757d"));
             
@@ -732,7 +732,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox comparisonSection = new VBox(15);
         comparisonSection.setStyle("-fx-background-color: #f0f8ff; -fx-background-radius: 10; -fx-padding: 15;");
         
-        Label comparisonTitle = new Label("📊 Performance Analysis");
+        Label comparisonTitle = new Label("▪ Performance Analysis");
         comparisonTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         comparisonTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -748,16 +748,16 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             comparisonGrid.setVgap(10);
             
             // Duration comparison
-            String durationComparison = session.getDurationMinutes() > avgDuration ? "📈 Above average" : 
-                                      session.getDurationMinutes() < avgDuration ? "📉 Below average" : "➡️ Average";
+            String durationComparison = session.getDurationMinutes() > avgDuration ? "↑ Above average" : 
+                                      session.getDurationMinutes() < avgDuration ? "↓ Below average" : "→ Average";
             
             // Focus comparison
-            String focusComparison = session.getFocusLevel() > avgFocus ? "📈 Above average" : 
-                                   session.getFocusLevel() < avgFocus ? "📉 Below average" : "➡️ Average";
+            String focusComparison = session.getFocusLevel() > avgFocus ? "↑ Above average" : 
+                                   session.getFocusLevel() < avgFocus ? "↓ Below average" : "→ Average";
             
             // Points comparison
-            String pointsComparison = session.getPointsEarned() > avgPoints ? "📈 Above average" : 
-                                    session.getPointsEarned() < avgPoints ? "📉 Below average" : "➡️ Average";
+            String pointsComparison = session.getPointsEarned() > avgPoints ? "↑ Above average" : 
+                                    session.getPointsEarned() < avgPoints ? "↓ Below average" : "→ Average";
             
             comparisonGrid.add(new Label("Duration vs 7-day avg:"), 0, 0);
             comparisonGrid.add(new Label(String.format("%.0f min %s", avgDuration, durationComparison)), 1, 0);
@@ -778,7 +778,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox recommendationsSection = new VBox(10);
         recommendationsSection.setStyle("-fx-background-color: #f0fff0; -fx-background-radius: 10; -fx-padding: 15;");
         
-        Label recommendationsTitle = new Label("💡 Recommendations");
+        Label recommendationsTitle = new Label("•  Recommendations");
         recommendationsTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         recommendationsTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -810,9 +810,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private String getEfficiencyRating(StudySession session) {
         double efficiency = (double) session.getPointsEarned() / Math.max(1, session.getDurationMinutes()) * 60; // points per hour
         if (efficiency >= 60) return "⭐⭐⭐Excellent";
-        else if (efficiency >= 40) return "⭐ Good";
+        else if (efficiency >= 40) return "★ Good";
         else if (efficiency >= 20) return "👍 Fair";
-        else return "📈 Needs Improvement";
+        else return "↑ Needs Improvement";
     }
     
     private List<String> getRecommendations(StudySession session) {
@@ -874,19 +874,19 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         focusSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
             int focusLevel = newVal.intValue();
             if (focusLevel <= 2) {
-                focusWarningLabel.setText("⚠️ Low focus rating will result in point penalties. Consider what caused the distraction and how to improve next time.");
+                focusWarningLabel.setText("[!]  Low focus rating will result in point penalties. Consider what caused the distraction and how to improve next time.");
                 focusWarningLabel.setTextFill(Color.web("#e74c3c"));
             } else if (focusLevel == 3) {
-                focusWarningLabel.setText("💡 Average focus. Think about what could help you stay more concentrated.");
+                focusWarningLabel.setText("•  Average focus. Think about what could help you stay more concentrated.");
                 focusWarningLabel.setTextFill(Color.web("#f39c12"));
             } else {
-                focusWarningLabel.setText("✅ Great focus! You'll earn bonus points for staying concentrated.");
+                focusWarningLabel.setText("[✓] Great focus! You'll earn bonus points for staying concentrated.");
                 focusWarningLabel.setTextFill(Color.web("#27ae60"));
             }
         });
         
         // Initialize warning for default value
-        focusWarningLabel.setText("💡 Average focus. Think about what could help you stay more concentrated.");
+        focusWarningLabel.setText("•  Average focus. Think about what could help you stay more concentrated.");
         focusWarningLabel.setTextFill(Color.web("#f39c12"));
         
         Label notesLabel = new Label("Notes:");
@@ -991,9 +991,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             
             String timeDisplay;
             if (hours > 0) {
-                timeDisplay = String.format("⏱️ Session running: %dh %02dm", hours, minutes);
+                timeDisplay = String.format("⌚ Session running: %dh %02dm", hours, minutes);
             } else {
-                timeDisplay = String.format("⏱️ Session running: %dm", minutes);
+                timeDisplay = String.format("⌚ Session running: %dm", minutes);
             }
             
             sessionStatus.setText(timeDisplay);
@@ -1010,7 +1010,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
      */
     private void onDateChanged(LocalDate newDate) {
         // Update the date label
-        dateLabel.setText("📅 " + dateTimeService.getFormattedCurrentDate());
+        dateLabel.setText("» " + dateTimeService.getFormattedCurrentDate());
         
         // Refresh the entire display for the new day
         updateDisplay();

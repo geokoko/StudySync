@@ -85,7 +85,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
         VBox sidebar = new VBox(15);
         sidebar.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
         
-        Label sidebarTitle = new Label("📅 Navigation");
+        Label sidebarTitle = new Label("» Navigation");
         sidebarTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         sidebarTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -187,7 +187,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
         saveButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;");
         saveButton.setOnAction(e -> saveCurrentReflection());
         
-        Button newReflectionBtn = new Button("📝 New Entry");
+        Button newReflectionBtn = new Button("▪ New Entry");
         newReflectionBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
         newReflectionBtn.setOnAction(e -> createNewReflection());
         
@@ -218,7 +218,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
         } else if (date.equals(dateTimeService.getCurrentDate().minusDays(1))) {
             dateStr += " (Yesterday)";
         }
-        dateHeaderLabel.setText("📅 " + dateStr);
+        dateHeaderLabel.setText("» " + dateStr);
         
         // Load reflection for the date
         try {

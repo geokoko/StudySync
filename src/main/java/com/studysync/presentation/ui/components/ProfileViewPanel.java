@@ -248,7 +248,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         VBox section = new VBox(15);
         section.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 20; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
         
-        Label sectionTitle = new Label("📊 Overall Performance");
+        Label sectionTitle = new Label("▪ Overall Performance");
         sectionTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
         sectionTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -296,7 +296,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         HBox header = new HBox(15);
         header.setAlignment(Pos.CENTER_LEFT);
         
-        Label sectionTitle = new Label("🏆 Achieved Goals");
+        Label sectionTitle = new Label("♦ Achieved Goals");
         sectionTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
         sectionTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -309,7 +309,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         countLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
         countLabel.setTextFill(Color.web("#7f8c8d"));
         
-        Button viewAllBtn = new Button("📋 View All Achieved Goals");
+        Button viewAllBtn = new Button("» View All Achieved Goals");
         viewAllBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 5;");
         viewAllBtn.setOnAction(e -> showAllAchievedGoalsDialog());
         
@@ -383,7 +383,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private void showAllAchievedGoalsDialog() {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle("All Achieved Goals");
-        dialog.setHeaderText("🏆 Your Achievement History");
+        dialog.setHeaderText("♦ Your Achievement History");
         
         VBox content = new VBox(10);
         content.setPadding(new Insets(20));
@@ -421,7 +421,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             
             for (Map.Entry<String, List<StudyGoal>> monthEntry : goalsByMonth.entrySet()) {
                 // Month header
-                Label monthLabel = new Label("📅 " + monthEntry.getKey());
+                Label monthLabel = new Label("» " + monthEntry.getKey());
                 monthLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
                 monthLabel.setTextFill(Color.web("#2c3e50"));
                 monthLabel.setPadding(new Insets(15, 0, 5, 0));
@@ -467,13 +467,13 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         HBox detailsBox = new HBox(15);
         detailsBox.setAlignment(Pos.CENTER_LEFT);
         
-        Label dateLabel = new Label("📅 " + goal.getDate().format(DateTimeFormatter.ofPattern("EEE, MMM dd, yyyy")));
+        Label dateLabel = new Label("» " + goal.getDate().format(DateTimeFormatter.ofPattern("EEE, MMM dd, yyyy")));
         dateLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         dateLabel.setTextFill(Color.web("#7f8c8d"));
         
         // Show if it was delayed before achievement
         if (goal.isDelayed()) {
-            Label delayLabel = new Label("⚠️ Delayed " + goal.getDaysDelayed() + " day(s)");
+            Label delayLabel = new Label("[!]  Delayed " + goal.getDaysDelayed() + " day(s)");
             delayLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
             delayLabel.setTextFill(Color.web("#e67e22"));
             detailsBox.getChildren().addAll(dateLabel, delayLabel);
@@ -589,7 +589,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             LineChart<String, Number> focusChart = createFocusTrendChart();
             VBox focusChartBox = new VBox(10);
             focusChartBox.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
-            Label focusChartTitle = new Label("📈 Focus Level Trend (Last 14 Days)");
+            Label focusChartTitle = new Label("↑ Focus Level Trend (Last 14 Days)");
             focusChartTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
             focusChartBox.getChildren().addAll(focusChartTitle, focusChart);
             
@@ -597,7 +597,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             BarChart<String, Number> productivityChart = createDailyProductivityChart();
             VBox productivityChartBox = new VBox(10);
             productivityChartBox.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
-            Label productivityChartTitle = new Label("📊 Daily Study Time (Last 7 Days)");
+            Label productivityChartTitle = new Label("▪ Daily Study Time (Last 7 Days)");
             productivityChartTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
             productivityChartBox.getChildren().addAll(productivityChartTitle, productivityChart);
             

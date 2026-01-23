@@ -88,7 +88,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
 
     private void initializeComponents(VBox mainContent) {
         // Header
-        Label headerLabel = new Label("🚀 Project Management");
+        Label headerLabel = new Label("■ Project Management");
         headerLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
         headerLabel.setTextFill(Color.web("#2c3e50"));
         
@@ -100,13 +100,13 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         VBox.setVgrow(mainTabPane, Priority.ALWAYS);
         
         // Projects tab
-        Tab projectsTab = new Tab("📁 Projects", createProjectsTab());
+        Tab projectsTab = new Tab("≡ Projects", createProjectsTab());
         
         // Current Session tab
-        Tab sessionTab = new Tab("⚡ Work Session", createSessionTab());
+        Tab sessionTab = new Tab("‣ Work Session", createSessionTab());
         
         // History tab
-        Tab historyTab = new Tab("📈 Session History", createHistoryTab());
+        Tab historyTab = new Tab("▴ Session History", createHistoryTab());
         
         mainTabPane.getTabs().addAll(projectsTab, sessionTab, historyTab);
         
@@ -172,7 +172,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         // New category input section for projects
         newProjectCategoryField = new TextField();
         newProjectCategoryField.setPromptText("Or create new category...");
-        Button addProjectCategoryBtn = new Button("➕ Add Category");
+        Button addProjectCategoryBtn = new Button("+ Add Category");
         addProjectCategoryBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 11px;");
         addProjectCategoryBtn.setOnAction(e -> addNewProjectCategory());
         
@@ -238,7 +238,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         saveProjectBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
         saveProjectBtn.setOnAction(e -> saveProject());
         
-        Button newProjectBtn = new Button("➕ New Project");
+        Button newProjectBtn = new Button("+ New Project");
         newProjectBtn.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white;");
         newProjectBtn.setOnAction(e -> clearProjectForm());
         
@@ -826,15 +826,15 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                 HBox metricsBox = new HBox(20);
                 metricsBox.setAlignment(Pos.CENTER_LEFT);
                 
-                Label dateLabel = new Label("📅 " + session.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
+                Label dateLabel = new Label("» " + session.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
                 dateLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
                 dateLabel.setTextFill(Color.web("#7f8c8d"));
                 
-                Label durationLabel = new Label("⏱️ " + session.getDurationMinutes() + " min");
+                Label durationLabel = new Label("⌚ " + session.getDurationMinutes() + " min");
                 durationLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
                 durationLabel.setTextFill(Color.web("#3498db"));
                 
-                Label pointsLabel = new Label("🏆 " + session.getPointsEarned() + " pts");
+                Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " pts");
                 pointsLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 11));
                 pointsLabel.setTextFill(Color.web("#27ae60"));
                 
@@ -847,7 +847,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                     String progressPreview = session.getProgress().length() > 100 ? 
                                            session.getProgress().substring(0, 100) + "..." : 
                                            session.getProgress();
-                    Label progressLabel = new Label("✅ " + progressPreview);
+                    Label progressLabel = new Label("[✓] " + progressPreview);
                     progressLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
                     progressLabel.setTextFill(Color.web("#6c757d"));
                     progressLabel.setWrapText(true);
@@ -859,7 +859,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                     String nextStepsPreview = session.getNextSteps().length() > 80 ? 
                                             session.getNextSteps().substring(0, 80) + "..." : 
                                             session.getNextSteps();
-                    Label nextStepsLabel = new Label("📋 Next: " + nextStepsPreview);
+                    Label nextStepsLabel = new Label("» Next: " + nextStepsPreview);
                     nextStepsLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
                     nextStepsLabel.setTextFill(Color.web("#8e44ad"));
                     nextStepsLabel.setWrapText(true);
@@ -897,9 +897,9 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
             
             String timeDisplay;
             if (hours > 0) {
-                timeDisplay = String.format("⏱️ Session running: %dh %02dm", hours, minutes);
+                timeDisplay = String.format("⌚ Session running: %dh %02dm", hours, minutes);
             } else {
-                timeDisplay = String.format("⏱️ Session running: %dm", minutes);
+                timeDisplay = String.format("⌚ Session running: %dm", minutes);
             }
             
             sessionTimerLabel.setText(timeDisplay);
