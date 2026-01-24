@@ -339,14 +339,14 @@ public class StudyGoal {
     /**
      * Returns a string representation of this study goal.
      * 
-     * <p>The format shows the goal description followed by a checkmark (✓) if achieved
-     * or an X (✗) if not achieved. This provides a quick visual status indicator.</p>
+     * <p>The format shows the goal description followed by a checkmark ([✓]) if achieved
+     * or an X ([x]) if not achieved. This provides a quick visual status indicator.</p>
      * 
      * @return a string representation showing goal description and achievement status
      */
     @Override
     public String toString() {
-        return description + " - " + (achieved ? "✓" : "✗");
+        return description + " - " + (achieved ? "[✓]" : "[x]");
     }
     
     // ==============================================================

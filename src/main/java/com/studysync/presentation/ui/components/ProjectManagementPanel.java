@@ -19,10 +19,11 @@ import javafx.scene.text.FontWeight;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
+
 import javafx.animation.Timeline;
 import javafx.animation.KeyFrame;
 import javafx.util.Duration;
+import java.util.function.Consumer;
 
 public class ProjectManagementPanel extends ScrollPane implements RefreshablePanel {
     private final ProjectService projectService;
@@ -44,22 +45,21 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     // Session management
     private Label currentProjectLabel;
     private ListView<ProjectSession> sessionListView;
-    private VBox sessionFormContainer;
     private Button startSessionBtn;
     private Button endSessionBtn;
-    
-    // Session form fields
-    private TextField sessionTitleField;
-    private TextArea objectivesArea;
-    private TextArea progressArea;
-    private TextArea nextStepsArea;
-    private TextArea challengesArea;
-    private TextArea notesArea;
     private Label sessionTimerLabel;
 
-    public ProjectManagementPanel(ProjectService projectService, CategoryService categoryService) {
+
+    
+    private final Consumer<Node> showModal;
+    private final Runnable closeModal;
+
+    public ProjectManagementPanel(ProjectService projectService, CategoryService categoryService,
+                                Consumer<Node> showModal, Runnable closeModal) {
         this.projectService = projectService;
         this.categoryService = categoryService;
+        this.showModal = showModal;
+        this.closeModal = closeModal;
         // Create main content container
         VBox mainContent = new VBox(15);
         mainContent.setPadding(new Insets(20));
@@ -88,7 +88,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
 
     private void initializeComponents(VBox mainContent) {
         // Header
-        Label headerLabel = new Label("🚀 Project Management");
+        Label headerLabel = new Label("■ Project Management");
         headerLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
         headerLabel.setTextFill(Color.web("#2c3e50"));
         
@@ -100,13 +100,13 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         VBox.setVgrow(mainTabPane, Priority.ALWAYS);
         
         // Projects tab
-        Tab projectsTab = new Tab("📁 Projects", createProjectsTab());
+        Tab projectsTab = new Tab("≡ Projects", createProjectsTab());
         
         // Current Session tab
-        Tab sessionTab = new Tab("⚡ Work Session", createSessionTab());
+        Tab sessionTab = new Tab("‣ Work Session", createSessionTab());
         
         // History tab
-        Tab historyTab = new Tab("📈 Session History", createHistoryTab());
+        Tab historyTab = new Tab("▴ Session History", createHistoryTab());
         
         mainTabPane.getTabs().addAll(projectsTab, sessionTab, historyTab);
         
@@ -172,7 +172,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         // New category input section for projects
         newProjectCategoryField = new TextField();
         newProjectCategoryField.setPromptText("Or create new category...");
-        Button addProjectCategoryBtn = new Button("➕ Add Category");
+        Button addProjectCategoryBtn = new Button("+ Add Category");
         addProjectCategoryBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 11px;");
         addProjectCategoryBtn.setOnAction(e -> addNewProjectCategory());
         
@@ -238,7 +238,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         saveProjectBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
         saveProjectBtn.setOnAction(e -> saveProject());
         
-        Button newProjectBtn = new Button("➕ New Project");
+        Button newProjectBtn = new Button("+ New Project");
         newProjectBtn.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white;");
         newProjectBtn.setOnAction(e -> clearProjectForm());
         
@@ -305,11 +305,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         // Session controls
         VBox sessionControls = createSessionControls();
         
-        // Session form (hidden initially)
-        sessionFormContainer = createSessionForm();
-        sessionFormContainer.setVisible(false);
-        
-        container.getChildren().addAll(projectSection, sessionControls, sessionFormContainer);
+        container.getChildren().addAll(projectSection, sessionControls);
         return container;
     }
     
@@ -332,77 +328,13 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         
         endSessionBtn = new Button("End Session");
         endSessionBtn.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white; -fx-padding: 10 20;");
-        endSessionBtn.setOnAction(e -> showEndSessionForm());
+        endSessionBtn.setOnAction(e -> showEndSessionDialog());
         endSessionBtn.setDisable(true);
         
         buttonBox.getChildren().addAll(startSessionBtn, endSessionBtn);
         
         controls.getChildren().addAll(sessionTimerLabel, buttonBox);
         return controls;
-    }
-    
-    private VBox createSessionForm() {
-        VBox form = new VBox(10);
-        form.setStyle("-fx-background-color: white; -fx-padding: 15; -fx-background-radius: 10;");
-        
-        Label formTitle = new Label("Session Summary");
-        formTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
-        
-        GridPane formGrid = new GridPane();
-        formGrid.setHgap(10);
-        formGrid.setVgap(10);
-        
-        sessionTitleField = new TextField();
-        sessionTitleField.setPromptText("Session title (e.g., 'Implemented user authentication')");
-        
-        objectivesArea = new TextArea();
-        objectivesArea.setPromptText("What did you plan to accomplish?");
-        objectivesArea.setPrefRowCount(2);
-        
-        progressArea = new TextArea();
-        progressArea.setPromptText("What did you actually accomplish?");
-        progressArea.setPrefRowCount(3);
-        
-        nextStepsArea = new TextArea();
-        nextStepsArea.setPromptText("What should be done next?");
-        nextStepsArea.setPrefRowCount(2);
-        
-        challengesArea = new TextArea();
-        challengesArea.setPromptText("Any challenges or blockers encountered?");
-        challengesArea.setPrefRowCount(2);
-        
-        notesArea = new TextArea();
-        notesArea.setPromptText("Additional notes or thoughts");
-        notesArea.setPrefRowCount(2);
-        
-        formGrid.add(new Label("Session Title:"), 0, 0);
-        formGrid.add(sessionTitleField, 1, 0);
-        formGrid.add(new Label("Objectives:"), 0, 1);
-        formGrid.add(objectivesArea, 1, 1);
-        formGrid.add(new Label("Progress Made:"), 0, 2);
-        formGrid.add(progressArea, 1, 2);
-        formGrid.add(new Label("Next Steps:"), 0, 3);
-        formGrid.add(nextStepsArea, 1, 3);
-        formGrid.add(new Label("Challenges:"), 0, 4);
-        formGrid.add(challengesArea, 1, 4);
-        formGrid.add(new Label("Notes:"), 0, 5);
-        formGrid.add(notesArea, 1, 5);
-        
-        HBox buttonBox = new HBox(10);
-        buttonBox.setAlignment(Pos.CENTER);
-        
-        Button saveSessionBtn = new Button("Save Session");
-        saveSessionBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
-        saveSessionBtn.setOnAction(e -> saveSession());
-        
-        Button cancelBtn = new Button("Cancel");
-        cancelBtn.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
-        cancelBtn.setOnAction(e -> cancelSession());
-        
-        buttonBox.getChildren().addAll(saveSessionBtn, cancelBtn);
-        
-        form.getChildren().addAll(formTitle, formGrid, buttonBox);
-        return form;
     }
     
     private VBox createHistoryTab() {
@@ -606,19 +538,46 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     
     private void deleteSelectedProject() {
         if (selectedProject != null) {
-            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
-            confirmation.setTitle("Delete Project");
-            confirmation.setHeaderText("Are you sure you want to delete this project?");
-            confirmation.setContentText("This will also delete all associated sessions. This action cannot be undone.");
+            VBox content = new VBox(20);
+            content.setPadding(new Insets(20));
+            content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+            content.setMaxWidth(400);
+            content.setMaxHeight(Region.USE_PREF_SIZE);
             
-            confirmation.showAndWait().ifPresent(response -> {
-                if (response == ButtonType.OK) {
+            Label titleLabel = new Label("Delete Project");
+            titleLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+            
+            Label msgLabel = new Label("Are you sure you want to delete this project?\nThis will also delete all associated sessions. This action cannot be undone.");
+            msgLabel.setWrapText(true);
+            
+            HBox buttons = new HBox(10);
+            buttons.setAlignment(Pos.CENTER_RIGHT);
+            
+            Button yesButton = new Button("Delete");
+            yesButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+            
+            Button noButton = new Button("Cancel");
+            
+            buttons.getChildren().addAll(noButton, yesButton);
+            
+            yesButton.setOnAction(e -> {
+                try {
                     projectService.deleteProject(selectedProject.getId());
                     updateDisplay();
                     clearProjectForm();
+                    closeModal.run();
                     showAlert("Success", "Project deleted successfully!");
+                } catch (Exception ex) {
+                    closeModal.run();
+                    showAlert("Error", "Failed to delete project: " + ex.getMessage());
                 }
             });
+            
+            noButton.setOnAction(e -> closeModal.run());
+            
+            content.getChildren().addAll(titleLabel, msgLabel, buttons);
+            
+            showModal.accept(content);
         }
     }
     
@@ -636,33 +595,89 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         }
     }
     
-    private void showEndSessionForm() {
-        if (currentSession != null) {
-            sessionFormContainer.setVisible(true);
-            sessionTitleField.clear();
-            objectivesArea.clear();
-            progressArea.clear();
-            nextStepsArea.clear();
-            challengesArea.clear();
-            notesArea.clear();
-            
-            // Ensure scrollpane adjusts to new content height
-            this.requestLayout();
-            
-            // Scroll to show the form
-            javafx.application.Platform.runLater(() -> {
-                double formY = sessionFormContainer.getBoundsInParent().getMinY();
-                double viewportHeight = this.getViewportBounds().getHeight();
-                double contentHeight = ((VBox) this.getContent()).getHeight();
-                if (contentHeight > viewportHeight) {
-                    this.setVvalue(Math.min(1.0, formY / (contentHeight - viewportHeight)));
-                }
-            });
-        }
-    }
-    
-    private void saveSession() {
-        if (currentSession != null) {
+    private void showEndSessionDialog() {
+        if (currentSession == null) return;
+        
+        // Use in-window modal
+        
+        VBox content = new VBox(15);
+        content.setPadding(new Insets(20));
+        content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.setMaxWidth(500);
+        content.setMaxHeight(Region.USE_PREF_SIZE);
+        
+        Label headerLabel = new Label("Session Summary for " + (selectedProject != null ? selectedProject.getTitle() : "Project"));
+        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        
+        GridPane formGrid = new GridPane();
+        formGrid.setHgap(10);
+        formGrid.setVgap(10);
+        
+        TextField sessionTitleField = new TextField();
+        sessionTitleField.setPromptText("Session title (e.g., 'Implemented user authentication')");
+        sessionTitleField.setPrefWidth(350);
+        
+        TextArea objectivesArea = new TextArea();
+        objectivesArea.setPromptText("What did you plan to accomplish?");
+        objectivesArea.setPrefRowCount(2);
+        objectivesArea.setWrapText(true);
+        
+        TextArea progressArea = new TextArea();
+        progressArea.setPromptText("What did you actually accomplish?");
+        progressArea.setPrefRowCount(3);
+        progressArea.setWrapText(true);
+        
+        TextArea nextStepsArea = new TextArea();
+        nextStepsArea.setPromptText("What should be done next?");
+        nextStepsArea.setPrefRowCount(2);
+        nextStepsArea.setWrapText(true);
+        
+        TextArea challengesArea = new TextArea();
+        challengesArea.setPromptText("Any challenges or blockers encountered?");
+        challengesArea.setPrefRowCount(2);
+        challengesArea.setWrapText(true);
+        
+        TextArea notesArea = new TextArea();
+        notesArea.setPromptText("Additional notes or thoughts");
+        notesArea.setPrefRowCount(2);
+        notesArea.setWrapText(true);
+        
+        formGrid.add(new Label("Session Title:"), 0, 0);
+        formGrid.add(sessionTitleField, 1, 0);
+        formGrid.add(new Label("Objectives:"), 0, 1);
+        formGrid.add(objectivesArea, 1, 1);
+        formGrid.add(new Label("Progress Made:"), 0, 2);
+        formGrid.add(progressArea, 1, 2);
+        formGrid.add(new Label("Next Steps:"), 0, 3);
+        formGrid.add(nextStepsArea, 1, 3);
+        formGrid.add(new Label("Challenges:"), 0, 4);
+        formGrid.add(challengesArea, 1, 4);
+        formGrid.add(new Label("Notes:"), 0, 5);
+        formGrid.add(notesArea, 1, 5);
+        
+        // Buttons
+        HBox buttonBox = new HBox(10);
+        buttonBox.setAlignment(Pos.CENTER_RIGHT);
+        buttonBox.setPadding(new Insets(10, 0, 0, 0));
+        
+        Button saveButton = new Button("Save Session");
+        saveButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
+        
+        Button cancelButton = new Button("Cancel Session");
+        cancelButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+        
+        buttonBox.getChildren().addAll(cancelButton, saveButton);
+        
+        // Wrap grid in ScrollPane for safety
+        ScrollPane gridScroll = new ScrollPane(formGrid);
+        gridScroll.setFitToWidth(true);
+        gridScroll.setMaxHeight(400); 
+        gridScroll.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+
+        content.getChildren().addAll(headerLabel, gridScroll, buttonBox);
+        
+        // Handle button actions
+        saveButton.setOnAction(e -> {
             try {
                 String sessionTitle = sessionTitleField.getText().trim();
                 String objectives = objectivesArea.getText().trim();
@@ -676,30 +691,32 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                 
                 stopSessionTimer();
                 currentSession = null;
-                sessionFormContainer.setVisible(false);
-                this.requestLayout();
-                sessionTimerLabel.setText("Session completed!");
+                sessionTimerLabel.setText("✓ Session saved successfully!");
+                sessionTimerLabel.setStyle("-fx-text-fill: #27ae60;");
                 updateSessionControls();
                 updateDisplay();
-                showAlert("Success", "Session saved successfully!");
-            } catch (Exception e) {
-                showAlert("Error", e.getMessage());
+                
+                closeModal.run();
+            } catch (Exception ex) {
+                sessionTimerLabel.setText("✗ Error: " + ex.getMessage());
+                sessionTimerLabel.setStyle("-fx-text-fill: #e74c3c;");
+                closeModal.run();
             }
-        }
-    }
-    
-    private void cancelSession() {
-        sessionFormContainer.setVisible(false);
-        this.requestLayout();
+        });
         
-        if (currentSession != null) {
-            // Remove the session that was started but not completed
+        cancelButton.setOnAction(e -> {
+            // Cancel session
             projectService.deleteProjectSession(currentSession.getId());
             stopSessionTimer();
             currentSession = null;
             sessionTimerLabel.setText("Session cancelled");
+            sessionTimerLabel.setStyle("-fx-text-fill: #95a5a6;");
             updateSessionControls();
-        }
+            
+            closeModal.run();
+        });
+        
+        showModal.accept(content);
     }
     
     private void updateSessionHistory(Project filterProject) {
@@ -721,11 +738,29 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     }
     
     private void showAlert(String title, String message) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        alert.setContentText(message);
-        alert.showAndWait();
+        VBox content = new VBox(20);
+        content.setPadding(new Insets(20));
+        content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.setMaxWidth(300);
+        content.setMaxHeight(Region.USE_PREF_SIZE);
+        
+        Label titleLabel = new Label(title);
+        titleLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        
+        Label msgLabel = new Label(message);
+        msgLabel.setWrapText(true);
+        
+        Button okButton = new Button("OK");
+        okButton.setOnAction(e -> closeModal.run());
+        okButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        
+        HBox buttonBox = new HBox();
+        buttonBox.setAlignment(Pos.CENTER_RIGHT);
+        buttonBox.getChildren().add(okButton);
+        
+        content.getChildren().addAll(titleLabel, msgLabel, buttonBox);
+        
+        showModal.accept(content);
     }
     
     // Custom list cells
@@ -791,15 +826,15 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                 HBox metricsBox = new HBox(20);
                 metricsBox.setAlignment(Pos.CENTER_LEFT);
                 
-                Label dateLabel = new Label("📅 " + session.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
+                Label dateLabel = new Label("» " + session.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
                 dateLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
                 dateLabel.setTextFill(Color.web("#7f8c8d"));
                 
-                Label durationLabel = new Label("⏱️ " + session.getDurationMinutes() + " min");
+                Label durationLabel = new Label("⌚ " + session.getDurationMinutes() + " min");
                 durationLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
                 durationLabel.setTextFill(Color.web("#3498db"));
                 
-                Label pointsLabel = new Label("🏆 " + session.getPointsEarned() + " pts");
+                Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " pts");
                 pointsLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 11));
                 pointsLabel.setTextFill(Color.web("#27ae60"));
                 
@@ -812,7 +847,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                     String progressPreview = session.getProgress().length() > 100 ? 
                                            session.getProgress().substring(0, 100) + "..." : 
                                            session.getProgress();
-                    Label progressLabel = new Label("✅ " + progressPreview);
+                    Label progressLabel = new Label("[✓] " + progressPreview);
                     progressLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
                     progressLabel.setTextFill(Color.web("#6c757d"));
                     progressLabel.setWrapText(true);
@@ -824,7 +859,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                     String nextStepsPreview = session.getNextSteps().length() > 80 ? 
                                             session.getNextSteps().substring(0, 80) + "..." : 
                                             session.getNextSteps();
-                    Label nextStepsLabel = new Label("📋 Next: " + nextStepsPreview);
+                    Label nextStepsLabel = new Label("» Next: " + nextStepsPreview);
                     nextStepsLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
                     nextStepsLabel.setTextFill(Color.web("#8e44ad"));
                     nextStepsLabel.setWrapText(true);
@@ -862,9 +897,9 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
             
             String timeDisplay;
             if (hours > 0) {
-                timeDisplay = String.format("⏱️ Session running: %dh %02dm", hours, minutes);
+                timeDisplay = String.format("⌚ Session running: %dh %02dm", hours, minutes);
             } else {
-                timeDisplay = String.format("⏱️ Session running: %dm", minutes);
+                timeDisplay = String.format("⌚ Session running: %dm", minutes);
             }
             
             sessionTimerLabel.setText(timeDisplay);

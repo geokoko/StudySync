@@ -59,7 +59,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
     private void initializeComponents(VBox container) {
         // Header
-        Label headerLabel = new Label("📋 Task Management");
+        Label headerLabel = new Label("» Task Management");
         headerLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
         headerLabel.setTextFill(Color.web("#2c3e50"));
         
@@ -138,7 +138,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         // New category input section
         newCategoryField = new TextField();
         newCategoryField.setPromptText("Or create new category...");
-        Button addCategoryBtn = new Button("➕ Add Category");
+        Button addCategoryBtn = new Button("+ Add Category");
         addCategoryBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 11px;");
         addCategoryBtn.setOnAction(e -> addNewCategory());
         

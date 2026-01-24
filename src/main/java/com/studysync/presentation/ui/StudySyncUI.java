@@ -14,6 +14,7 @@ import com.studysync.presentation.ui.components.RefreshablePanel;
 import com.studysync.presentation.ui.components.ReflectionDiaryPanel;
 import com.studysync.presentation.ui.components.StudyPlannerPanel;
 import com.studysync.presentation.ui.components.TaskManagementPanel;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
@@ -54,6 +55,7 @@ public class StudySyncUI {
     private final GoogleDriveService googleDriveService;
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
+    private StackPane overlayLayer;
 
     @Autowired
     public StudySyncUI(TaskService taskService, CategoryService categoryService, ReminderService reminderService,
@@ -68,11 +70,13 @@ public class StudySyncUI {
         this.googleDriveService = Objects.requireNonNull(googleDriveService, "googleDriveService");
 
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
-        panels.put(new Tab("📅 Calendar View"), new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
-        panels.put(new Tab("📚 Study Planner"), new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService));
-        panels.put(new Tab("⭐ Reflection Diary"), new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
-        panels.put(new Tab("🖊️ Projects"), new ProjectManagementPanel(this.projectService, this.categoryService));
-        panels.put(new Tab("📋 Tasks"), new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService));
+        panels.put(new Tab("▦ Calendar View"), new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
+        panels.put(new Tab("✎ Study Planner"), new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService, 
+                this::showModal, this::closeModal));
+        panels.put(new Tab("★ Reflection Diary"), new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
+        panels.put(new Tab("≡ Projects"), new ProjectManagementPanel(this.projectService, this.categoryService,
+                this::showModal, this::closeModal));
+        panels.put(new Tab("☑ Tasks"), new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService));
         panelMap = Collections.unmodifiableMap(panels);
     }
 
@@ -104,7 +108,22 @@ public class StudySyncUI {
         // Add tabPane to center
         mainLayout.setCenter(tabPane);
         
-        Scene scene = new Scene(mainLayout, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+        // Create root stack pane for overlays
+        StackPane rootDataPane = new StackPane();
+        rootDataPane.getChildren().add(mainLayout);
+        
+        // Setup overlay layer
+        overlayLayer = new StackPane();
+        overlayLayer.setStyle("-fx-background-color: rgba(0, 0, 0, 0.4);");
+        overlayLayer.setVisible(false);
+        overlayLayer.setAlignment(Pos.CENTER);
+        
+        // Prevent clicks from passing through
+        overlayLayer.setOnMouseClicked(e -> e.consume());
+        
+        rootDataPane.getChildren().add(overlayLayer);
+        
+        Scene scene = new Scene(rootDataPane, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
         scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
         
         primaryStage.setTitle("StudySync");
@@ -180,7 +199,7 @@ public class StudySyncUI {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         
         // Profile button
-        Button profileButton = new Button("👤 Profile");
+        Button profileButton = new Button("☻ Profile");
         profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;");
         profileButton.setOnMouseEntered(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.3); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.7); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;"));
         profileButton.setOnMouseExited(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;"));
@@ -222,5 +241,22 @@ public class StudySyncUI {
         
         // Update the profile display
         profilePanel.updateDisplay();
+    }
+    
+    // Modal Overlay Methods
+    
+    private void showModal(Node content) {
+        if (overlayLayer != null) {
+            overlayLayer.getChildren().clear();
+            overlayLayer.getChildren().add(content);
+            overlayLayer.setVisible(true);
+        }
+    }
+    
+    private void closeModal() {
+        if (overlayLayer != null) {
+            overlayLayer.setVisible(false);
+            overlayLayer.getChildren().clear();
+        }
     }
 }

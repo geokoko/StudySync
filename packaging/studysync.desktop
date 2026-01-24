@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=StudySync
+GenericName=Study Manager
+Comment=A comprehensive Study Management System for academic productivity
+Exec=studysync
+Icon=studysync
+Terminal=false
+Categories=Education;Office;ProjectManagement;
+Keywords=study;task;project;calendar;academic;planner;
+StartupWMClass=com-studysync-StudySyncApplication

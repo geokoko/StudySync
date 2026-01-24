@@ -10,7 +10,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![JavaFX](https://img.shields.io/badge/JavaFX-21-blue.svg)](https://openjfx.io/)
 [![H2 Database](https://img.shields.io/badge/Database-H2-blue.svg)](https://www.h2database.com/)
-[![Version](https://img.shields.io/badge/Version-0.1.0--BETA-red.svg)](https://github.com/studysync/studysync/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.1-red.svg)](https://github.com/studysync/studysync/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
@@ -19,7 +19,7 @@ StudySync is a comprehensive Study Management System built with modern Java tech
 
 Perfect for students who want to integrate their academic calendar with task management and study tracking! 📚✨
 
-> **⚠️ Beta Release**: This is a beta version (0.1.0-BETA) under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
+> **⚠️ Beta Release**: This is version 0.1.1 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
 
 ## Key Features
 
@@ -56,7 +56,35 @@ StudySync provides comprehensive academic management with three main modules:
 
 ## Installation & Running the Application
 
-### Running the application with gradle
+### Quick Install (Linux - Recommended)
+
+**Option 1: Download from GitHub Releases**
+```bash
+# Download the latest release
+curl -LO https://github.com/geokoko/StudySync/releases/latest/download/studysync-linux.tar.gz
+
+# Extract and install
+tar -xzf studysync-linux.tar.gz
+cd studysync-*
+./install.sh
+```
+
+**Option 2: Build from Source**
+```bash
+git clone https://github.com/geokoko/StudySync.git
+cd StudySync
+./scripts/install.sh --build
+```
+
+After installation:
+- **Launch from app menu**: Search "StudySync" in your application launcher (KDE, GNOME, etc.)
+- **Launch from terminal**: Run `studysync`
+
+To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
+
+---
+
+### Running with Gradle (Development)
 
 1. Clone the Repository
     ``` bash
@@ -96,6 +124,12 @@ StudySync provides comprehensive academic management with three main modules:
 * **Fast startup** (skip some initialization):
     ```bash
     ./scripts/start-fast.sh
+    ```
+
+* **Build release package** (for distribution):
+    ```bash
+    ./scripts/build-release.sh
+    # Creates build/release/studysync-VERSION-linux.tar.gz
     ```
 
 ## Google Drive Sync Setup (Optional)

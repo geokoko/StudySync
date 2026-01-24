@@ -1,6 +1,21 @@
+@font-face {
+    font-family: 'Roboto';
+    src: url('fonts/Roboto-Regular.ttf');
+}
+
+@font-face {
+    font-family: 'Roboto';
+    font-weight: bold;
+    src: url('fonts/Roboto-Bold.ttf');
+}
+
+@font-face {
+    font-family: 'Noto Emoji';
+    src: url('fonts/NotoEmoji-Regular.ttf');
+}
 
 .root {
-    -fx-font-family: "System";
+    -fx-font-family: 'Roboto', 'Noto Emoji', 'System';
 }
 
 .tab-pane {
@@ -78,4 +93,27 @@
 /* Ensure button text is properly centered */
 .button .text {
     -fx-text-alignment: center;
+}
+
+/* Fix for nested TabPane in Projects page */
+.tab-content-area {
+    -fx-background-color: transparent;
+}
+
+.tab-pane > .tab-content-area {
+    -fx-padding: 0;
+}
+
+/* Ensure tab content properly fills available space */
+.tab-pane .tab-content-area .scroll-pane {
+    -fx-background-color: transparent;
+}
+
+.tab-pane .tab-content-area .scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+
+/* ListView within tab content should expand properly */
+.tab-content-area .list-view {
+    -fx-min-height: 100px;
 }

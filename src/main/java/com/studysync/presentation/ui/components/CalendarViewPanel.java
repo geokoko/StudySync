@@ -113,7 +113,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             updateCalendarDisplay();
         });
         
-        Button todayBtn = new Button("📅 Today");
+        Button todayBtn = new Button("» Today");
         todayBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 5;");
         todayBtn.setOnAction(e -> {
             currentMonth = YearMonth.now();
@@ -166,7 +166,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         VBox legendSection = new VBox(10);
         legendSection.setStyle("-fx-background-color: white; -fx-padding: 15; -fx-background-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
         
-        Label legendTitle = new Label("📋 Calendar Legend");
+        Label legendTitle = new Label("» Calendar Legend");
         legendTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         legendTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -174,19 +174,19 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         legendItems.setAlignment(Pos.CENTER_LEFT);
         
         // Today indicator
-        VBox todayItem = createLegendItem("📅", "Today", "#3498db");
+        VBox todayItem = createLegendItem("\uD83D\uDCC5", "Today", "#3498db");
         
         // High productivity indicator
-        VBox highProdItem = createLegendItem("🌟", "High Productivity", "#27ae60");
+        VBox highProdItem = createLegendItem("\u2605\u2605", "High Productivity", "#27ae60");
         
         // Medium productivity indicator
-        VBox medProdItem = createLegendItem("⭐", "Medium Productivity", "#f39c12");
+        VBox medProdItem = createLegendItem("\u2B50", "Medium Productivity", "#f39c12");
         
         // Low/No productivity indicator
-        VBox lowProdItem = createLegendItem("📈", "Low/No Activity", "#95a5a6");
+        VBox lowProdItem = createLegendItem("\uD83D\uDCC8", "Low/No Activity", "#95a5a6");
         
         // Goals indicator
-        VBox goalsItem = createLegendItem("🎯", "Goals Achieved", "#9b59b6");
+        VBox goalsItem = createLegendItem("\u25CE", "Goals Achieved", "#9b59b6");
         
         legendItems.getChildren().addAll(todayItem, highProdItem, medProdItem, lowProdItem, goalsItem);
         
@@ -199,7 +199,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         item.setAlignment(Pos.CENTER);
         
         Label iconLabel = new Label(icon);
-        iconLabel.setFont(Font.font("System", FontWeight.NORMAL, 16));
+        iconLabel.setFont(Font.font("Noto Emoji", FontWeight.NORMAL, 16));
         
         Label textLabel = new Label(text);
         textLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
@@ -283,18 +283,18 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             HBox sessionsBox = new HBox(3);
             sessionsBox.setAlignment(Pos.CENTER_LEFT);
             
-            Label sessionIcon = new Label("📚");
-            sessionIcon.setFont(Font.font("System", FontWeight.NORMAL, 10));
+            Label sessionIcon = new Label("\uD83D\uDCDA");
+            sessionIcon.setFont(Font.font("Noto Emoji", FontWeight.NORMAL, 12));
             
             Label sessionText = new Label(dayData.totalSessions + "s");
             sessionText.setFont(Font.font("System", FontWeight.NORMAL, 9));
             sessionText.setTextFill(Color.web("#3498db"));
             
             // Focus rating stars
-            String focusStars = "★".repeat(Math.max(0, Math.min(5, dayData.avgFocusLevel))) + 
-                               "☆".repeat(Math.max(0, 5 - Math.max(0, dayData.avgFocusLevel)));
+            String focusStars = "\u2605".repeat(Math.max(0, Math.min(5, dayData.avgFocusLevel))) + 
+                               "\u2606".repeat(Math.max(0, 5 - Math.max(0, dayData.avgFocusLevel)));
             Label focusLabel = new Label(focusStars);
-            focusLabel.setFont(Font.font("System", FontWeight.NORMAL, 8));
+            focusLabel.setFont(Font.font("Noto Emoji", FontWeight.NORMAL, 10));
             focusLabel.setTextFill(Color.web("#f39c12"));
             
             sessionsBox.getChildren().addAll(sessionIcon, sessionText, focusLabel);
@@ -306,8 +306,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             HBox goalsBox = new HBox(3);
             goalsBox.setAlignment(Pos.CENTER_LEFT);
             
-            Label goalIcon = new Label("🎯");
-            goalIcon.setFont(Font.font("System", FontWeight.NORMAL, 10));
+            Label goalIcon = new Label("\u25CE");
+            goalIcon.setFont(Font.font("Noto Emoji", FontWeight.NORMAL, 12));
             
             Label goalText = new Label(dayData.achievedGoals + "/" + dayData.totalGoals);
             goalText.setFont(Font.font("System", FontWeight.NORMAL, 9));
@@ -320,7 +320,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         // Productivity indicator
         String productivityIcon = getProductivityIcon(dayData.productivityScore);
         Label prodLabel = new Label(productivityIcon);
-        prodLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        prodLabel.setFont(Font.font("Noto Emoji", FontWeight.NORMAL, 12));
         metricsBox.getChildren().add(prodLabel);
         
         // Study time indicator
@@ -415,9 +415,9 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
     }
     
     private String getProductivityIcon(double score) {
-        if (score >= 70) return "🌟"; // High productivity
-        else if (score >= 40) return "⭐"; // Medium productivity  
-        else if (score >= 10) return "📈"; // Low productivity
+        if (score >= 70) return "\u2605\u2605"; // High productivity
+        else if (score >= 40) return "\u2B50"; // Medium productivity  
+        else if (score >= 10) return "\uD83D\uDCC8"; // Low productivity
         else return ""; // No activity
     }
     
@@ -438,7 +438,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
     private void showDayDetailDialog(LocalDate date, DayData dayData) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle("Day Details - " + date.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy")));
-        dialog.setHeaderText("📅 Complete Day Overview");
+        dialog.setHeaderText("» Complete Day Overview");
         
         // Create tabbed content similar to original DailyViewPanel
         TabPane tabPane = new TabPane();
@@ -446,16 +446,16 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         tabPane.setPrefSize(800, 600);
         
         // Overview Tab
-        Tab overviewTab = new Tab("📊 Overview", createOverviewTab(date, dayData));
+        Tab overviewTab = new Tab("▪ Overview", createOverviewTab(date, dayData));
         
         // Goals Tab  
-        Tab goalsTab = new Tab("🎯 Goals", createGoalsTab(date));
+        Tab goalsTab = new Tab("◎ Goals", createGoalsTab(date));
         
         // Sessions Tab
-        Tab sessionsTab = new Tab("📚 Sessions", createSessionsTab(date));
+        Tab sessionsTab = new Tab("» Sessions", createSessionsTab(date));
         
         // Performance Tab
-        Tab performanceTab = new Tab("📈 Performance", createPerformanceTab(date, dayData));
+        Tab performanceTab = new Tab("↑ Performance", createPerformanceTab(date, dayData));
         
         tabPane.getTabs().addAll(overviewTab, goalsTab, sessionsTab, performanceTab);
         
@@ -514,7 +514,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         
         // Average focus
         metricsGrid.add(new Label("Average Focus:"), 0, 4);
-        Label focusLabel = new Label("★".repeat(dayData.avgFocusLevel) + "☆".repeat(5 - dayData.avgFocusLevel) + " (" + dayData.avgFocusLevel + "/5)");
+        Label focusLabel = new Label("\u2605".repeat(dayData.avgFocusLevel) + "\u2606".repeat(5 - dayData.avgFocusLevel) + " (" + dayData.avgFocusLevel + "/5)");
         focusLabel.setTextFill(Color.web("#f39c12"));
         metricsGrid.add(focusLabel, 1, 4);
         
@@ -537,7 +537,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         VBox section = new VBox(10);
         section.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 10; -fx-padding: 20;");
         
-        Label reflectionTitle = new Label("💭 Daily Reflection");
+        Label reflectionTitle = new Label("\uD83D\uDCAD Daily Reflection");
         reflectionTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         reflectionTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -572,7 +572,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         List<StudyGoal> studyGoals = getFilteredStudyGoalsForDate(date);
         
         if (studyGoals.isEmpty()) {
-            Label noGoalsLabel = new Label("📭 No goals recorded for this date");
+            Label noGoalsLabel = new Label("\uD83D\uDCED No goals recorded for this date");
             noGoalsLabel.setFont(Font.font("System", FontWeight.NORMAL, 16));
             noGoalsLabel.setTextFill(Color.GRAY);
             noGoalsLabel.setPadding(new Insets(50));
@@ -580,7 +580,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             return content;
         }
         
-        Label goalsTitle = new Label("🎯 Study Goals (" + studyGoals.size() + ")");
+        Label goalsTitle = new Label("\u25CE Study Goals (" + studyGoals.size() + ")");
         goalsTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
         goalsTitle.setTextFill(Color.web("#9b59b6"));
         content.getChildren().add(goalsTitle);
@@ -601,7 +601,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         List<ProjectSession> projectSessions = projectService.getProjectSessionsForDate(date);
         
         if (studySessions.isEmpty() && projectSessions.isEmpty()) {
-            Label noSessionsLabel = new Label("📭 No sessions recorded for this date");
+            Label noSessionsLabel = new Label("\uD83D\uDCED No sessions recorded for this date");
             noSessionsLabel.setFont(Font.font("System", FontWeight.NORMAL, 16));
             noSessionsLabel.setTextFill(Color.GRAY);
             noSessionsLabel.setPadding(new Insets(50));
@@ -611,7 +611,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         
         // Study Sessions
         if (!studySessions.isEmpty()) {
-            Label studyTitle = new Label("📚 Study Sessions (" + studySessions.size() + ")");
+            Label studyTitle = new Label("» Study Sessions (" + studySessions.size() + ")");
             studyTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
             studyTitle.setTextFill(Color.web("#3498db"));
             content.getChildren().add(studyTitle);
@@ -624,7 +624,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         
         // Project Sessions
         if (!projectSessions.isEmpty()) {
-            Label projectTitle = new Label("🚀 Project Sessions (" + projectSessions.size() + ")");
+            Label projectTitle = new Label("\uD83D\uDE80 Project Sessions (" + projectSessions.size() + ")");
             projectTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
             projectTitle.setTextFill(Color.web("#e74c3c"));
             projectTitle.setPadding(new Insets(15, 0, 5, 0));
@@ -647,7 +647,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         VBox performanceSection = new VBox(15);
         performanceSection.setStyle("-fx-background-color: #f0f8ff; -fx-background-radius: 10; -fx-padding: 20;");
         
-        Label performanceTitle = new Label("📈 Performance Analysis");
+        Label performanceTitle = new Label("↑ Performance Analysis");
         performanceTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
         performanceTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -699,7 +699,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         VBox section = new VBox(10);
         section.setStyle("-fx-background-color: #f0fff0; -fx-background-radius: 10; -fx-padding: 20;");
         
-        Label recommendationsTitle = new Label("💡 Insights & Recommendations");
+        Label recommendationsTitle = new Label("•  Insights & Recommendations");
         recommendationsTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
         recommendationsTitle.setTextFill(Color.web("#2c3e50"));
         
@@ -775,13 +775,13 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         goalBox.setStyle("-fx-background-color: " + backgroundColor + "; -fx-background-radius: 8; -fx-border-color: " + borderColor + "; -fx-border-radius: 8;");
         
         // Status and description
-        String statusIcon = goal.isAchieved() ? "✅" : (goal.isDelayed() ? "⚠️" : "⭕");
+        String statusIcon = goal.isAchieved() ? "\u2705" : (goal.isDelayed() ? "[!] " : "\u25CB");
         String statusText = goal.isAchieved() ? "Achieved" : (goal.isDelayed() ? "Delayed" : "Pending");
         
         Label statusLabel = new Label(statusIcon + " " + statusText);
         statusLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
         
-        Label descriptionLabel = new Label("🎯 " + goal.getDescription());
+        Label descriptionLabel = new Label("\u25CE " + goal.getDescription());
         descriptionLabel.setFont(Font.font("System", FontWeight.NORMAL, 13));
         descriptionLabel.setWrapText(true);
         
@@ -789,7 +789,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         
         // Add delay info if applicable
         if (goal.isDelayed()) {
-            Label delayLabel = new Label(String.format("📅 Originally from: %s • 🔥 %d days delayed", 
+            Label delayLabel = new Label(String.format("» Originally from: %s • ♨ %d days delayed", 
                 goal.getDate().toString(), goal.getDaysDelayed()));
             delayLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
             delayLabel.setTextFill(Color.web("#ff5722"));
@@ -800,7 +800,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
         
-        Button deleteBtn = new Button("🗑️ Delete");
+        Button deleteBtn = new Button("✕ Delete");
         deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
@@ -838,11 +838,11 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         timeLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
         
         // Focus and points
-        Label focusLabel = new Label("🎯 Focus: " + "★".repeat(session.getFocusLevel()) + "☆".repeat(5 - session.getFocusLevel()) + " (" + session.getFocusLevel() + "/5)");
+        Label focusLabel = new Label("◎ Focus: " + "★".repeat(session.getFocusLevel()) + "☆".repeat(5 - session.getFocusLevel()) + " (" + session.getFocusLevel() + "/5)");
         focusLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         focusLabel.setTextFill(Color.web("#f39c12"));
         
-        Label pointsLabel = new Label("🏆 " + session.getPointsEarned() + " points earned");
+        Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " points earned");
         pointsLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         pointsLabel.setTextFill(Color.web("#27ae60"));
         
@@ -859,7 +859,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
         
-        Button deleteBtn = new Button("🗑️ Delete");
+        Button deleteBtn = new Button("✕ Delete");
         deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
@@ -900,7 +900,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         Label timeLabel = new Label("⏰ " + startTime + " (" + session.getDurationMinutes() + " min)");
         timeLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         
-        Label pointsLabel = new Label("🏆 " + session.getPointsEarned() + " points earned");
+        Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " points earned");
         pointsLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
         pointsLabel.setTextFill(Color.web("#27ae60"));
         
@@ -910,7 +910,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
         
-        Button deleteBtn = new Button("🗑️ Delete");
+        Button deleteBtn = new Button("✕ Delete");
         deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
