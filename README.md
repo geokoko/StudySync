@@ -10,7 +10,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![JavaFX](https://img.shields.io/badge/JavaFX-21-blue.svg)](https://openjfx.io/)
 [![H2 Database](https://img.shields.io/badge/Database-H2-blue.svg)](https://www.h2database.com/)
-[![Version](https://img.shields.io/badge/Version-0.1.0--BETA-red.svg)](https://github.com/studysync/studysync/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.1-red.svg)](https://github.com/studysync/studysync/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
@@ -19,7 +19,7 @@ StudySync is a comprehensive Study Management System built with modern Java tech
 
 Perfect for students who want to integrate their academic calendar with task management and study tracking! 📚✨
 
-> **⚠️ Beta Release**: This is a beta version (0.1.0-BETA) under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
+> **⚠️ Beta Release**: This is version 0.1.1 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
 
 ## Key Features
 
