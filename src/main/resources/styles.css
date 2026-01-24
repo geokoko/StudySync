@@ -1,6 +1,21 @@
+@font-face {
+    font-family: 'Roboto';
+    src: url('fonts/Roboto-Regular.ttf');
+}
+
+@font-face {
+    font-family: 'Roboto';
+    font-weight: bold;
+    src: url('fonts/Roboto-Bold.ttf');
+}
+
+@font-face {
+    font-family: 'Noto Emoji';
+    src: url('fonts/NotoEmoji-Regular.ttf');
+}
 
 .root {
-    -fx-font-family: "System";
+    -fx-font-family: 'Roboto', 'Noto Emoji', 'System';
 }
 
 .tab-pane {

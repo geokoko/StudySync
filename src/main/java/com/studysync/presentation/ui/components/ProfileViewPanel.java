@@ -137,7 +137,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Unable to sign in with Google. Please try again."
         ));
         
-        driveSignOutButton = new Button("🔓 Sign out");
+        driveSignOutButton = new Button("\uD83D\uDD12 Sign out");
         driveSignOutButton.setStyle("-fx-background-color: #bdc3c7; -fx-text-fill: #2c3e50; -fx-background-radius: 6;");
         driveSignOutButton.setOnAction(e -> runDriveAction(
             "Signing out…",

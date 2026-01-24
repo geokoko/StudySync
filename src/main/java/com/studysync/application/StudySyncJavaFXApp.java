@@ -8,11 +8,13 @@ import javafx.application.Platform;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
+import javafx.scene.text.Font;
 import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ConfigurableApplicationContext;
 
+import java.io.InputStream;
 import java.util.Optional;
 
 /**
@@ -59,6 +61,38 @@ public class StudySyncJavaFXApp extends Application {
     public void init() {
         logger.info("Initializing JavaFX application with Spring integration");
         this.springContext = StudySyncApplication.getSpringContext();
+        
+        // Load bundled fonts for cross-platform consistency
+        loadCustomFonts();
+    }
+    
+    /**
+     * Loads custom fonts bundled with the application.
+     * This ensures consistent rendering across different platforms.
+     */
+    private void loadCustomFonts() {
+        String[] fontPaths = {
+            "/fonts/Roboto-Regular.ttf",
+            "/fonts/Roboto-Bold.ttf",
+            "/fonts/NotoEmoji-Regular.ttf"
+        };
+        
+        for (String fontPath : fontPaths) {
+            try (InputStream fontStream = getClass().getResourceAsStream(fontPath)) {
+                if (fontStream != null) {
+                    Font loadedFont = Font.loadFont(fontStream, 12);
+                    if (loadedFont != null) {
+                        logger.info("Loaded font: {} ({})", loadedFont.getName(), fontPath);
+                    } else {
+                        logger.warn("Failed to load font from: {}", fontPath);
+                    }
+                } else {
+                    logger.warn("Font resource not found: {}", fontPath);
+                }
+            } catch (Exception e) {
+                logger.warn("Error loading font {}: {}", fontPath, e.getMessage());
+            }
+        }
     }
     
     /**
