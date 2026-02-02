@@ -58,8 +58,9 @@ public class StudyService {
         return DailyReflection.findAll();
     }
 
-    @Transactional(readOnly = true)
     public List<StudyGoal> getTodayGoals() {
+        // Ensure delayed goals are properly processed before retrieving
+        processAllDelayedGoals();
         return StudyGoal.findByDate(LocalDate.now());
     }
 
