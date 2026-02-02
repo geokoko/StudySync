@@ -250,6 +250,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         // Determine cell styling based on date
         boolean isToday = date.equals(LocalDate.now());
         boolean isPastDate = date.isBefore(LocalDate.now());
+        boolean isFutureDate = date.isAfter(LocalDate.now());
         boolean isSelected = date.equals(selectedDate);
         
         String baseStyle = "-fx-border-color: #ddd; -fx-border-width: 1; -fx-background-radius: 5; -fx-border-radius: 5;";
@@ -260,6 +261,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             baseStyle += " -fx-background-color: #f0f8ff; -fx-border-color: #2980b9; -fx-border-width: 2;";
         } else if (isPastDate) {
             baseStyle += " -fx-background-color: #fafafa;";
+        } else if (isFutureDate) {
+            baseStyle += " -fx-background-color: #f0fff4; -fx-border-color: #27ae60; -fx-border-style: dashed;";
         } else {
             baseStyle += " -fx-background-color: white;";
         }
@@ -333,25 +336,24 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         
         dayCell.getChildren().addAll(dayLabel, metricsBox);
         
-        // Make clickable for past dates and today
-        if (isPastDate || isToday) {
-            dayCell.setOnMouseClicked(e -> {
-                selectedDate = date;
-                updateCalendarDisplay(); // Refresh to show selection
-                showDayDetailDialog(date, dayData);
-            });
-            dayCell.setOnMouseEntered(e -> {
-                if (!isToday && !isSelected) {
-                    dayCell.setStyle(finalBaseStyle + " -fx-background-color: #f8f9fa;");
-                }
-                dayCell.setStyle(dayCell.getStyle() + " -fx-cursor: hand;");
-            });
-            dayCell.setOnMouseExited(e -> {
-                if (!isToday && !isSelected) {
-                    dayCell.setStyle(finalBaseStyle);
-                }
-            });
-        }
+        // Make clickable for all dates (past, today, and future)
+        dayCell.setOnMouseClicked(e -> {
+            selectedDate = date;
+            updateCalendarDisplay(); // Refresh to show selection
+            showDayDetailDialog(date, dayData);
+        });
+        dayCell.setOnMouseEntered(e -> {
+            if (!isToday && !isSelected) {
+                String hoverColor = isFutureDate ? "#e8f5e9" : "#f8f9fa";
+                dayCell.setStyle(finalBaseStyle + " -fx-background-color: " + hoverColor + ";");
+            }
+            dayCell.setStyle(dayCell.getStyle() + " -fx-cursor: hand;");
+        });
+        dayCell.setOnMouseExited(e -> {
+            if (!isToday && !isSelected) {
+                dayCell.setStyle(finalBaseStyle);
+            }
+        });
         
         return dayCell;
     }
@@ -569,13 +571,38 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
         
+        // Determine if this is a plannable date (today or future)
+        boolean isPlannableDate = !date.isBefore(LocalDate.now());
+        boolean isFutureDate = date.isAfter(LocalDate.now());
+        
+        // Add "Plan Goal" button at the top for plannable dates
+        if (isPlannableDate) {
+            HBox headerBox = new HBox(15);
+            headerBox.setAlignment(Pos.CENTER_LEFT);
+            
+            Button addGoalBtn = new Button("+ Add Study Goal");
+            addGoalBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-size: 12px; -fx-padding: 8 16; -fx-background-radius: 5;");
+            addGoalBtn.setOnAction(e -> showAddGoalDialog(date));
+            
+            Label hintLabel = new Label(isFutureDate ? "» Plan ahead for this day" : "» Set goals for today");
+            hintLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+            hintLabel.setTextFill(Color.web("#7f8c8d"));
+            
+            headerBox.getChildren().addAll(addGoalBtn, hintLabel);
+            content.getChildren().add(headerBox);
+        }
+        
         List<StudyGoal> studyGoals = getFilteredStudyGoalsForDate(date);
         
         if (studyGoals.isEmpty()) {
-            Label noGoalsLabel = new Label("\uD83D\uDCED No goals recorded for this date");
-            noGoalsLabel.setFont(Font.font("System", FontWeight.NORMAL, 16));
+            String emptyMessage = isFutureDate 
+                ? "\uD83D\uDCC5 No goals planned yet. Click the button above to plan ahead!"
+                : "\uD83D\uDCED No goals recorded for this date";
+            Label noGoalsLabel = new Label(emptyMessage);
+            noGoalsLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
             noGoalsLabel.setTextFill(Color.GRAY);
-            noGoalsLabel.setPadding(new Insets(50));
+            noGoalsLabel.setPadding(new Insets(30));
+            noGoalsLabel.setWrapText(true);
             content.getChildren().add(noGoalsLabel);
             return content;
         }
@@ -930,6 +957,76 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         sessionBox.getChildren().add(actionBox);
         
         return sessionBox;
+    }
+    
+    /**
+     * Shows a dialog to add a new study goal for the specified date.
+     * Works for today and future dates to enable planning ahead.
+     * 
+     * @param date the date to add the goal for
+     */
+    private void showAddGoalDialog(LocalDate date) {
+        Dialog<String> dialog = new Dialog<>();
+        boolean isFutureDate = date.isAfter(LocalDate.now());
+        
+        dialog.setTitle(isFutureDate ? "Plan Study Goal" : "Add Study Goal");
+        dialog.setHeaderText("Add a study goal for " + date.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy")));
+        
+        DialogPane dialogPane = dialog.getDialogPane();
+        dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(20));
+        
+        Label instructionLabel = new Label(isFutureDate 
+            ? "Plan what you want to achieve on this day:"
+            : "What do you want to achieve today?");
+        instructionLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        
+        TextArea goalTextArea = new TextArea();
+        goalTextArea.setPromptText("e.g., Complete Chapter 5, Practice 10 problems, Review notes from class...");
+        goalTextArea.setPrefRowCount(3);
+        goalTextArea.setWrapText(true);
+        
+        content.getChildren().addAll(instructionLabel, goalTextArea);
+        dialogPane.setContent(content);
+        
+        // Enable/disable OK button based on input
+        Button okButton = (Button) dialogPane.lookupButton(ButtonType.OK);
+        okButton.setDisable(true);
+        goalTextArea.textProperty().addListener((observable, oldValue, newValue) -> {
+            okButton.setDisable(newValue.trim().isEmpty());
+        });
+        
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == ButtonType.OK) {
+                return goalTextArea.getText().trim();
+            }
+            return null;
+        });
+        
+        dialog.showAndWait().ifPresent(goalDescription -> {
+            if (!goalDescription.isEmpty()) {
+                try {
+                    studyService.addStudyGoal(goalDescription, date);
+                    updateCalendarDisplay();
+                    
+                    // Show confirmation
+                    Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
+                    successAlert.setTitle("Goal Added");
+                    successAlert.setHeaderText(null);
+                    successAlert.setContentText("Study goal added successfully for " + 
+                        date.format(DateTimeFormatter.ofPattern("MMMM dd, yyyy")));
+                    successAlert.showAndWait();
+                } catch (Exception e) {
+                    Alert errorAlert = new Alert(Alert.AlertType.ERROR);
+                    errorAlert.setTitle("Error");
+                    errorAlert.setHeaderText("Failed to add study goal");
+                    errorAlert.setContentText(e.getMessage());
+                    errorAlert.showAndWait();
+                }
+            }
+        });
     }
     
     @Override
