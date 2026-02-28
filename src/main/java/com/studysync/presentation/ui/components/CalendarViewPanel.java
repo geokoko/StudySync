@@ -391,6 +391,9 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         if (date.equals(today)) {
             // For today, show all goals including delayed ones
             return studyService.getStudyGoalsForDate(date);
+        } else if (date.isAfter(today)) {
+            // For future dates, show all goals planned for that date (no delay processing needed)
+            return studyService.getStudyGoalsForFutureDate(date);
         } else {
             // For previous days, show only goals achieved that day OR goals originally set for that day
             List<StudyGoal> allGoalsForDate = studyService.getStudyGoalsForDate(date);

@@ -53,6 +53,18 @@ public class StudyService {
         return StudyGoal.findByDateIncludingDelayed(date);
     }
 
+    /**
+     * Get study goals planned for a future date.
+     * Skips delay processing since future dates cannot have delayed goals.
+     * 
+     * @param date a future date to retrieve planned goals for
+     * @return list of study goals planned for that date
+     */
+    @Transactional(readOnly = true)
+    public List<StudyGoal> getStudyGoalsForFutureDate(LocalDate date) {
+        return StudyGoal.findByDate(date);
+    }
+
     @Transactional(readOnly = true)
     public List<DailyReflection> getDailyReflections() {
         return DailyReflection.findAll();
