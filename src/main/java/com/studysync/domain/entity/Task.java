@@ -56,6 +56,14 @@ public class Task {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    /**
+     * Recurrence pattern for repeating tasks.
+     * Format: "intervalWeeks:daysOfWeek" e.g. "1:1,3,5" = every week on Mon,Wed,Fri.
+     * "2:1,4" = every 2 weeks on Mon,Thu.
+     * NULL means this is a one-off (non-recurring) task.
+     */
+    private String recurringPattern;
+
     // Default constructor
     public Task() {
         this.id = UUID.randomUUID().toString();
@@ -63,11 +71,19 @@ public class Task {
         this.updatedAt = LocalDateTime.now();
         this.status = TaskStatus.OPEN;
         this.points = 0;
+        this.recurringPattern = null;
     }
 
     // Full constructor
     public Task(String id, String title, String description, String category, 
                 TaskPriority priority, LocalDate deadline, TaskStatus status, int points) {
+        this(id, title, description, category, priority, deadline, status, points, null);
+    }
+
+    // Full constructor with recurring pattern
+    public Task(String id, String title, String description, String category, 
+                TaskPriority priority, LocalDate deadline, TaskStatus status, int points,
+                String recurringPattern) {
         this.id = id != null ? id : UUID.randomUUID().toString();
         this.title = title;
         this.description = description;
@@ -78,6 +94,7 @@ public class Task {
         this.points = points;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
+        this.recurringPattern = recurringPattern;
         
         // Validation
         Objects.requireNonNull(this.id, "id cannot be null");
@@ -215,6 +232,58 @@ public class Task {
         this.updatedAt = updatedAt;
     }
 
+    /**
+     * Gets the recurrence pattern.
+     * @return the pattern string (e.g. "1:1,3,5"), or null if non-recurring
+     */
+    public String getRecurringPattern() {
+        return recurringPattern;
+    }
+
+    /**
+     * Sets the recurrence pattern.
+     * Format: "intervalWeeks:dayOfWeekValues" e.g. "1:1,3,5" (weekly Mon/Wed/Fri).
+     * Set to null to make the task non-recurring.
+     * @param recurringPattern the pattern string
+     */
+    public void setRecurringPattern(String recurringPattern) {
+        this.recurringPattern = recurringPattern;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * Checks whether this task is recurring.
+     * @return true if the task has a recurrence pattern
+     */
+    public boolean isRecurring() {
+        return recurringPattern != null && !recurringPattern.isBlank();
+    }
+
+    /**
+     * Returns a human-readable summary of the recurrence schedule.
+     * @return e.g. "Every week on Mon, Wed, Fri" or "Not recurring"
+     */
+    public String getRecurringSummary() {
+        if (!isRecurring()) return "Not recurring";
+        try {
+            String[] parts = recurringPattern.split(":");
+            int interval = Integer.parseInt(parts[0]);
+            String[] dayNums = parts[1].split(",");
+            String[] dayNames = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+            StringBuilder sb = new StringBuilder();
+            sb.append(interval == 1 ? "Every week" : "Every " + interval + " weeks");
+            sb.append(" on ");
+            for (int i = 0; i < dayNums.length; i++) {
+                int dayIdx = Integer.parseInt(dayNums[i].trim()) - 1;
+                if (dayIdx >= 0 && dayIdx < 7) sb.append(dayNames[dayIdx]);
+                if (i < dayNums.length - 1) sb.append(", ");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return recurringPattern;
+        }
+    }
+
     // ==============================================================
     // DATABASE OPERATIONS (Active Record Pattern)
     // ==============================================================
@@ -232,8 +301,8 @@ public class Task {
         this.updatedAt = LocalDateTime.now();
         
         String sql = """
-            MERGE INTO tasks (id, title, description, category, priority, deadline, status, points, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            MERGE INTO tasks (id, title, description, category, priority, deadline, status, points, recurring_pattern, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         
         jdbcTemplate.update(sql,
@@ -244,7 +313,8 @@ public class Task {
             this.priority != null ? this.priority.stars() : 1,
             this.deadline,
             this.status != null ? this.status.name() : TaskStatus.OPEN.name(),
-            this.points
+            this.points,
+            this.recurringPattern
         );
         
         logger.debug("Task saved: {} - {}", id, this.title);
@@ -438,6 +508,30 @@ public class Task {
         String sql = "UPDATE tasks SET status = ? WHERE id = ?";
         return jdbcTemplate.update(sql, status.name(), taskId) > 0;
     }
+
+    /**
+     * Get all recurring tasks (tasks with a non-null recurring_pattern).
+     */
+    public static List<Task> findRecurring() {
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("JdbcTemplate not initialized");
+        }
+
+        String sql = "SELECT * FROM tasks WHERE recurring_pattern IS NOT NULL ORDER BY created_at DESC";
+        return jdbcTemplate.query(sql, getRowMapper());
+    }
+
+    /**
+     * Get active recurring tasks (not completed/cancelled).
+     */
+    public static List<Task> findActiveRecurring() {
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("JdbcTemplate not initialized");
+        }
+
+        String sql = "SELECT * FROM tasks WHERE recurring_pattern IS NOT NULL AND status NOT IN ('COMPLETED', 'CANCELLED') ORDER BY created_at DESC";
+        return jdbcTemplate.query(sql, getRowMapper());
+    }
     
     /**
      * Get count of tasks by status.
@@ -505,7 +599,8 @@ public class Task {
                 new TaskPriority(rs.getInt("priority")),
                 rs.getObject("deadline", LocalDate.class),
                 TaskStatus.valueOf(rs.getString("status")),
-                rs.getInt("points")
+                rs.getInt("points"),
+                rs.getString("recurring_pattern")
             );
         };
     }
