@@ -20,7 +20,6 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 
 import java.time.LocalDate;
-import java.time.DayOfWeek;
 import java.util.List;
 
 public class TaskManagementPanel extends ScrollPane implements RefreshablePanel {
