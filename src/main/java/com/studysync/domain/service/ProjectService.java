@@ -4,9 +4,12 @@ import com.studysync.domain.entity.Project;
 import com.studysync.domain.entity.ProjectSession;
 import com.studysync.domain.valueobject.ProjectStatus;
 import com.studysync.domain.service.ProjectSessionEnd;
+import com.studysync.integration.drive.GoogleDriveService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -23,8 +26,24 @@ import java.util.stream.Collectors;
 @Transactional
 public class ProjectService {
 
+    private final GoogleDriveService googleDriveService;
+
     @Autowired
-    public ProjectService() {
+    public ProjectService(GoogleDriveService googleDriveService) {
+        this.googleDriveService = googleDriveService;
+    }
+
+    private void markDirty() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    googleDriveService.markLocalDbDirty();
+                }
+            });
+        } else {
+            googleDriveService.markLocalDbDirty();
+        }
     }
 
     @Transactional(readOnly = true)
@@ -50,6 +69,7 @@ public class ProjectService {
             throw new IllegalArgumentException("Project title cannot be empty");
         }
         project.save();
+        markDirty();
     }
 
     public void updateProject(Project project) {
@@ -57,6 +77,7 @@ public class ProjectService {
             throw new IllegalArgumentException("Project cannot be null");
         }
         project.save();
+        markDirty();
     }
 
     public void deleteProject(String projectId) {
@@ -64,6 +85,7 @@ public class ProjectService {
         ProjectSession.deleteByProjectId(projectId);
         // Then delete the project
         Project.deleteById(projectId);
+        markDirty();
     }
 
     @Transactional(readOnly = true)
@@ -92,6 +114,7 @@ public class ProjectService {
         ProjectSession session = new ProjectSession(projectId);
         session.setStartTime(LocalDateTime.now());
         session.save();  // Model handles its own persistence
+        markDirty();
         return session;
     }
 
@@ -120,6 +143,7 @@ public class ProjectService {
         project.addWorkedMinutes(existingSession.getDurationMinutes());
         project.incrementSessionCount();
         project.save();
+        markDirty();
     }
 
     public void deleteProjectSession(String sessionId) {
@@ -135,6 +159,7 @@ public class ProjectService {
 
         // Delete the session
         ProjectSession.deleteById(sessionId);
+        markDirty();
     }
 
     @Transactional(readOnly = true)

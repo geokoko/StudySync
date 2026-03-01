@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -37,6 +39,19 @@ public class StudyService {
     @Autowired
     public StudyService(GoogleDriveService googleDriveService) {
         this.googleDriveService = googleDriveService;
+    }
+
+    private void markDirty() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    googleDriveService.markLocalDbDirty();
+                }
+            });
+        } else {
+            googleDriveService.markLocalDbDirty();
+        }
     }
 
     @Transactional(readOnly = true)
@@ -111,6 +126,7 @@ public class StudyService {
         }
         StudyGoal goal = new StudyGoal(null, date, description, false, null, 0, false, 0, taskId);
         goal.save();
+        markDirty();
     }
 
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
@@ -120,6 +136,7 @@ public class StudyService {
             goal.setAchieved(achieved);
             goal.setReasonIfNotAchieved(reasonIfNot);
             goal.save();
+            markDirty();
         }
     }
 
@@ -129,7 +146,7 @@ public class StudyService {
         }
         boolean deleted = StudyGoal.deleteById(goalId);
         if (deleted) {
-            // Deleted
+            markDirty();
         } else {
             logger.warn("Requested deletion for study goal '{}' but it did not exist", goalId);
         }
@@ -140,6 +157,7 @@ public class StudyService {
         StudySession session = new StudySession();
         session.startSession();
         session.save();  // Model handles its own persistence
+        markDirty();
         return session;
     }
 
@@ -153,10 +171,12 @@ public class StudyService {
         
         // Save to database
         session.save();
+        markDirty();
     }
 
     public void addDailyReflection(DailyReflection reflection) {
         reflection.save();
+        markDirty();
     }
 
     @Transactional(readOnly = true)
@@ -177,7 +197,7 @@ public class StudyService {
     public void deleteDailyReflection(LocalDate date) {
         boolean deleted = DailyReflection.deleteByDate(date);
         if (deleted) {
-            // Deleted
+            markDirty();
         }
     }
 
@@ -200,7 +220,7 @@ public class StudyService {
     public void deleteStudySession(String sessionId) {
         boolean deleted = StudySession.deleteById(sessionId);
         if (deleted) {
-            // Deleted
+            markDirty();
         }
     }
 

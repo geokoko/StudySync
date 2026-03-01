@@ -42,6 +42,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private final TaskService taskService;
     private final DateTimeService dateTimeService;
     private final GoogleDriveService googleDriveService;
+    private final Runnable dbShutdown;
+    private final Runnable dbReconnect;
     
     // UI Components for dynamic updates
     private VBox statsContainer;
@@ -59,12 +61,14 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     public ProfileViewPanel(StudyService studyService, ProjectService projectService, 
                            TaskService taskService, DateTimeService dateTimeService,
-                           GoogleDriveService googleDriveService) {
+                           GoogleDriveService googleDriveService, Runnable dbShutdown, Runnable dbReconnect) {
         this.studyService = studyService;
         this.projectService = projectService;
         this.taskService = taskService;
         this.dateTimeService = dateTimeService;
         this.googleDriveService = googleDriveService;
+        this.dbShutdown = dbShutdown;
+        this.dbReconnect = dbReconnect;
         
         // Create main content container
         VBox mainContent = new VBox(20);
@@ -162,22 +166,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         driveDownloadButton.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-background-radius: 6;");
         driveDownloadButton.setOnAction(e -> runDriveAction(
             "Downloading database from Google Drive…",
-            () -> {
-                boolean success = googleDriveService.downloadDatabaseSnapshot();
-                if (success) {
-                    Platform.runLater(() -> {
-                        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                        alert.setTitle("Download Complete");
-                        alert.setHeaderText("Database Downloaded Successfully");
-                        alert.setContentText("The database has been updated from Google Drive.\n\nPlease restart the application to apply the changes.");
-                        alert.showAndWait();
-                        Platform.exit();
-                        System.exit(0);
-                    });
-                }
-                return success;
-            },
-            "Download complete! Restarting...",
+            () -> googleDriveService.downloadAndReload(dbShutdown, dbReconnect),
+            "Download complete! Database reloaded.",
             "Download failed. Check your connection and credentials."
         ));
         
@@ -202,8 +192,14 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         }
         if (googleDriveService.isSignedIn()) {
             String email = googleDriveService.getSignedInAccountEmail().orElse("Google Account");
-            driveStatusLabel.setText("Connected as " + email + ". Your StudySync database uploads to Drive when you close the app.");
-            driveHintLabel.setText("After signing in on a new device, restart the app once so the latest Drive copy downloads before the database opens.");
+            String statusText = "Connected as " + email + ".";
+            if (googleDriveService.isLocalDbDirty()) {
+                statusText += " ⚠ Local changes not yet uploaded to Drive.";
+                driveHintLabel.setText("Upload your database to keep Drive up to date.");
+            } else {
+                driveHintLabel.setText("Your database uploads to Drive when you close the app.");
+            }
+            driveStatusLabel.setText(statusText);
             driveSignInButton.setDisable(true);
             driveSignOutButton.setDisable(false);
             driveSyncButton.setDisable(false);

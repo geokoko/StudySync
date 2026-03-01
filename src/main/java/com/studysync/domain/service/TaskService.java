@@ -4,11 +4,14 @@ import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.entity.Task;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
+import com.studysync.integration.drive.GoogleDriveService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -31,10 +34,25 @@ public class TaskService {
     private static final Logger logger = LoggerFactory.getLogger(TaskService.class);
     
     private final CategoryService categoryService;
+    private final GoogleDriveService googleDriveService;
     
     @Autowired
-    public TaskService(CategoryService categoryService) {
+    public TaskService(CategoryService categoryService, GoogleDriveService googleDriveService) {
         this.categoryService = categoryService;
+        this.googleDriveService = googleDriveService;
+    }
+
+    private void markDirty() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    googleDriveService.markLocalDbDirty();
+                }
+            });
+        } else {
+            googleDriveService.markLocalDbDirty();
+        }
     }
     
     @Transactional(readOnly = true)
@@ -66,7 +84,7 @@ public class TaskService {
         
         logger.info("Successfully added task '{}' with priority {} and status {}", 
                    savedTask.getTitle(), savedTask.getPriority().stars(), savedTask.getStatus());
-        
+        markDirty();
         return savedTask;
     }
     
@@ -85,6 +103,7 @@ public class TaskService {
         }
         
         logger.info("Removed task: {}", task.getTitle());
+        markDirty();
     }
     
     @Transactional
@@ -95,6 +114,7 @@ public class TaskService {
         
         Task savedTask = finalTask.save();
         logger.info("Updated task: {}", savedTask.getTitle());
+        markDirty();
         return savedTask;
     }
     
@@ -110,6 +130,7 @@ public class TaskService {
         }
         
         logger.info("Updated task status for '{}' to {}", task.getTitle(), newStatus);
+        markDirty();
     }
     
     @Transactional(readOnly = true)
@@ -168,6 +189,7 @@ public class TaskService {
         
         if (updatedCount > 0) {
             logger.info("Marked {} tasks as DELAYED", updatedCount);
+            markDirty();
         }
         
         return updatedCount;

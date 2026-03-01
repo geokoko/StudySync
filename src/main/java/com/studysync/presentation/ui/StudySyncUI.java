@@ -1,5 +1,6 @@
 package com.studysync.presentation.ui;
 
+import com.studysync.config.DatabaseReloadService;
 import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.service.DateTimeService;
 import com.studysync.domain.service.ProjectService;
@@ -53,6 +54,7 @@ public class StudySyncUI {
     private final ProjectService projectService;
     private final DateTimeService dateTimeService;
     private final GoogleDriveService googleDriveService;
+    private final DatabaseReloadService databaseReloadService;
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
     private StackPane overlayLayer;
@@ -60,7 +62,8 @@ public class StudySyncUI {
     @Autowired
     public StudySyncUI(TaskService taskService, CategoryService categoryService, ReminderService reminderService,
                        StudyService studyService, ProjectService projectService,
-                       DateTimeService dateTimeService, GoogleDriveService googleDriveService) {
+                       DateTimeService dateTimeService, GoogleDriveService googleDriveService,
+                       DatabaseReloadService databaseReloadService) {
         this.taskService = Objects.requireNonNull(taskService, "taskService");
         this.categoryService = Objects.requireNonNull(categoryService, "categoryService");
         this.reminderService = Objects.requireNonNull(reminderService, "reminderService");
@@ -68,6 +71,7 @@ public class StudySyncUI {
         this.projectService = Objects.requireNonNull(projectService, "projectService");
         this.dateTimeService = Objects.requireNonNull(dateTimeService, "dateTimeService");
         this.googleDriveService = Objects.requireNonNull(googleDriveService, "googleDriveService");
+        this.databaseReloadService = Objects.requireNonNull(databaseReloadService, "databaseReloadService");
 
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
         panels.put(new Tab("▦ Calendar View"), new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
@@ -147,6 +151,18 @@ public class StudySyncUI {
         // Process yesterday's unachieved goals automatically
         processDelayedGoalsOnStartup();
         
+        // Check Google Drive sync status in background
+        checkDriveSyncOnStartup();
+        
+        // Register pre-reload listener to show a blocking overlay during DB reload
+        googleDriveService.addPreReloadListener(() -> Platform.runLater(this::showReloadOverlay));
+
+        // Register reload listener to refresh all panels when DB is reloaded from Drive
+        googleDriveService.addReloadListener(() -> Platform.runLater(() -> {
+            hideReloadOverlay();
+            refreshAllPanels();
+        }));
+        
         // Initialize the default tab after showing the window (to ensure Spring context is fully loaded)
         Tab selectedTab = tabPane.getSelectionModel().getSelectedItem();
         if (selectedTab != null && panelMap.containsKey(selectedTab)) {
@@ -223,6 +239,69 @@ public class StudySyncUI {
             logger.error("Failed to process delayed goals on startup", e);
         }
     }
+
+    /**
+     * Checks the Google Drive sync status in a background thread and shows a
+     * non-blocking notification if the remote copy is newer than the local database.
+     */
+    private void checkDriveSyncOnStartup() {
+        if (!googleDriveService.isIntegrationEnabled() || !googleDriveService.isSignedIn()) {
+            return;
+        }
+        java.util.concurrent.CompletableFuture.supplyAsync(googleDriveService::checkSyncStatus)
+            .thenAccept(status -> Platform.runLater(() -> {
+                switch (status) {
+                    case DRIVE_NEWER -> {
+                        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                        alert.setTitle("Google Drive Sync");
+                        alert.setHeaderText("A newer database is available on Google Drive");
+                        alert.setContentText("Open your Profile to download and apply it — no restart required.");
+                        alert.show();
+                    }
+                    case UP_TO_DATE -> logger.info("Google Drive sync check: local database is up to date");
+                    case LOCAL_NEWER -> logger.info("Google Drive sync check: local DB has unsaved changes");
+                    default -> logger.debug("Google Drive sync check returned: {}", status);
+                }
+            }));
+    }
+
+    /**
+     * Shows a blocking overlay on the main window during a database reload.
+     */
+    private void showReloadOverlay() {
+        if (overlayLayer != null) {
+            Label reloadLabel = new Label("⚙ Reloading database from Google Drive…");
+            reloadLabel.setFont(Font.font("System", FontWeight.BOLD, 18));
+            reloadLabel.setTextFill(Color.WHITE);
+            reloadLabel.setStyle("-fx-background-color: rgba(0,0,0,0.7); -fx-padding: 30 50; -fx-background-radius: 10;");
+            overlayLayer.getChildren().clear();
+            overlayLayer.getChildren().add(reloadLabel);
+            overlayLayer.setVisible(true);
+        }
+    }
+
+    /**
+     * Hides the reload overlay after DB reconnect completes.
+     */
+    private void hideReloadOverlay() {
+        if (overlayLayer != null) {
+            overlayLayer.setVisible(false);
+            overlayLayer.getChildren().clear();
+        }
+    }
+
+    /**
+     * Refreshes every panel after a database reload (e.g. Drive download).
+     */
+    private void refreshAllPanels() {
+        for (RefreshablePanel panel : panelMap.values()) {
+            try {
+                panel.updateDisplay();
+            } catch (Exception e) {
+                logger.warn("Failed to refresh panel after DB reload", e);
+            }
+        }
+    }
     
     private void showProfileWindow() {
         // Create a new stage for the profile window
@@ -231,7 +310,7 @@ public class StudySyncUI {
         profileStage.initOwner(tabPane.getScene().getWindow());
         
         // Create the profile panel
-        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService, googleDriveService);
+        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService, googleDriveService, databaseReloadService::shutdown, databaseReloadService::reconnect);
         
         Scene profileScene = new Scene(profilePanel, 1000, 700);
         profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());

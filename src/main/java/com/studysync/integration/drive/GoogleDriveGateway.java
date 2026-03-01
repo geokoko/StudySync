@@ -15,6 +15,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -158,5 +159,28 @@ public class GoogleDriveGateway {
             return Optional.empty();
         }
         return Optional.of(fileList.getFiles().get(0));
+    }
+
+    /**
+     * Fetches the last-modified time of the remote database file on Google Drive.
+     *
+     * @param credential the OAuth credential
+     * @return the remote file's modification time, or empty if not found or on error
+     */
+    public Optional<Instant> getRemoteModifiedTime(Credential credential) {
+        if (credential == null) {
+            return Optional.empty();
+        }
+        try {
+            Drive drive = buildDriveClient(credential);
+            Optional<String> folderId = ensureAppFolder(drive);
+            if (folderId.isEmpty()) return Optional.empty();
+            Optional<File> file = findDatabaseFile(drive, folderId.get());
+            if (file.isEmpty() || file.get().getModifiedTime() == null) return Optional.empty();
+            return Optional.of(Instant.ofEpochMilli(file.get().getModifiedTime().getValue()));
+        } catch (IOException e) {
+            logger.warn("Failed to fetch remote database modified time: {}", e.getMessage());
+            return Optional.empty();
+        }
     }
 }
