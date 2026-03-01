@@ -27,13 +27,16 @@ StudySync provides comprehensive academic management with three main modules:
 
 ## 📚 Study Planner Features, with Daily Reflections Logging
 * **Study Sessions**: Track study time with built-in timer and focus level monitoring
-* **Study Goals**: Set and manage daily/weekly study objectives  
+* **Study Goals**: Set and manage daily study objectives with future date planning
+* **Future Goal Planning**: Navigate to any future date and plan goals ahead via DatePicker
+* **Recurring Tasks**: Define repeating task schedules (e.g. every week on Mon/Wed/Fri)
 * **Daily Reflections**: Record daily study insights and progress notes
 * **Progress Tracking**: Visual progress indicators and session statistics
 * **Study Analytics**: Monitor completed sessions and goal achievements
 
 ## 📋 Task & Project Management Features  
-* **Task Management**: Create, edit, and delete tasks with rich attributes (title, description, category, priority, deadline, status)
+* **Task Management**: Create, edit, and delete tasks with rich attributes (title, description, category, priority, deadline, status, recurring schedule)
+* **Recurring Tasks**: Mark any task as recurring with a weekly/bi-weekly/monthly pattern and specific day-of-week selection
 * **Project Management**: Comprehensive project lifecycle management with session logging and progress tracking
 * **Category Management**: Create and manage custom categories for better organization
 * **Task Reminders**: Set up automated reminders for important deadlines
@@ -163,6 +166,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architectural information an
 ## Data Storage
 
 * **Database**: H2 embedded database (`data/studysync.mv.db`)
+* **Schema Migrations**: Idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements in `schema.sql` ensure safe upgrades for existing databases
 * **Cloud Backup (optional)**: When Drive sync is enabled, the same file is mirrored to `My Drive/StudySync/studysync.mv.db`
 * **Logs**: Application logs stored in `logs/` directory
 * **Configuration**: YAML configuration files in `src/main/resources/`

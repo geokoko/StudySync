@@ -57,7 +57,7 @@ public class TaskService {
         
         Task taskToSave = task;
         if (task.getPriority() == null) {
-            taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(), new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints());
+            taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(), new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints(), task.getRecurringPattern());
             logger.debug("Set default priority for task: {}", taskToSave.getTitle());
         }
 
@@ -303,7 +303,18 @@ public class TaskService {
             newDeadline = update.deadline();
         }
         
-        String newRecurringPattern = update.recurringPattern() != null ? update.recurringPattern() : task.getRecurringPattern();
+        String newRecurringPattern = task.getRecurringPattern();
+        if (update.recurringPattern() != null) {
+            // Convention:
+            //   null  -> keep existing pattern (no change)
+            //   ""    -> clear existing pattern
+            //   other -> set new pattern
+            if (update.recurringPattern().isEmpty()) {
+                newRecurringPattern = null;
+            } else {
+                newRecurringPattern = update.recurringPattern();
+            }
+        }
         return new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline, task.getStatus(), task.getPoints(), newRecurringPattern);
     }
     

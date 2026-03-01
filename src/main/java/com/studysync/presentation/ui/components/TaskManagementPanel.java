@@ -354,7 +354,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         }
 
         // Build recurring pattern if enabled
-        String recurringPattern = null;
+        // Convention: null = no change, "" = clear, non-empty = set pattern
+        String recurringPattern = "";
         if (recurringCheckBox.isSelected()) {
             StringBuilder days = new StringBuilder();
             for (int i = 0; i < 7; i++) {

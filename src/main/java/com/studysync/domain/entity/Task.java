@@ -273,10 +273,16 @@ public class Task {
             StringBuilder sb = new StringBuilder();
             sb.append(interval == 1 ? "Every week" : "Every " + interval + " weeks");
             sb.append(" on ");
+            boolean firstDayAppended = false;
             for (int i = 0; i < dayNums.length; i++) {
                 int dayIdx = Integer.parseInt(dayNums[i].trim()) - 1;
-                if (dayIdx >= 0 && dayIdx < 7) sb.append(dayNames[dayIdx]);
-                if (i < dayNums.length - 1) sb.append(", ");
+                if (dayIdx >= 0 && dayIdx < 7) {
+                    if (firstDayAppended) {
+                        sb.append(", ");
+                    }
+                    sb.append(dayNames[dayIdx]);
+                    firstDayAppended = true;
+                }
             }
             return sb.toString();
         } catch (Exception e) {
