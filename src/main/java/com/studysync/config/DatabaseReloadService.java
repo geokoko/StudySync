@@ -6,11 +6,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 
 /**
  * Service that shuts down and reopens the H2 database in-place, allowing the
@@ -82,23 +81,14 @@ public class DatabaseReloadService {
      */
     private void runMigrations() {
         try {
-            String sql = new ClassPathResource("schema.sql")
-                    .getContentAsString(StandardCharsets.UTF_8);
-            // Execute each statement individually (separated by ";")
-            for (String stmt : sql.split(";")) {
-                String trimmed = stmt.trim();
-                if (!trimmed.isEmpty() && !trimmed.startsWith("--")) {
-                    try {
-                        jdbcTemplate.execute(trimmed);
-                    } catch (Exception e) {
-                        // Individual statement failure is non-fatal (e.g. duplicate index)
-                        logger.debug("Migration statement skipped: {}", e.getMessage());
-                    }
-                }
-            }
+            ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
+            populator.addScript(new ClassPathResource("schema.sql"));
+            populator.setContinueOnError(true); // individual failures are non-fatal
+            populator.setSeparator(";");
+            populator.execute(dataSource);
             logger.info("Schema migrations re-applied after database reload");
-        } catch (IOException e) {
-            logger.warn("Could not read schema.sql for re-migration: {}", e.getMessage());
+        } catch (Exception e) {
+            logger.warn("Failed to re-apply schema.sql after reload: {}", e.getMessage());
         }
     }
 }
