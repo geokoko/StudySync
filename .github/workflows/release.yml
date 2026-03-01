@@ -47,7 +47,9 @@ jobs:
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'BETA') || contains(github.ref, 'alpha') }}
           generate_release_notes: true
           files: |
-            build/release/*.tar.gz
-            build/release/*.sha256
+            build/release/studysync-linux.tar.gz
+            build/release/studysync-linux.tar.gz.sha256
+            build/release/studysync-*-linux.tar.gz
+            build/release/studysync-*-linux.tar.gz.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

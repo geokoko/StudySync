@@ -23,7 +23,7 @@ import org.springframework.context.ConfigurableApplicationContext;
  * </ul></p>
  * 
  * @author geokoko
- * @version 0.1.0-BETA
+ * @version 0.1.2
  * @since 0.1.0
  */
 @SpringBootApplication

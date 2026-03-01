@@ -58,7 +58,7 @@ import java.util.stream.Collectors;
  * integrity in the domain model.</p>
  * 
  * @author geokoko 
- * @version 0.1.0-BETA
+ * @version 0.1.2
  * @since 0.1.0
  * @see TaskCategory
  * @see Category

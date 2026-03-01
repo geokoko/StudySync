@@ -5,11 +5,15 @@ import com.zaxxer.hikari.HikariPoolMXBean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Service that shuts down and reopens the H2 database in-place, allowing the
@@ -99,14 +103,37 @@ public class DatabaseReloadService {
      */
     private void runMigrations() {
         try {
+            Resource schemaResource = resolveSchemaResource();
             ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
-            populator.addScript(new ClassPathResource("schema.sql"));
+            populator.addScript(schemaResource);
             populator.setContinueOnError(true); // individual failures are non-fatal
             populator.setSeparator(";");
             populator.execute(dataSource);
-            logger.info("Schema migrations re-applied after database reload (continueOnError=true; individual statement failures were silently ignored)");
+            logger.info("Schema migrations re-applied after database reload using {} (continueOnError=true; individual statement failures were silently ignored)",
+                    schemaResource.getDescription());
         } catch (Exception e) {
             logger.error("Failed to re-apply schema.sql after reload — the database may be missing columns/tables", e);
         }
+    }
+
+    private Resource resolveSchemaResource() {
+        Resource classpathSchema = new ClassPathResource("schema.sql", DatabaseReloadService.class.getClassLoader());
+        if (classpathSchema.exists()) {
+            return classpathSchema;
+        }
+
+        Path installedSchema = Path.of(System.getProperty("user.home"), ".local", "share", "studysync", "resources", "schema.sql");
+        if (Files.exists(installedSchema)) {
+            logger.warn("schema.sql not found on classpath; falling back to installed resource file: {}", installedSchema);
+            return new FileSystemResource(installedSchema);
+        }
+
+        Path projectSchema = Path.of("src", "main", "resources", "schema.sql").toAbsolutePath();
+        if (Files.exists(projectSchema)) {
+            logger.warn("schema.sql not found on classpath; falling back to project resource file: {}", projectSchema);
+            return new FileSystemResource(projectSchema);
+        }
+
+        throw new IllegalStateException("schema.sql not found in classpath, installed resources, or project resources");
     }
 }

@@ -24,10 +24,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Check if we're running from extracted release or source
-if [[ -d "$SCRIPT_DIR/../lib" ]]; then
+if [[ -d "$SCRIPT_DIR/lib" ]]; then
     # Running from extracted release tarball
     RELEASE_MODE=true
-    RELEASE_DIR="$SCRIPT_DIR/.."
+    RELEASE_DIR="$SCRIPT_DIR"
 else
     # Running from source
     RELEASE_MODE=false
@@ -129,8 +129,10 @@ install_files() {
         cp "$PROJECT_ROOT/build/libs/"*.jar "$INSTALL_DIR/lib/"
         
         # Copy dependencies
-        if [[ -d "$PROJECT_ROOT/build/install/StudySync/lib" ]]; then
-            cp "$PROJECT_ROOT/build/install/StudySync/lib/"*.jar "$INSTALL_DIR/lib/" 2>/dev/null || true
+        local install_lib_dir
+        install_lib_dir=$(find "$PROJECT_ROOT/build/install" -mindepth 2 -maxdepth 2 -type d -name lib | head -1)
+        if [[ -n "$install_lib_dir" && -d "$install_lib_dir" ]]; then
+            cp "$install_lib_dir/"*.jar "$INSTALL_DIR/lib/" 2>/dev/null || true
         fi
         
         # Copy config
@@ -155,18 +157,33 @@ install_files() {
 create_launcher() {
     print_info "Creating launcher script..."
     
-    # Find the main JAR file (Spring Boot fat jar, not the plain one)
-    MAIN_JAR=$(find "$INSTALL_DIR/lib" -name "StudySync-*.jar" -o -name "studysync-*.jar" | grep -v "\-plain.jar" | head -1)
-    
-    if [[ -z "$MAIN_JAR" ]]; then
-        print_error "Application JAR not found in $INSTALL_DIR/lib"
-        exit 1
+    # Prefer executable jar when available; otherwise use classpath mode with plain jar
+    local main_jar
+    local launch_mode
+    main_jar=$(find "$INSTALL_DIR/lib" \( -name "StudySync-*.jar" -o -name "studysync-*.jar" \) | grep -v "\-plain.jar" | head -1)
+
+    if [[ -n "$main_jar" ]]; then
+        launch_mode="jar"
+    else
+        main_jar=$(find "$INSTALL_DIR/lib" \( -name "StudySync-*-plain.jar" -o -name "studysync-*-plain.jar" \) | head -1)
+        if [[ -z "$main_jar" ]]; then
+            print_error "Application JAR not found in $INSTALL_DIR/lib"
+            exit 1
+        fi
+        launch_mode="classpath"
     fi
 
     # Find Java executable
     JAVA_EXEC=$(which java)
     if [[ -z "$JAVA_EXEC" ]]; then
         JAVA_EXEC="java" # Fallback if which fails
+    fi
+
+    local launch_command
+    if [[ "$launch_mode" == "jar" ]]; then
+        launch_command="exec \"$JAVA_EXEC\" -jar \"$main_jar\" \"\$@\""
+    else
+        launch_command="exec \"$JAVA_EXEC\" -cp \"\$INSTALL_DIR/lib/*\" com.studysync.StudySyncApplication \"\$@\""
     fi
     
     # Create launcher script
@@ -180,9 +197,8 @@ create_launcher() {
 INSTALL_DIR="\$HOME/.local/share/studysync"
 cd "\$INSTALL_DIR"
 
-# Run the application using the Spring Boot fat jar
-# This handles all dependencies and modules automatically
-exec "$JAVA_EXEC" -jar "$MAIN_JAR" "\$@"
+# Run the application
+$launch_command
 LAUNCHER
     
     chmod +x "$INSTALL_DIR/bin/studysync"

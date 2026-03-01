@@ -17,11 +17,33 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Get version from build.gradle
-VERSION=$(grep "^version = " "$PROJECT_ROOT/build.gradle" | sed "s/version = '\(.*\)'/\1/")
-if [[ -z "$VERSION" ]]; then
-    VERSION="0.1.0"
-fi
+resolve_version() {
+    local version_value=""
+
+    # 1) Prefer Gradle properties (handles Kotlin/Groovy DSL and formatting changes)
+    if [[ -x "$PROJECT_ROOT/gradlew" ]]; then
+        version_value=$(cd "$PROJECT_ROOT" && ./gradlew -q properties --property version 2>/dev/null | awk -F': ' '/^version:/ {print $2; exit}')
+    fi
+
+    # 2) Fallback to build.gradle line parsing (single/double quotes)
+    if [[ -z "$version_value" && -f "$PROJECT_ROOT/build.gradle" ]]; then
+        version_value=$(sed -nE "s/^[[:space:]]*version[[:space:]]*=[[:space:]]*['\"]([^'\"]+)['\"].*$/\1/p" "$PROJECT_ROOT/build.gradle" | head -1)
+    fi
+
+    # 3) Fallback to gradle.properties (version=...)
+    if [[ -z "$version_value" && -f "$PROJECT_ROOT/gradle.properties" ]]; then
+        version_value=$(sed -nE "s/^[[:space:]]*version[[:space:]]*=[[:space:]]*([^[:space:]]+).*$/\1/p" "$PROJECT_ROOT/gradle.properties" | head -1)
+    fi
+
+    # 4) Final safe default
+    if [[ -z "$version_value" ]]; then
+        version_value="0.1.0"
+    fi
+
+    echo "$version_value"
+}
+
+VERSION=$(resolve_version)
 
 RELEASE_NAME="studysync-$VERSION-linux"
 BUILD_DIR="$PROJECT_ROOT/build/release"
@@ -79,8 +101,10 @@ package_release() {
     mkdir -p "$RELEASE_DIR/config/google"
     
     # Copy all JARs from installDist
-    if [[ -d "$PROJECT_ROOT/build/install/StudySync/lib" ]]; then
-        cp "$PROJECT_ROOT/build/install/StudySync/lib/"*.jar "$RELEASE_DIR/lib/"
+    local install_lib_dir
+    install_lib_dir=$(find "$PROJECT_ROOT/build/install" -mindepth 2 -maxdepth 2 -type d -name lib | head -1)
+    if [[ -n "$install_lib_dir" && -d "$install_lib_dir" ]]; then
+        cp "$install_lib_dir/"*.jar "$RELEASE_DIR/lib/"
     else
         # Fallback to just the main jar
         cp "$PROJECT_ROOT/build/libs/"*.jar "$RELEASE_DIR/lib/"
@@ -145,8 +169,13 @@ create_tarball() {
     cd "$BUILD_DIR"
     tar -czf "$RELEASE_NAME.tar.gz" "$RELEASE_NAME"
     
-    # Also create SHA256 checksum
+    # Create a version-less copy so the GitHub Releases "latest" URL works:
+    #   .../releases/latest/download/studysync-linux.tar.gz
+    cp "$RELEASE_NAME.tar.gz" "studysync-linux.tar.gz"
+    
+    # Also create SHA256 checksums
     sha256sum "$RELEASE_NAME.tar.gz" > "$RELEASE_NAME.tar.gz.sha256"
+    sha256sum "studysync-linux.tar.gz" > "studysync-linux.tar.gz.sha256"
     
     print_success "Tarball created"
 }
@@ -160,7 +189,9 @@ print_completion() {
     echo "Release files created in: $BUILD_DIR/"
     echo ""
     echo "  📦 $RELEASE_NAME.tar.gz"
+    echo "  📦 studysync-linux.tar.gz (version-less alias)"
     echo "  🔐 $RELEASE_NAME.tar.gz.sha256"
+    echo "  🔐 studysync-linux.tar.gz.sha256"
     echo ""
     echo "File size: $(du -h "$BUILD_DIR/$RELEASE_NAME.tar.gz" | cut -f1)"
     echo ""

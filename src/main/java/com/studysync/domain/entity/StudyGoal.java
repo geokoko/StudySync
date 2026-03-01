@@ -53,7 +53,7 @@ import java.util.Optional;
  * and analytics to provide insights into learning patterns and goal achievement rates.</p>
  * 
  * @author StudySync Development Team
- * @version 0.1.0-BETA
+ * @version 0.1.2
  * @since 0.1.0
  * @see DailyReflection
  */

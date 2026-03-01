@@ -26,7 +26,7 @@ package com.studysync.domain.valueobject;
  * </ul></p>
  * 
  * @author StudySync Development Team
- * @version 0.1.0-BETA
+ * @version 0.1.2
  * @since 0.1.0
  * @see Task
  */

@@ -35,7 +35,7 @@ import java.util.Optional;
  * Application Thread and should not be instantiated directly.</p>
  * 
  * @author geokoko
- * @version 0.1.0-BETA
+ * @version 0.1.2
  * @since 0.1.0
  * @see StudySyncApplication
  * @see StudySyncUI
