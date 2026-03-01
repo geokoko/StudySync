@@ -454,7 +454,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         Tab overviewTab = new Tab("▪ Overview", createOverviewTab(date, dayData));
         
         // Goals Tab  
-        Tab goalsTab = new Tab("◎ Goals", createGoalsTab(date));
+        Tab goalsTab = new Tab("◎ Goals");
+        goalsTab.setContent(createGoalsTab(date, goalsTab));
         
         // Sessions Tab
         Tab sessionsTab = new Tab("» Sessions", createSessionsTab(date));
@@ -570,7 +571,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         return section;
     }
     
-    private VBox createGoalsTab(LocalDate date) {
+    private VBox createGoalsTab(LocalDate date, Tab parentTab) {
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
         
@@ -585,7 +586,11 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             
             Button addGoalBtn = new Button("+ Add Study Goal");
             addGoalBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-size: 12px; -fx-padding: 8 16; -fx-background-radius: 5;");
-            addGoalBtn.setOnAction(e -> showAddGoalDialog(date));
+            addGoalBtn.setOnAction(e -> {
+                showAddGoalDialog(date);
+                // Refresh the goals tab content after the dialog closes
+                parentTab.setContent(createGoalsTab(date, parentTab));
+            });
             
             Label hintLabel = new Label(isFutureDate ? "» Plan ahead for this day" : "» Set goals for today");
             hintLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
