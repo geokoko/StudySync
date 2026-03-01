@@ -104,9 +104,9 @@ public class DatabaseReloadService {
             populator.setContinueOnError(true); // individual failures are non-fatal
             populator.setSeparator(";");
             populator.execute(dataSource);
-            logger.info("Schema migrations re-applied after database reload");
+            logger.info("Schema migrations re-applied after database reload (continueOnError=true; individual statement failures were silently ignored)");
         } catch (Exception e) {
-            logger.warn("Failed to re-apply schema.sql after reload: {}", e.getMessage());
+            logger.error("Failed to re-apply schema.sql after reload — the database may be missing columns/tables", e);
         }
     }
 }

@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -32,6 +33,9 @@ public class GoogleDriveService {
 
     /** Listeners notified when the database is reloaded from Drive. */
     private final java.util.List<Runnable> reloadListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** Listeners notified just before the database is shut down for a reload. */
+    private final java.util.List<Runnable> preReloadListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public GoogleDriveService(GoogleDriveSettings settings, GoogleCredentialManager credentialManager, GoogleDriveGateway gateway) {
         this.settings = settings;
@@ -144,9 +148,7 @@ public class GoogleDriveService {
      * Should be called after any write operation (add/edit/delete goal, task, session, etc.).
      */
     public void markLocalDbDirty() {
-        if (isSignedIn()) {
-            this.localDbDirty = true;
-        }
+        this.localDbDirty = true;
     }
 
     /**
@@ -193,8 +195,12 @@ public class GoogleDriveService {
                 return SyncStatus.DRIVE_NEWER; // remote exists, local doesn't
             }
             Instant localTime = Files.getLastModifiedTime(localPath).toInstant();
-            if (remoteTime.get().isAfter(localTime.plusSeconds(30))) {
+            long toleranceSeconds = 30;
+            if (remoteTime.get().isAfter(localTime.plusSeconds(toleranceSeconds))) {
                 return SyncStatus.DRIVE_NEWER;
+            }
+            if (localTime.isAfter(remoteTime.get().plusSeconds(toleranceSeconds))) {
+                return SyncStatus.LOCAL_NEWER;
             }
             return SyncStatus.UP_TO_DATE;
         } catch (Exception e) {
@@ -209,6 +215,27 @@ public class GoogleDriveService {
      */
     public void addReloadListener(Runnable listener) {
         reloadListeners.add(listener);
+    }
+
+    /**
+     * Register a listener called just before the DB shutdown/reload begins.
+     * UI can use this to show a blocking overlay.
+     */
+    public void addPreReloadListener(Runnable listener) {
+        preReloadListeners.add(listener);
+    }
+
+    /**
+     * Fires all registered pre-reload listeners (on the caller's thread).
+     */
+    private void notifyPreReloadListeners() {
+        for (Runnable listener : preReloadListeners) {
+            try {
+                listener.run();
+            } catch (Exception e) {
+                logger.warn("Pre-reload listener failed: {}", e.getMessage());
+            }
+        }
     }
 
     /**
@@ -236,12 +263,23 @@ public class GoogleDriveService {
      * @return true if the download and reload succeeded
      */
     public synchronized boolean downloadAndReload(Runnable dbShutdown, Runnable dbReconnect) {
+        Objects.requireNonNull(dbShutdown, "dbShutdown callback must not be null");
+        Objects.requireNonNull(dbReconnect, "dbReconnect callback must not be null");
+
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
         }
 
+        // 0. Notify pre-reload listeners (e.g. show overlay)
+        notifyPreReloadListeners();
+
         // 1. Release the H2 file lock so the download can replace the file
-        dbShutdown.run();
+        try {
+            dbShutdown.run();
+        } catch (Exception e) {
+            logger.error("DB shutdown failed during Drive reload — aborting", e);
+            return false;
+        }
 
         // 2. Download the Drive copy over the (now unlocked) local file
         boolean downloaded = false;
@@ -249,7 +287,12 @@ public class GoogleDriveService {
             downloaded = gateway.downloadDatabaseFromDrive(activeCredential);
         } finally {
             // 3. Always reconnect — even if the download failed the old file is still there
-            dbReconnect.run();
+            try {
+                dbReconnect.run();
+            } catch (Exception e) {
+                logger.error("DB reconnect failed after Drive reload — application may need a restart", e);
+                return false;
+            }
         }
 
         if (downloaded) {

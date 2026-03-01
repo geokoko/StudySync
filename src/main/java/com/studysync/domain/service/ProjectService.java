@@ -8,6 +8,8 @@ import com.studysync.integration.drive.GoogleDriveService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -32,7 +34,16 @@ public class ProjectService {
     }
 
     private void markDirty() {
-        googleDriveService.markLocalDbDirty();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    googleDriveService.markLocalDbDirty();
+                }
+            });
+        } else {
+            googleDriveService.markLocalDbDirty();
+        }
     }
 
     @Transactional(readOnly = true)

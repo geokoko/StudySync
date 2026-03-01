@@ -154,8 +154,14 @@ public class StudySyncUI {
         // Check Google Drive sync status in background
         checkDriveSyncOnStartup();
         
+        // Register pre-reload listener to show a blocking overlay during DB reload
+        googleDriveService.addPreReloadListener(() -> Platform.runLater(this::showReloadOverlay));
+
         // Register reload listener to refresh all panels when DB is reloaded from Drive
-        googleDriveService.addReloadListener(() -> Platform.runLater(this::refreshAllPanels));
+        googleDriveService.addReloadListener(() -> Platform.runLater(() -> {
+            hideReloadOverlay();
+            refreshAllPanels();
+        }));
         
         // Initialize the default tab after showing the window (to ensure Spring context is fully loaded)
         Tab selectedTab = tabPane.getSelectionModel().getSelectedItem();
@@ -260,6 +266,31 @@ public class StudySyncUI {
     }
 
     /**
+     * Shows a blocking overlay on the main window during a database reload.
+     */
+    private void showReloadOverlay() {
+        if (overlayLayer != null) {
+            Label reloadLabel = new Label("⚙ Reloading database from Google Drive…");
+            reloadLabel.setFont(Font.font("System", FontWeight.BOLD, 18));
+            reloadLabel.setTextFill(Color.WHITE);
+            reloadLabel.setStyle("-fx-background-color: rgba(0,0,0,0.7); -fx-padding: 30 50; -fx-background-radius: 10;");
+            overlayLayer.getChildren().clear();
+            overlayLayer.getChildren().add(reloadLabel);
+            overlayLayer.setVisible(true);
+        }
+    }
+
+    /**
+     * Hides the reload overlay after DB reconnect completes.
+     */
+    private void hideReloadOverlay() {
+        if (overlayLayer != null) {
+            overlayLayer.setVisible(false);
+            overlayLayer.getChildren().clear();
+        }
+    }
+
+    /**
      * Refreshes every panel after a database reload (e.g. Drive download).
      */
     private void refreshAllPanels() {
@@ -267,7 +298,7 @@ public class StudySyncUI {
             try {
                 panel.updateDisplay();
             } catch (Exception e) {
-                logger.warn("Failed to refresh panel after DB reload: {}", e.getMessage());
+                logger.warn("Failed to refresh panel after DB reload", e);
             }
         }
     }
