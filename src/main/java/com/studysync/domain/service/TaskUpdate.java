@@ -8,5 +8,11 @@ public record TaskUpdate(
     String description,
     String category,
     TaskPriority priority,
-    LocalDate deadline
-) {}
+    LocalDate deadline,
+    String recurringPattern
+) {
+    /** Convenience constructor without recurring pattern (preserves existing). */
+    public TaskUpdate(String title, String description, String category, TaskPriority priority, LocalDate deadline) {
+        this(title, description, category, priority, deadline, null);
+    }
+}

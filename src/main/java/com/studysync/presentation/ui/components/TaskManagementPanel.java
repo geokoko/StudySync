@@ -33,6 +33,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private TextField newCategoryField;
     private ComboBox<Integer> priorityCombo;
     private DatePicker deadlinePicker;
+    private CheckBox recurringCheckBox;
+    private Spinner<Integer> intervalSpinner;
+    private CheckBox[] dayCheckBoxes;
+    private VBox recurringOptionsBox;
     private Task selectedTask;
 
     public TaskManagementPanel(TaskService taskService, CategoryService categoryService, ReminderService reminderService) {
@@ -177,6 +181,45 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         deadlinePicker = new DatePicker();
         deadlinePicker.setPromptText("Select deadline");
         
+        // Recurring task controls
+        recurringCheckBox = new CheckBox("Recurring task");
+        recurringCheckBox.setFont(Font.font("System", FontWeight.BOLD, 12));
+        
+        recurringOptionsBox = new VBox(8);
+        recurringOptionsBox.setPadding(new Insets(8));
+        recurringOptionsBox.setStyle("-fx-background-color: #f0f8ff; -fx-background-radius: 5; -fx-border-color: #b0d4f1; -fx-border-radius: 5;");
+        recurringOptionsBox.setVisible(false);
+        recurringOptionsBox.setManaged(false);
+        
+        Label intervalLabel = new Label("Repeat every:");
+        intervalLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        
+        HBox intervalBox = new HBox(8);
+        intervalBox.setAlignment(Pos.CENTER_LEFT);
+        intervalSpinner = new Spinner<>(1, 4, 1);
+        intervalSpinner.setPrefWidth(70);
+        intervalBox.getChildren().addAll(intervalSpinner, new Label("week(s)"));
+        
+        Label daysLabel = new Label("On these days:");
+        daysLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        
+        HBox daysRow = new HBox(6);
+        daysRow.setAlignment(Pos.CENTER_LEFT);
+        String[] dayLabels = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+        dayCheckBoxes = new CheckBox[7];
+        for (int i = 0; i < 7; i++) {
+            dayCheckBoxes[i] = new CheckBox(dayLabels[i]);
+            dayCheckBoxes[i].setFont(Font.font("System", FontWeight.NORMAL, 11));
+            daysRow.getChildren().add(dayCheckBoxes[i]);
+        }
+        
+        recurringOptionsBox.getChildren().addAll(intervalLabel, intervalBox, daysLabel, daysRow);
+        
+        recurringCheckBox.selectedProperty().addListener((obs, oldVal, newVal) -> {
+            recurringOptionsBox.setVisible(newVal);
+            recurringOptionsBox.setManaged(newVal);
+        });
+        
         HBox actionButtons = new HBox(10);
         actionButtons.setAlignment(Pos.CENTER);
         
@@ -198,6 +241,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             categoryInputBox,
             new Label("Priority:"), priorityCombo,
             new Label("Deadline:"), deadlinePicker,
+            recurringCheckBox, recurringOptionsBox,
             actionButtons
         );
         
@@ -269,6 +313,25 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             }
             
             deadlinePicker.setValue(task.getDeadline());
+            
+            // Populate recurring fields
+            if (task.isRecurring()) {
+                recurringCheckBox.setSelected(true);
+                try {
+                    String[] parts = task.getRecurringPattern().split(":");
+                    intervalSpinner.getValueFactory().setValue(Integer.parseInt(parts[0]));
+                    String[] dayNums = parts[1].split(",");
+                    for (CheckBox cb : dayCheckBoxes) cb.setSelected(false);
+                    for (String d : dayNums) {
+                        int idx = Integer.parseInt(d.trim()) - 1;
+                        if (idx >= 0 && idx < 7) dayCheckBoxes[idx].setSelected(true);
+                    }
+                } catch (Exception e) {
+                    // Malformed pattern — leave defaults
+                }
+            } else {
+                recurringCheckBox.setSelected(false);
+            }
         }
     }
 
@@ -289,17 +352,35 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             return;
         }
 
+        // Build recurring pattern if enabled
+        // Convention: null = no change, "" = clear, non-empty = set pattern
+        String recurringPattern = "";
+        if (recurringCheckBox.isSelected()) {
+            StringBuilder days = new StringBuilder();
+            for (int i = 0; i < 7; i++) {
+                if (dayCheckBoxes[i].isSelected()) {
+                    if (days.length() > 0) days.append(",");
+                    days.append(i + 1); // 1=MON..7=SUN
+                }
+            }
+            if (days.length() == 0) {
+                showAlert("Error", "Please select at least one day for the recurring schedule!");
+                return;
+            }
+            recurringPattern = intervalSpinner.getValue() + ":" + days;
+        }
+
         TaskPriority priority = new TaskPriority(priorityStars);
 
         try {
             if (selectedTask == null) {
                 // Create new task
                 Task newTask = new Task(null, title, description, category.name(), 
-                                       priority, deadline, TaskStatus.OPEN, 0);
+                                       priority, deadline, TaskStatus.OPEN, 0, recurringPattern);
                 taskService.addTask(newTask);
             } else {
                 // Update existing task
-                TaskUpdate update = new TaskUpdate(title, description, category.name(), priority, deadline);
+                TaskUpdate update = new TaskUpdate(title, description, category.name(), priority, deadline, recurringPattern);
                 taskService.updateTask(selectedTask, update);
             }
             
@@ -353,6 +434,9 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         newCategoryField.clear();
         priorityCombo.getSelectionModel().clearSelection();
         deadlinePicker.setValue(null);
+        recurringCheckBox.setSelected(false);
+        intervalSpinner.getValueFactory().setValue(1);
+        for (CheckBox cb : dayCheckBoxes) cb.setSelected(false);
         selectedTask = null;
         taskListView.getSelectionModel().clearSelection();
     }
@@ -404,6 +488,14 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                 }
                 
                 content.getChildren().addAll(titleLabel, detailsLabel, statusLabel);
+                
+                if (task.isRecurring()) {
+                    Label recurringLabel = new Label("\uD83D\uDD01 " + task.getRecurringSummary());
+                    recurringLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+                    recurringLabel.setTextFill(Color.DARKVIOLET);
+                    content.getChildren().add(recurringLabel);
+                }
+                
                 setGraphic(content);
             }
         }

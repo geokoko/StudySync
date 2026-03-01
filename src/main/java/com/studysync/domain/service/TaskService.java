@@ -57,7 +57,7 @@ public class TaskService {
         
         Task taskToSave = task;
         if (task.getPriority() == null) {
-            taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(), new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints());
+            taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(), new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints(), task.getRecurringPattern());
             logger.debug("Set default priority for task: {}", taskToSave.getTitle());
         }
 
@@ -303,7 +303,19 @@ public class TaskService {
             newDeadline = update.deadline();
         }
         
-        return new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline, task.getStatus(), task.getPoints());
+        String newRecurringPattern = task.getRecurringPattern();
+        if (update.recurringPattern() != null) {
+            // Convention:
+            //   null  -> keep existing pattern (no change)
+            //   ""    -> clear existing pattern
+            //   other -> set new pattern
+            if (update.recurringPattern().isEmpty()) {
+                newRecurringPattern = null;
+            } else {
+                newRecurringPattern = update.recurringPattern();
+            }
+        }
+        return new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline, task.getStatus(), task.getPoints(), newRecurringPattern);
     }
     
     private Task applyBusinessRules(Task task) {
@@ -314,5 +326,62 @@ public class TaskService {
             task.updateStatus(TaskStatus.DELAYED);
         }
         return task;
+    }
+
+    // ================================================================
+    // RECURRING TASK OPERATIONS
+    // ================================================================
+
+    /**
+     * Get all recurring tasks.
+     */
+    @Transactional(readOnly = true)
+    public List<Task> getRecurringTasks() {
+        return Task.findRecurring();
+    }
+
+    /**
+     * Get active recurring tasks (not completed/cancelled).
+     */
+    @Transactional(readOnly = true)
+    public List<Task> getActiveRecurringTasks() {
+        return Task.findActiveRecurring();
+    }
+
+    /**
+     * Check if a recurring task applies to a given date based on its pattern.
+     *
+     * @param task the recurring task
+     * @param date the date to check
+     * @param referenceMonday the Monday of the task's start week (for interval calculation)
+     * @return true if the task should recur on this date
+     */
+    public boolean recurringTaskAppliesTo(Task task, LocalDate date, LocalDate referenceMonday) {
+        if (!task.isRecurring()) return false;
+        try {
+            String[] parts = task.getRecurringPattern().split(":");
+            int intervalWeeks = Integer.parseInt(parts[0]);
+            String[] dayNums = parts[1].split(",");
+
+            // Check day of week
+            int todayDow = date.getDayOfWeek().getValue(); // 1=MON..7=SUN
+            boolean dayMatches = false;
+            for (String d : dayNums) {
+                if (Integer.parseInt(d.trim()) == todayDow) {
+                    dayMatches = true;
+                    break;
+                }
+            }
+            if (!dayMatches) return false;
+
+            // Check week interval
+            long weeksBetween = java.time.temporal.ChronoUnit.WEEKS.between(
+                    referenceMonday,
+                    date.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)));
+            return weeksBetween >= 0 && weeksBetween % intervalWeeks == 0;
+        } catch (Exception e) {
+            logger.warn("Invalid recurring pattern '{}' for task '{}'", task.getRecurringPattern(), task.getTitle());
+            return false;
+        }
     }
 }

@@ -1039,8 +1039,55 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         content.setMaxWidth(450);
         content.setMaxHeight(Region.USE_PREF_SIZE);
         
-        Label headerLabel = new Label("Create a new daily study goal");
+        Label headerLabel = new Label("Create a new study goal");
         headerLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        
+        // Date picker for scheduling goals (today or future)
+        Label dateLabel = new Label("Goal Date:");
+        dateLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
+        
+        HBox dateBox = new HBox(10);
+        dateBox.setAlignment(Pos.CENTER_LEFT);
+        
+        DatePicker goalDatePicker = new DatePicker(dateTimeService.getCurrentDate());
+        // Only allow today or future dates
+        goalDatePicker.setDayCellFactory(picker -> new javafx.scene.control.DateCell() {
+            @Override
+            public void updateItem(LocalDate item, boolean empty) {
+                super.updateItem(item, empty);
+                if (item.isBefore(dateTimeService.getCurrentDate())) {
+                    setDisable(true);
+                    setStyle("-fx-background-color: #e0e0e0;");
+                }
+            }
+        });
+        
+        Button todayQuickBtn = new Button("Today");
+        todayQuickBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 10px; -fx-background-radius: 3;");
+        todayQuickBtn.setOnAction(e -> goalDatePicker.setValue(dateTimeService.getCurrentDate()));
+        
+        Button tomorrowQuickBtn = new Button("Tomorrow");
+        tomorrowQuickBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-size: 10px; -fx-background-radius: 3;");
+        tomorrowQuickBtn.setOnAction(e -> goalDatePicker.setValue(dateTimeService.getCurrentDate().plusDays(1)));
+        
+        dateBox.getChildren().addAll(goalDatePicker, todayQuickBtn, tomorrowQuickBtn);
+        
+        // Future date hint
+        Label futureDateHint = new Label("");
+        futureDateHint.setFont(Font.font("System", FontWeight.NORMAL, 11));
+        futureDateHint.setTextFill(Color.web("#7f8c8d"));
+        futureDateHint.setWrapText(true);
+        
+        goalDatePicker.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal != null && newVal.isAfter(dateTimeService.getCurrentDate())) {
+                long daysAhead = java.time.temporal.ChronoUnit.DAYS.between(dateTimeService.getCurrentDate(), newVal);
+                futureDateHint.setText("» Planning " + daysAhead + " day(s) ahead — " + 
+                    newVal.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd")));
+                futureDateHint.setTextFill(Color.web("#27ae60"));
+            } else {
+                futureDateHint.setText("");
+            }
+        });
         
         // Goal description
         Label descLabel = new Label("Goal Description:");
@@ -1122,17 +1169,18 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             okButton.setDisable(newValue.trim().isEmpty());
         });
         
-        content.getChildren().addAll(headerLabel, descLabel, goalTextArea, taskLabel, taskComboBox, buttonBox);
+        content.getChildren().addAll(headerLabel, dateLabel, dateBox, futureDateHint, descLabel, goalTextArea, taskLabel, taskComboBox, buttonBox);
         
         // Handle button actions
         okButton.setOnAction(e -> {
             String goalDescription = goalTextArea.getText().trim();
             Task selectedTask = taskComboBox.getValue();
+            LocalDate selectedDate = goalDatePicker.getValue() != null ? goalDatePicker.getValue() : dateTimeService.getCurrentDate();
             
             if (!goalDescription.isEmpty()) {
                 try {
                     String taskId = selectedTask != null ? selectedTask.getId() : null;
-                    studyService.addStudyGoal(goalDescription, dateTimeService.getCurrentDate(), taskId);
+                    studyService.addStudyGoal(goalDescription, selectedDate, taskId);
                     updateGoalsDisplay();
                     updateProgress();
                     // No alert - just close
@@ -1140,8 +1188,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 } catch (Exception ex) {
                     // Log error but don't show alert
                     System.err.println("Failed to add study goal: " + ex.getMessage());
-                    // Keep modal open on error? Or just close? User requested fix for resize, let's close for safety or show label error. 
-                    // Since I removed Alert, I'll just log.
                     closeModal.run();
                 }
             }

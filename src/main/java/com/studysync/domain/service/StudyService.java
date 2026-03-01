@@ -31,6 +31,9 @@ public class StudyService {
     
     private final GoogleDriveService googleDriveService;
 
+    /** Guards processAllDelayedGoals() so the full scan runs at most once per calendar day. */
+    private LocalDate lastDelayProcessingDate;
+
     @Autowired
     public StudyService(GoogleDriveService googleDriveService) {
         this.googleDriveService = googleDriveService;
@@ -47,10 +50,28 @@ public class StudyService {
     }
 
     public List<StudyGoal> getStudyGoalsForDate(LocalDate date) {
-        // Ensure delayed goals are properly processed before retrieving
-        processAllDelayedGoals();
-        
+        ensureDelayedGoalsProcessedToday();
         return StudyGoal.findByDateIncludingDelayed(date);
+    }
+
+    /**
+     * Get study goals planned for a future date.
+     * Skips delay processing since future dates cannot have delayed goals.
+     * 
+     * @param date a future date to retrieve planned goals for
+     * @return list of study goals planned for that date
+     * @throws ValidationException if {@code date} is null or not strictly in the future
+     */
+    @Transactional(readOnly = true)
+    public List<StudyGoal> getStudyGoalsForFutureDate(LocalDate date) {
+        if (date == null) {
+            throw ValidationException.requiredFieldMissing("date");
+        }
+        if (!date.isAfter(LocalDate.now())) {
+            throw ValidationException.invalidDateRange(
+                date.toString(), "a future date (use getStudyGoalsForDate for past/present)");
+        }
+        return StudyGoal.findByDate(date);
     }
 
     @Transactional(readOnly = true)
@@ -58,9 +79,21 @@ public class StudyService {
         return DailyReflection.findAll();
     }
 
-    @Transactional(readOnly = true)
     public List<StudyGoal> getTodayGoals() {
+        ensureDelayedGoalsProcessedToday();
         return StudyGoal.findByDate(LocalDate.now());
+    }
+
+    /**
+     * Runs processAllDelayedGoals() at most once per calendar day.
+     * Subsequent calls on the same day are no-ops.
+     */
+    private void ensureDelayedGoalsProcessedToday() {
+        LocalDate today = LocalDate.now();
+        if (!today.equals(lastDelayProcessingDate)) {
+            processAllDelayedGoals();
+            lastDelayProcessingDate = today;
+        }
     }
 
     @Transactional(readOnly = true)

@@ -62,3 +62,33 @@ OAuth credentials live on the user's machine (`~/.studysync/google`) and the clo
 - **Mutable Domain Objects**: Task, Project, StudySession are classes with behavior
 - **Real-time Session Tracking**: Live timers with Duration-based calculations
 - **Direct JDBC**: Models use JdbcTemplate directly for database operations
+
+### **Recurring Tasks**
+
+Tasks support an optional recurrence schedule via a `recurring_pattern` column:
+
+- **Format**: `"intervalWeeks:daysOfWeek"` — e.g. `"1:1,3,5"` = every week on Mon, Wed, Fri; `"2:1,4"` = every 2 weeks on Mon, Thu
+- **NULL** means a one-off (non-recurring) task
+- `Task.isRecurring()` and `Task.getRecurringSummary()` provide runtime helpers
+- `TaskService.recurringTaskAppliesTo(task, date, referenceMonday)` checks whether a recurring task should appear on a given date
+- When editing, `""` (empty string) in `TaskUpdate.recurringPattern` signals "clear the pattern", while `null` means "keep existing"
+
+### **Future Goal Planning**
+
+Study goals can be planned for future dates:
+
+- `StudyService.getStudyGoalsForFutureDate(date)` returns goals for a specific future date without delay processing
+- The Study Planner's "Add Goal" dialog includes a DatePicker (today + future only) with quick "Today" / "Tomorrow" buttons
+- Calendar and Daily views branch on past/today/future when loading goals
+
+### **Delayed Goal Processing Guard**
+
+`processAllDelayedGoals()` performs a full table scan and write operations. To avoid redundant work on every UI refresh, a `lastDelayProcessingDate` field ensures it runs at most once per calendar day.
+
+### **Schema Migrations**
+
+Since `spring.sql.init.mode: always` loads `schema.sql` on every startup:
+
+- Tables use `CREATE TABLE IF NOT EXISTS` (safe for existing DBs)
+- New columns are added via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` at the bottom of `schema.sql`
+- This avoids data loss and supports rolling upgrades without external migration tools

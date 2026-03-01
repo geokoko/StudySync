@@ -265,6 +265,7 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
     /**
      * Get filtered study goals for a specific date based on business rules:
      * - For today: show all goals (achieved, pending, and delayed from previous days)
+     * - For future dates: show all goals planned for that specific date
      * - For previous days: show only goals that were achieved OR set on that specific day
      */
     private List<StudyGoal> getFilteredStudyGoalsForDate(LocalDate date) {
@@ -273,6 +274,9 @@ public class DailyViewPanel extends ScrollPane implements RefreshablePanel {
         if (date.equals(today)) {
             // For today, show all goals including delayed ones
             return studyService.getStudyGoalsForDate(date);
+        } else if (date.isAfter(today)) {
+            // For future dates, show all goals planned for that date (no delay processing needed)
+            return studyService.getStudyGoalsForFutureDate(date);
         } else {
             // For previous days, show only goals achieved that day OR goals originally set for that day
             List<StudyGoal> allGoalsForDate = studyService.getStudyGoalsForDate(date);
