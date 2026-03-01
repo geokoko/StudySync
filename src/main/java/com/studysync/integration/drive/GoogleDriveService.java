@@ -225,20 +225,34 @@ public class GoogleDriveService {
     }
 
     /**
-     * Downloads the Drive database, reloads H2 in-place, and notifies listeners.
-     * The caller must supply a {@code databaseReloader} that closes the current H2 connection,
-     * replaces the file, and reopens the connection.
+     * Shuts down H2, downloads the Drive database to replace the local file,
+     * then reconnects and notifies listeners.
      *
-     * @param databaseReloader callback that performs the actual H2 close/reopen cycle
+     * <p>The shutdown-before-download order ensures the {@code .mv.db} file lock
+     * is released before the download attempts to replace it (required on Windows).
+     *
+     * @param dbShutdown  callback that closes H2 and evicts pooled connections
+     * @param dbReconnect callback that reopens H2 and re-applies migrations
      * @return true if the download and reload succeeded
      */
-    public synchronized boolean downloadAndReload(Runnable databaseReloader) {
+    public synchronized boolean downloadAndReload(Runnable dbShutdown, Runnable dbReconnect) {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
         }
-        boolean downloaded = gateway.downloadDatabaseFromDrive(activeCredential);
+
+        // 1. Release the H2 file lock so the download can replace the file
+        dbShutdown.run();
+
+        // 2. Download the Drive copy over the (now unlocked) local file
+        boolean downloaded = false;
+        try {
+            downloaded = gateway.downloadDatabaseFromDrive(activeCredential);
+        } finally {
+            // 3. Always reconnect — even if the download failed the old file is still there
+            dbReconnect.run();
+        }
+
         if (downloaded) {
-            databaseReloader.run();
             localDbDirty = false;
             notifyReloadListeners();
             logger.info("Database reloaded from Google Drive successfully");

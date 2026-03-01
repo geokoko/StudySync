@@ -42,7 +42,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private final TaskService taskService;
     private final DateTimeService dateTimeService;
     private final GoogleDriveService googleDriveService;
-    private final Runnable databaseReloader;
+    private final Runnable dbShutdown;
+    private final Runnable dbReconnect;
     
     // UI Components for dynamic updates
     private VBox statsContainer;
@@ -60,13 +61,14 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     public ProfileViewPanel(StudyService studyService, ProjectService projectService, 
                            TaskService taskService, DateTimeService dateTimeService,
-                           GoogleDriveService googleDriveService, Runnable databaseReloader) {
+                           GoogleDriveService googleDriveService, Runnable dbShutdown, Runnable dbReconnect) {
         this.studyService = studyService;
         this.projectService = projectService;
         this.taskService = taskService;
         this.dateTimeService = dateTimeService;
         this.googleDriveService = googleDriveService;
-        this.databaseReloader = databaseReloader;
+        this.dbShutdown = dbShutdown;
+        this.dbReconnect = dbReconnect;
         
         // Create main content container
         VBox mainContent = new VBox(20);
@@ -164,7 +166,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         driveDownloadButton.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-background-radius: 6;");
         driveDownloadButton.setOnAction(e -> runDriveAction(
             "Downloading database from Google Drive…",
-            () -> googleDriveService.downloadAndReload(databaseReloader),
+            () -> googleDriveService.downloadAndReload(dbShutdown, dbReconnect),
             "Download complete! Database reloaded.",
             "Download failed. Check your connection and credentials."
         ));

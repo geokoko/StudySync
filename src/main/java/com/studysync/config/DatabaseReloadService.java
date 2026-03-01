@@ -39,11 +39,12 @@ public class DatabaseReloadService {
     }
 
     /**
-     * Shuts down the H2 engine, then reconnects — picking up whatever file is
-     * on disk (which may have been replaced by a Drive download).
+     * Shuts down the H2 engine and evicts all pooled connections, releasing the
+     * file lock so the {@code .mv.db} file can be safely replaced on any OS.
+     * Must be followed by a call to {@link #reconnect()} once the file is ready.
      */
-    public void reloadDatabase() {
-        logger.info("Reloading H2 database…");
+    public void shutdown() {
+        logger.info("Shutting down H2 database (releasing file lock)…");
 
         // 1. Shut down H2 — all pooled connections become invalid
         try {
@@ -60,8 +61,16 @@ public class DatabaseReloadService {
                 pool.softEvictConnections();
             }
         }
+    }
 
-        // 3. Force a fresh connection — H2 opens the (replaced) file
+    /**
+     * Reconnects to the H2 database file (which may have been replaced since
+     * {@link #shutdown()}) and re-applies schema migrations.
+     */
+    public void reconnect() {
+        logger.info("Reconnecting to H2 database…");
+
+        // Force a fresh connection — H2 opens the (possibly replaced) file
         try {
             jdbcTemplate.queryForObject("SELECT 1", Integer.class);
         } catch (Exception e) {
@@ -69,10 +78,19 @@ public class DatabaseReloadService {
             throw new RuntimeException("Database reload failed — application may need a restart", e);
         }
 
-        // 4. Run idempotent schema.sql to apply any missing migrations
+        // Run idempotent schema.sql to apply any missing migrations
         runMigrations();
 
-        logger.info("Database reloaded and ready");
+        logger.info("Database reconnected and ready");
+    }
+
+    /**
+     * Convenience method: shuts down H2, then immediately reconnects.
+     * Use when the file has already been replaced before this call.
+     */
+    public void reloadDatabase() {
+        shutdown();
+        reconnect();
     }
 
     /**

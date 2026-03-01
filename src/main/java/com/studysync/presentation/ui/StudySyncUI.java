@@ -279,7 +279,7 @@ public class StudySyncUI {
         profileStage.initOwner(tabPane.getScene().getWindow());
         
         // Create the profile panel
-        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService, googleDriveService, databaseReloadService::reloadDatabase);
+        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService, googleDriveService, databaseReloadService::shutdown, databaseReloadService::reconnect);
         
         Scene profileScene = new Scene(profilePanel, 1000, 700);
         profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
