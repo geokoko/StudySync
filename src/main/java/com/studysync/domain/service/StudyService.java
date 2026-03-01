@@ -39,6 +39,10 @@ public class StudyService {
         this.googleDriveService = googleDriveService;
     }
 
+    private void markDirty() {
+        googleDriveService.markLocalDbDirty();
+    }
+
     @Transactional(readOnly = true)
     public List<StudySession> getStudySessions() {
         return StudySession.findAll();
@@ -111,6 +115,7 @@ public class StudyService {
         }
         StudyGoal goal = new StudyGoal(null, date, description, false, null, 0, false, 0, taskId);
         goal.save();
+        markDirty();
     }
 
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
@@ -120,6 +125,7 @@ public class StudyService {
             goal.setAchieved(achieved);
             goal.setReasonIfNotAchieved(reasonIfNot);
             goal.save();
+            markDirty();
         }
     }
 
@@ -129,7 +135,7 @@ public class StudyService {
         }
         boolean deleted = StudyGoal.deleteById(goalId);
         if (deleted) {
-            // Deleted
+            markDirty();
         } else {
             logger.warn("Requested deletion for study goal '{}' but it did not exist", goalId);
         }
@@ -140,6 +146,7 @@ public class StudyService {
         StudySession session = new StudySession();
         session.startSession();
         session.save();  // Model handles its own persistence
+        markDirty();
         return session;
     }
 
@@ -153,10 +160,12 @@ public class StudyService {
         
         // Save to database
         session.save();
+        markDirty();
     }
 
     public void addDailyReflection(DailyReflection reflection) {
         reflection.save();
+        markDirty();
     }
 
     @Transactional(readOnly = true)
@@ -177,7 +186,7 @@ public class StudyService {
     public void deleteDailyReflection(LocalDate date) {
         boolean deleted = DailyReflection.deleteByDate(date);
         if (deleted) {
-            // Deleted
+            markDirty();
         }
     }
 
@@ -200,7 +209,7 @@ public class StudyService {
     public void deleteStudySession(String sessionId) {
         boolean deleted = StudySession.deleteById(sessionId);
         if (deleted) {
-            // Deleted
+            markDirty();
         }
     }
 
