@@ -13,6 +13,8 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
+import org.springframework.jdbc.core.JdbcTemplate;
+
 /**
  * High-level service exposed to the rest of the application for Google sign-in and Drive synchronization.
  */
@@ -24,6 +26,7 @@ public class GoogleDriveService {
     private final GoogleDriveSettings settings;
     private final GoogleCredentialManager credentialManager;
     private final GoogleDriveGateway gateway;
+    private final JdbcTemplate jdbcTemplate;
     private Credential activeCredential;
     private String cachedAccountEmail;
     private boolean shutdownSaveEnabled = true;
@@ -37,10 +40,11 @@ public class GoogleDriveService {
     /** Listeners notified just before the database is shut down for a reload. */
     private final java.util.List<Runnable> preReloadListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-    public GoogleDriveService(GoogleDriveSettings settings, GoogleCredentialManager credentialManager, GoogleDriveGateway gateway) {
+    public GoogleDriveService(GoogleDriveSettings settings, GoogleCredentialManager credentialManager, GoogleDriveGateway gateway, JdbcTemplate jdbcTemplate) {
         this.settings = settings;
         this.credentialManager = credentialManager;
         this.gateway = gateway;
+        this.jdbcTemplate = jdbcTemplate;
 
         if (settings != null && settings.isReady()) {
             this.activeCredential = loadStoredCredential();
@@ -124,6 +128,12 @@ public class GoogleDriveService {
     public synchronized boolean uploadDatabaseSnapshot() {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
+        }
+        // Flush H2 in-memory cache to the .mv.db file before uploading
+        try {
+            jdbcTemplate.execute("CHECKPOINT SYNC");
+        } catch (Exception e) {
+            logger.warn("H2 CHECKPOINT SYNC failed before upload: {}", e.getMessage());
         }
         boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
         if (uploaded) {
@@ -306,6 +316,17 @@ public class GoogleDriveService {
     @PreDestroy
     public void onShutdown() {
         if (isIntegrationEnabled() && activeCredential != null && shutdownSaveEnabled) {
+            // Force H2 to flush all committed data from its in-memory cache to the
+            // .mv.db file on disk BEFORE we upload.  Without this, DB_CLOSE_DELAY=-1
+            // keeps the engine alive and pending MVStore pages may not yet be written,
+            // causing the uploaded file to be stale.
+            try {
+                jdbcTemplate.execute("CHECKPOINT SYNC");
+                logger.info("H2 checkpoint completed — database file is up to date on disk");
+            } catch (Exception e) {
+                logger.warn("H2 CHECKPOINT SYNC failed (database may already be closed): {}", e.getMessage());
+            }
+
             logger.info("Uploading StudySync database to Google Drive before shutdown");
             gateway.uploadDatabaseToDrive(activeCredential);
         }
