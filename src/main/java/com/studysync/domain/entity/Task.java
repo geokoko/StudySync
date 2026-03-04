@@ -597,7 +597,7 @@ public class Task {
      */
     private static RowMapper<Task> getRowMapper() {
         return (rs, rowNum) -> {
-            return new Task(
+            Task task = new Task(
                 rs.getString("id"),
                 rs.getString("title"),
                 rs.getString("description"),
@@ -608,6 +608,11 @@ public class Task {
                 rs.getInt("points"),
                 rs.getString("recurring_pattern")
             );
+            java.sql.Timestamp createdTs = rs.getTimestamp("created_at");
+            if (createdTs != null) {
+                task.setCreatedAt(createdTs.toLocalDateTime());
+            }
+            return task;
         };
     }
 

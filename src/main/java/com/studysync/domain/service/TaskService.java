@@ -272,6 +272,42 @@ public class TaskService {
     public List<Task> getTasksByCategory(String category) {
         return Task.findByCategory(category);
     }
+
+    /**
+     * Get tasks relevant for a specific date.
+     * Includes:
+     * <ul>
+     *   <li>Active (OPEN / IN_PROGRESS) non-recurring tasks</li>
+     *   <li>Active recurring tasks whose pattern matches the given date
+     *       (using the task's creation Monday as the reference)</li>
+     *   <li>POSTPONED / DELAYED non-recurring tasks (still surfaced until resolved)</li>
+     * </ul>
+     *
+     * @param date the date to retrieve relevant tasks for
+     * @return list of tasks relevant for the date, ordered by priority DESC then deadline ASC
+     */
+    @Transactional(readOnly = true)
+    public List<Task> getTasksForDate(LocalDate date) {
+        if (date == null) return List.of();
+
+        LocalDate referenceMonday = date.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
+
+        return Task.findAll().stream()
+            .filter(task -> {
+                TaskStatus s = task.getStatus();
+                boolean isActive = s == TaskStatus.OPEN || s == TaskStatus.IN_PROGRESS;
+                boolean isPending = s == TaskStatus.POSTPONED || s == TaskStatus.DELAYED;
+
+                if (task.isRecurring()) {
+                    // Only show active recurring tasks on matching days
+                    return isActive && recurringTaskAppliesTo(task, date, referenceMonday);
+                } else {
+                    // Non-recurring: show if active or still pending resolution
+                    return isActive || isPending;
+                }
+            })
+            .collect(Collectors.toList());
+    }
     
     public boolean isHealthy() {
         try {

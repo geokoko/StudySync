@@ -80,7 +80,8 @@ public class StudySyncUI {
         panels.put(new Tab("★ Reflection Diary"), new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
         panels.put(new Tab("≡ Projects"), new ProjectManagementPanel(this.projectService, this.categoryService,
                 this::showModal, this::closeModal));
-        panels.put(new Tab("☑ Tasks"), new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService));
+        panels.put(new Tab("☑ Tasks"), new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService,
+                this::showModal, this::closeModal));
         panelMap = Collections.unmodifiableMap(panels);
     }
 

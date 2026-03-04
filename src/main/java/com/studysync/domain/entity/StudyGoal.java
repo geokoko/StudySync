@@ -567,6 +567,52 @@ public class StudyGoal {
     }
     
     /**
+     * Find goals linked to a specific task for a given date, including delayed unachieved goals.
+     * Returns goals that are either planned for the date or delayed from earlier dates.
+     *
+     * @param taskId the task ID to find linked goals for
+     * @param date the date to scope the query
+     * @return list of study goals linked to the task for the given date context
+     */
+    public static List<StudyGoal> findByTaskIdForDate(String taskId, LocalDate date) {
+        if (jdbcTemplate == null || taskId == null || taskId.isBlank() || date == null) {
+            return List.of();
+        }
+        
+        String sql = """
+            SELECT * FROM study_goals 
+            WHERE task_id = ? 
+              AND (date = ? OR (is_delayed = TRUE AND achieved = FALSE AND date <= ?))
+            ORDER BY is_delayed ASC, date ASC, created_at ASC
+            """;
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), taskId, date, date);
+        logger.debug("Retrieved {} goals for task {} on date {}", goals.size(), taskId, date);
+        return goals;
+    }
+    
+    /**
+     * Find goals that are NOT linked to any task for a given date, including delayed unachieved ones.
+     *
+     * @param date the date to scope the query
+     * @return list of unlinked study goals for the given date context
+     */
+    public static List<StudyGoal> findUnlinkedForDate(LocalDate date) {
+        if (jdbcTemplate == null || date == null) {
+            return List.of();
+        }
+        
+        String sql = """
+            SELECT * FROM study_goals 
+            WHERE task_id IS NULL 
+              AND (date = ? OR (is_delayed = TRUE AND achieved = FALSE AND date <= ?))
+            ORDER BY is_delayed ASC, date ASC, created_at ASC
+            """;
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
+        logger.debug("Retrieved {} unlinked goals for date {}", goals.size(), date);
+        return goals;
+    }
+    
+    /**
      * RowMapper for converting database rows to StudyGoal objects.
      */
     private static RowMapper<StudyGoal> getRowMapper() {
