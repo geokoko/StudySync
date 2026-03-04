@@ -325,6 +325,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                     "Delete \"" + task.getTitle() + "\"?", ButtonType.OK, ButtonType.CANCEL);
             confirm.setTitle("Delete Task");
             confirm.setHeaderText(null);
+            confirm.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
             confirm.showAndWait().ifPresent(bt -> {
                 if (bt == ButtonType.OK) {
                     taskService.removeTask(task);

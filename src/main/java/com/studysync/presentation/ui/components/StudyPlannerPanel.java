@@ -218,13 +218,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         endSessionBtn.setOnAction(e -> {
             if (currentSession != null) {
-                javafx.stage.Window window = this.getScene().getWindow();
-                boolean wasMaximized = false;
-                if (window instanceof javafx.stage.Stage) {
-                    wasMaximized = ((javafx.stage.Stage) window).isMaximized();
-                }
-                final boolean restoreMaximized = wasMaximized;
-
                 currentSession.setSessionText(sessionTextArea.getText());
                 stopSessionTimer();
                 showEndSessionDialog();
@@ -234,10 +227,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                     endSessionBtn.setDisable(true);
                     sessionTextArea.setDisable(true);
                     updateSessionsDisplay();
-                    if (restoreMaximized && window instanceof javafx.stage.Stage) {
-                        javafx.application.Platform.runLater(() ->
-                            ((javafx.stage.Stage) window).setMaximized(true));
-                    }
                 });
             }
         });
@@ -549,6 +538,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
                     "Delete this session?", ButtonType.OK, ButtonType.CANCEL);
             alert.setHeaderText(null);
+            alert.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
             alert.showAndWait().ifPresent(bt -> {
                 if (bt == ButtonType.OK) {
                     studyService.deleteStudySession(session.getId());

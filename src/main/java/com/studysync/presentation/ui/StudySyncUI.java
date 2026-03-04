@@ -254,6 +254,7 @@ public class StudySyncUI {
                 switch (status) {
                     case DRIVE_NEWER -> {
                         Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                        alert.initOwner(tabPane.getScene() != null ? tabPane.getScene().getWindow() : null);
                         alert.setTitle("Google Drive Sync");
                         alert.setHeaderText("A newer database is available on Google Drive");
                         alert.setContentText("Open your Profile to download and apply it — no restart required.");

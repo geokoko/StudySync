@@ -284,6 +284,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
             
             // Show success message
             Alert success = new Alert(Alert.AlertType.INFORMATION);
+            success.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
             success.setTitle("Success");
             success.setHeaderText(null);
             success.setContentText("Reflection saved successfully for " + selectedDate.format(DateTimeFormatter.ofPattern("MMMM d, yyyy")));
@@ -294,6 +295,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
             
         } catch (Exception e) {
             Alert error = new Alert(Alert.AlertType.ERROR);
+            error.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
             error.setTitle("Error");
             error.setHeaderText(null);
             error.setContentText("Failed to save reflection: " + e.getMessage());

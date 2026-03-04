@@ -466,6 +466,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
     
     private void showDayDetailDialog(LocalDate date, DayData dayData) {
         Dialog<Void> dialog = new Dialog<>();
+        dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         dialog.setTitle("Day Details - " + date.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy")));
         dialog.setHeaderText("» Complete Day Overview");
         
@@ -994,6 +995,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
+            confirmation.initOwner(goalBox.getScene() != null ? goalBox.getScene().getWindow() : null);
             confirmation.setTitle("Delete Study Goal");
             confirmation.setHeaderText("Are you sure you want to delete this study goal?");
             confirmation.setContentText("Goal: " + goal.getDescription());
@@ -1053,6 +1055,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
+            confirmation.initOwner(sessionBox.getScene() != null ? sessionBox.getScene().getWindow() : null);
             confirmation.setTitle("Delete Study Session");
             confirmation.setHeaderText("Are you sure you want to delete this study session?");
             
@@ -1104,6 +1107,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 10px;");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
+            confirmation.initOwner(sessionBox.getScene() != null ? sessionBox.getScene().getWindow() : null);
             confirmation.setTitle("Delete Project Session");
             confirmation.setHeaderText("Are you sure you want to delete this project session?");
             
@@ -1130,6 +1134,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
      */
     private void showAddGoalDialog(LocalDate date) {
         Dialog<String> dialog = new Dialog<>();
+        dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         boolean isFutureDate = date.isAfter(LocalDate.now());
         
         dialog.setTitle(isFutureDate ? "Plan Study Goal" : "Add Study Goal");
@@ -1176,6 +1181,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                     
                     // Show confirmation
                     Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
+                    successAlert.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
                     successAlert.setTitle("Goal Added");
                     successAlert.setHeaderText(null);
                     successAlert.setContentText("Study goal added successfully for " + 
@@ -1183,6 +1189,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                     successAlert.showAndWait();
                 } catch (Exception e) {
                     Alert errorAlert = new Alert(Alert.AlertType.ERROR);
+                    errorAlert.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
                     errorAlert.setTitle("Error");
                     errorAlert.setHeaderText("Failed to add study goal");
                     errorAlert.setContentText(e.getMessage());
