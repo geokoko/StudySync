@@ -320,6 +320,29 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             metricsBox.getChildren().add(goalsBox);
         }
         
+        // Tasks indicator
+        if (!dayData.tasks.isEmpty()) {
+            HBox tasksBox = new HBox(3);
+            tasksBox.setAlignment(Pos.CENTER_LEFT);
+            
+            Label taskIcon = new Label("☑");
+            taskIcon.setFont(Font.font("System", FontWeight.NORMAL, 11));
+            taskIcon.setTextFill(Color.web("#9b59b6"));
+            
+            // Show count + first task title (truncated)
+            String firstTitle = dayData.tasks.get(0).getTitle();
+            if (firstTitle.length() > 14) firstTitle = firstTitle.substring(0, 13) + "…";
+            String taskText = dayData.tasks.size() == 1
+                    ? firstTitle
+                    : firstTitle + " +" + (dayData.tasks.size() - 1);
+            Label taskLabel = new Label(taskText);
+            taskLabel.setFont(Font.font("System", FontWeight.NORMAL, 9));
+            taskLabel.setTextFill(Color.web("#9b59b6"));
+            
+            tasksBox.getChildren().addAll(taskIcon, taskLabel);
+            metricsBox.getChildren().add(tasksBox);
+        }
+        
         // Productivity indicator
         String productivityIcon = getProductivityIcon(dayData.productivityScore);
         Label prodLabel = new Label(productivityIcon);
@@ -375,6 +398,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             data.achievedGoals = (int) studyGoals.stream().filter(StudyGoal::isAchieved).count();
             data.avgFocusLevel = studySessions.isEmpty() ? 0 : 
                                 (int) Math.round(studySessions.stream().mapToInt(StudySession::getFocusLevel).average().orElse(0));
+            data.tasks = taskService.getTasksForDate(date);
             
             // Calculate productivity score
             data.productivityScore = calculateDayProductivityScore(data);
@@ -460,10 +484,13 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         // Sessions Tab
         Tab sessionsTab = new Tab("» Sessions", createSessionsTab(date));
         
+        // Tasks Tab
+        Tab tasksTab = new Tab("☑ Tasks", createTasksTab(date, dayData));
+        
         // Performance Tab
         Tab performanceTab = new Tab("↑ Performance", createPerformanceTab(date, dayData));
         
-        tabPane.getTabs().addAll(overviewTab, goalsTab, sessionsTab, performanceTab);
+        tabPane.getTabs().addAll(overviewTab, goalsTab, sessionsTab, tasksTab, performanceTab);
         
         dialog.getDialogPane().setContent(tabPane);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
@@ -482,6 +509,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         int achievedGoals = 0;
         int avgFocusLevel = 0;
         double productivityScore = 0.0;
+        // Tasks for this day (used in cell preview and detail dialog)
+        List<Task> tasks = List.of();
     }
     
     private VBox createOverviewTab(LocalDate date, DayData dayData) {
@@ -518,17 +547,23 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         metricsGrid.add(new Label("Goals Achieved:"), 0, 3);
         metricsGrid.add(new Label(dayData.achievedGoals + "/" + dayData.totalGoals), 1, 3);
         
+        // Tasks
+        metricsGrid.add(new Label("Tasks Scheduled:"), 0, 4);
+        Label tasksCountLabel = new Label(String.valueOf(dayData.tasks.size()));
+        tasksCountLabel.setTextFill(dayData.tasks.isEmpty() ? Color.web("#7f8c8d") : Color.web("#9b59b6"));
+        metricsGrid.add(tasksCountLabel, 1, 4);
+        
         // Average focus
-        metricsGrid.add(new Label("Average Focus:"), 0, 4);
+        metricsGrid.add(new Label("Average Focus:"), 0, 5);
         Label focusLabel = new Label("\u2605".repeat(dayData.avgFocusLevel) + "\u2606".repeat(5 - dayData.avgFocusLevel) + " (" + dayData.avgFocusLevel + "/5)");
         focusLabel.setTextFill(Color.web("#f39c12"));
-        metricsGrid.add(focusLabel, 1, 4);
+        metricsGrid.add(focusLabel, 1, 5);
         
         // Productivity score
-        metricsGrid.add(new Label("Productivity Score:"), 0, 5);
+        metricsGrid.add(new Label("Productivity Score:"), 0, 6);
         Label productivityLabel = new Label(String.format("%.0f%%", dayData.productivityScore));
         productivityLabel.setTextFill(getProductivityColor(dayData.productivityScore));
-        metricsGrid.add(productivityLabel, 1, 5);
+        metricsGrid.add(productivityLabel, 1, 6);
         
         summarySection.getChildren().addAll(dateLabel, metricsGrid);
         
@@ -674,6 +709,126 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         return content;
     }
     
+    private VBox createTasksTab(LocalDate date, DayData dayData) {
+        VBox content = new VBox(12);
+        content.setPadding(new Insets(20));
+
+        if (dayData.tasks.isEmpty()) {
+            Label noTasksLabel = new Label("☑ No tasks scheduled for this day.");
+            noTasksLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
+            noTasksLabel.setTextFill(Color.web("#7f8c8d"));
+            noTasksLabel.setPadding(new Insets(30));
+            content.getChildren().add(noTasksLabel);
+            return content;
+        }
+
+        Label title = new Label("☑ Tasks (" + dayData.tasks.size() + ")");
+        title.setFont(Font.font("System", FontWeight.BOLD, 18));
+        title.setTextFill(Color.web("#9b59b6"));
+        content.getChildren().add(title);
+
+        for (Task task : dayData.tasks) {
+            VBox taskBox = new VBox(6);
+            taskBox.setPadding(new Insets(12));
+
+            String borderColor = taskBorderColor(task);
+            taskBox.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
+                    " -fx-border-color: " + borderColor + "; -fx-border-radius: 8;");
+
+            // Title + status row
+            HBox headerRow = new HBox(10);
+            headerRow.setAlignment(Pos.CENTER_LEFT);
+
+            Label taskTitle = new Label(task.getTitle());
+            taskTitle.setFont(Font.font("System", FontWeight.BOLD, 14));
+            taskTitle.setTextFill(Color.web("#2c3e50"));
+
+            Label statusBadge = new Label(task.getStatus().name());
+            statusBadge.setFont(Font.font("System", FontWeight.BOLD, 10));
+            statusBadge.setPadding(new Insets(2, 6, 2, 6));
+            statusBadge.setStyle("-fx-background-color: " + statusBadgeBg(task.getStatus()) +
+                    "; -fx-background-radius: 10;");
+            statusBadge.setTextFill(statusTextColor(task.getStatus()));
+
+            if (task.isRecurring()) {
+                Label recurBadge = new Label("\uD83D\uDD01");
+                recurBadge.setFont(Font.font("System", FontWeight.NORMAL, 12));
+                recurBadge.setTooltip(new Tooltip(task.getRecurringSummary()));
+                headerRow.getChildren().add(recurBadge);
+            }
+
+            Region spacer = new Region();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+            headerRow.getChildren().addAll(taskTitle, spacer, statusBadge);
+            taskBox.getChildren().add(headerRow);
+
+            // Description (if non-empty)
+            if (task.getDescription() != null && !task.getDescription().isBlank()) {
+                Label descLabel = new Label(task.getDescription());
+                descLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+                descLabel.setTextFill(Color.web("#555"));
+                descLabel.setWrapText(true);
+                taskBox.getChildren().add(descLabel);
+            }
+
+            // Priority + category row
+            HBox metaRow = new HBox(15);
+            metaRow.setAlignment(Pos.CENTER_LEFT);
+            if (task.getPriority() != null) {
+                Label prioLabel = new Label("Priority: " + task.getPriority());
+                prioLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+                prioLabel.setTextFill(Color.web("#f39c12"));
+                metaRow.getChildren().add(prioLabel);
+            }
+            if (task.getCategory() != null && !task.getCategory().isBlank()) {
+                Label catLabel = new Label("Category: " + task.getCategory());
+                catLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+                catLabel.setTextFill(Color.web("#3498db"));
+                metaRow.getChildren().add(catLabel);
+            }
+            if (!metaRow.getChildren().isEmpty()) {
+                taskBox.getChildren().add(metaRow);
+            }
+
+            content.getChildren().add(taskBox);
+        }
+
+        return content;
+    }
+
+    private static String taskBorderColor(Task task) {
+        return switch (task.getStatus()) {
+            case COMPLETED   -> "#27ae60";
+            case DELAYED     -> "#e74c3c";
+            case IN_PROGRESS -> "#f39c12";
+            case CANCELLED   -> "#bdc3c7";
+            case POSTPONED   -> "#9c27b0";
+            default          -> "#3498db";
+        };
+    }
+
+    private static String statusBadgeBg(TaskStatus s) {
+        return switch (s) {
+            case COMPLETED   -> "#e8f5e9";
+            case DELAYED     -> "#ffebee";
+            case IN_PROGRESS -> "#fff3e0";
+            case CANCELLED   -> "#eceff1";
+            case POSTPONED   -> "#f3e5f5";
+            default          -> "#e3f2fd";
+        };
+    }
+
+    private static Color statusTextColor(TaskStatus s) {
+        return switch (s) {
+            case COMPLETED   -> Color.web("#27ae60");
+            case DELAYED     -> Color.web("#e74c3c");
+            case IN_PROGRESS -> Color.web("#f39c12");
+            case CANCELLED   -> Color.web("#7f8c8d");
+            case POSTPONED   -> Color.web("#9c27b0");
+            default          -> Color.web("#3498db");
+        };
+    }
+
     private VBox createPerformanceTab(LocalDate date, DayData dayData) {
         VBox content = new VBox(20);
         content.setPadding(new Insets(20));
