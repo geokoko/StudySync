@@ -15,6 +15,7 @@ import com.studysync.presentation.ui.components.RefreshablePanel;
 import com.studysync.presentation.ui.components.ReflectionDiaryPanel;
 import com.studysync.presentation.ui.components.StudyPlannerPanel;
 import com.studysync.presentation.ui.components.TaskManagementPanel;
+import com.studysync.presentation.ui.components.TaskStyleUtils;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -22,10 +23,9 @@ import javafx.scene.layout.*;
 import javafx.scene.image.Image;
 import javafx.scene.input.*;
 import javafx.scene.paint.Color;
-import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
 import org.slf4j.Logger;
@@ -86,6 +86,11 @@ public class StudySyncUI {
     }
 
     public void start(Stage primaryStage) {
+        // Force light Modena theme regardless of OS dark mode setting.
+        // JavaFX 21 auto-detects OS dark mode and adjusts Modena colors (white label text),
+        // which clashes with our hard-coded light backgrounds.
+        Application.setUserAgentStylesheet(Application.STYLESHEET_MODENA);
+
         this.tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         
@@ -208,8 +213,8 @@ public class StudySyncUI {
         
         // App title/logo area
         Label appTitle = new Label("StudySync");
-        appTitle.setFont(Font.font("System", FontWeight.BOLD, 20));
         appTitle.setTextFill(Color.WHITE);
+        TaskStyleUtils.fontBold(appTitle, 20);
         
         // Spacer to push profile button to the right
         Region spacer = new Region();
@@ -273,9 +278,9 @@ public class StudySyncUI {
     private void showReloadOverlay() {
         if (overlayLayer != null) {
             Label reloadLabel = new Label("⚙ Reloading database from Google Drive…");
-            reloadLabel.setFont(Font.font("System", FontWeight.BOLD, 18));
             reloadLabel.setTextFill(Color.WHITE);
             reloadLabel.setStyle("-fx-background-color: rgba(0,0,0,0.7); -fx-padding: 30 50; -fx-background-radius: 10;");
+            TaskStyleUtils.fontBold(reloadLabel, 18);
             overlayLayer.getChildren().clear();
             overlayLayer.getChildren().add(reloadLabel);
             overlayLayer.setVisible(true);

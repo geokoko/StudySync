@@ -17,9 +17,6 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.Node;
-import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
-import javafx.scene.text.FontPosture;
 import javafx.scene.chart.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,7 +70,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         // Create main content container
         VBox mainContent = new VBox(20);
         mainContent.setPadding(new Insets(20));
-        mainContent.setStyle("-fx-background-color: linear-gradient(to bottom, #f8f9fa, #e9ecef);");
+        mainContent.getStyleClass().add("panel-bg");
         
         // Set up ScrollPane properties
         this.setContent(mainContent);
@@ -90,8 +87,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private void initializeComponents(VBox mainContent) {
         // Header
         Label headerLabel = new Label("👤 Study Profile & Analytics");
-        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
-        headerLabel.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(headerLabel, 24);
         
         VBox driveSyncSection = createDriveSyncSection();
         
@@ -112,28 +108,27 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     private VBox createDriveSyncSection() {
         VBox section = new VBox(12);
-        section.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 20; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 6, 0, 0, 2);");
+        section.getStyleClass().add("section-card-light");
         
         Label title = new Label("☁️ Google Drive Sync");
-        title.setFont(Font.font("System", FontWeight.BOLD, 18));
-        title.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(title, 18);
         
         driveStatusLabel = new Label();
         driveStatusLabel.setWrapText(true);
-        driveStatusLabel.setFont(Font.font("System", FontWeight.NORMAL, 13));
+        TaskStyleUtils.fontNormal(driveStatusLabel, 13);
         
         driveHintLabel = new Label();
         driveHintLabel.setWrapText(true);
-        driveHintLabel.setFont(Font.font("System", FontPosture.ITALIC, 12));
+        TaskStyleUtils.fontItalic(driveHintLabel, 12);
         driveHintLabel.setTextFill(Color.web("#7f8c8d"));
         
         driveActionStatusLabel = new Label();
         driveActionStatusLabel.setWrapText(true);
-        driveActionStatusLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        TaskStyleUtils.fontNormal(driveActionStatusLabel, 12);
         driveActionStatusLabel.setTextFill(Color.web("#16a085"));
         
         driveSignInButton = new Button("🔐 Sign in with Google");
-        driveSignInButton.setStyle("-fx-background-color: #4285F4; -fx-text-fill: white; -fx-background-radius: 6;");
+        driveSignInButton.getStyleClass().add("btn-google");
         driveSignInButton.setOnAction(e -> runDriveAction(
             "Opening Google sign-in…",
             () -> googleDriveService.signInWithGoogle(),
@@ -142,7 +137,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         ));
         
         driveSignOutButton = new Button("\uD83D\uDD12 Sign out");
-        driveSignOutButton.setStyle("-fx-background-color: #bdc3c7; -fx-text-fill: #2c3e50; -fx-background-radius: 6;");
+        driveSignOutButton.getStyleClass().add("btn-gray");
         driveSignOutButton.setOnAction(e -> runDriveAction(
             "Signing out…",
             () -> {
@@ -154,7 +149,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         ));
         
         driveSyncButton = new Button("⬆️ Sync to Drive now");
-        driveSyncButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 6;");
+        driveSyncButton.getStyleClass().add("btn-success");
         driveSyncButton.setOnAction(e -> runDriveAction(
             "Uploading database to Google Drive…",
             () -> googleDriveService.uploadDatabaseSnapshot(),
@@ -163,7 +158,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         ));
 
         driveDownloadButton = new Button("⬇️ Download from Drive");
-        driveDownloadButton.setStyle("-fx-background-color: #f39c12; -fx-text-fill: white; -fx-background-radius: 6;");
+        driveDownloadButton.getStyleClass().add("btn-orange-download");
         driveDownloadButton.setOnAction(e -> runDriveAction(
             "Downloading database from Google Drive…",
             () -> googleDriveService.downloadAndReload(dbShutdown, dbReconnect),
@@ -242,22 +237,21 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     private VBox createProfileSummarySection() {
         VBox section = new VBox(15);
-        section.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 20; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+        section.getStyleClass().add("section-card");
         
         Label sectionTitle = new Label("▪ Overall Performance");
-        sectionTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
-        sectionTitle.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(sectionTitle, 18);
         
         // Profile summary with dynamic content
         profileSummaryLabel = new Label();
-        profileSummaryLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
+        TaskStyleUtils.fontNormal(profileSummaryLabel, 14);
         profileSummaryLabel.setTextFill(Color.web("#34495e"));
         profileSummaryLabel.setWrapText(true);
         
         // Productivity rating bar
         VBox productivityBox = new VBox(8);
         Label productivityTitle = new Label("Overall Productivity Rating:");
-        productivityTitle.setFont(Font.font("System", FontWeight.SEMI_BOLD, 12));
+        TaskStyleUtils.fontSemiBold(productivityTitle, 12);
         
         productivityRating = new ProgressBar(0.75); // Will be updated dynamically
         productivityRating.setPrefWidth(300);
@@ -265,7 +259,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         productivityRating.setStyle("-fx-accent: #3498db;");
         
         productivityLabel = new Label("Good (75%)");
-        productivityLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
+        TaskStyleUtils.fontBold(productivityLabel, 12);
         productivityLabel.setTextFill(Color.web("#3498db"));
         
         productivityBox.getChildren().addAll(productivityTitle, productivityRating, productivityLabel);
@@ -287,14 +281,13 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     private VBox createAchievedGoalsSection() {
         VBox section = new VBox(15);
-        section.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 20; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+        section.getStyleClass().add("section-card");
         
         HBox header = new HBox(15);
         header.setAlignment(Pos.CENTER_LEFT);
         
         Label sectionTitle = new Label("♦ Achieved Goals");
-        sectionTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
-        sectionTitle.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(sectionTitle, 18);
         
         // Get recent achieved goals count
         List<StudyGoal> allAchievedGoals = studyService.getStudyGoals().stream()
@@ -302,11 +295,11 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             .collect(Collectors.toList());
         
         Label countLabel = new Label("(" + allAchievedGoals.size() + " total)");
-        countLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
+        TaskStyleUtils.fontNormal(countLabel, 14);
         countLabel.setTextFill(Color.web("#7f8c8d"));
         
         Button viewAllBtn = new Button("» View All Achieved Goals");
-        viewAllBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 5;");
+        viewAllBtn.getStyleClass().add("btn-success");
         viewAllBtn.setOnAction(e -> showAllAchievedGoalsDialog());
         
         Region spacer = new Region();
@@ -323,13 +316,13 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         
         if (recentAchievedGoals.isEmpty()) {
             Label noGoalsLabel = new Label("No goals achieved yet. Start setting and completing goals to see them here!");
-            noGoalsLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+            TaskStyleUtils.fontNormal(noGoalsLabel, 12);
             noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
             noGoalsLabel.setPadding(new Insets(10, 0, 0, 0));
             recentGoalsContainer.getChildren().add(noGoalsLabel);
         } else {
             Label recentLabel = new Label("Recent Achievements:");
-            recentLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 12));
+            TaskStyleUtils.fontSemiBold(recentLabel, 12);
             recentLabel.setTextFill(Color.web("#2c3e50"));
             recentGoalsContainer.getChildren().add(recentLabel);
             
@@ -340,7 +333,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             
             if (allAchievedGoals.size() > 5) {
                 Label moreLabel = new Label("... and " + (allAchievedGoals.size() - 5) + " more. Click 'View All' to see them.");
-                moreLabel.setFont(Font.font("System", FontPosture.ITALIC, 11));
+                TaskStyleUtils.fontItalic(moreLabel, 11);
                 moreLabel.setTextFill(Color.web("#95a5a6"));
                 recentGoalsContainer.getChildren().add(moreLabel);
             }
@@ -357,17 +350,16 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         item.setStyle("-fx-background-color: #e8f5e8; -fx-background-radius: 5; -fx-border-color: #27ae60; -fx-border-radius: 5;");
         
         Label checkLabel = new Label("✅");
-        checkLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
+        TaskStyleUtils.fontNormal(checkLabel, 14);
         
         VBox textContainer = new VBox(2);
         
         Label descLabel = new Label(goal.getDescription());
-        descLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
-        descLabel.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontNormal(descLabel, 12);
         descLabel.setWrapText(true);
         
         Label dateLabel = new Label("Achieved on " + goal.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
-        dateLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
+        TaskStyleUtils.fontNormal(dateLabel, 10);
         dateLabel.setTextFill(Color.web("#7f8c8d"));
         
         textContainer.getChildren().addAll(descLabel, dateLabel);
@@ -378,6 +370,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     private void showAllAchievedGoalsDialog() {
         Dialog<Void> dialog = new Dialog<>();
+        dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         dialog.setTitle("All Achieved Goals");
         dialog.setHeaderText("♦ Your Achievement History");
         
@@ -394,7 +387,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         
         if (allAchievedGoals.isEmpty()) {
             Label noGoalsLabel = new Label("You haven't achieved any goals yet.\n\nStart by setting daily study goals and completing them to build your achievement history!");
-            noGoalsLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
+            TaskStyleUtils.fontNormal(noGoalsLabel, 14);
             noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
             noGoalsLabel.setWrapText(true);
             noGoalsLabel.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
@@ -402,7 +395,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             content.getChildren().add(noGoalsLabel);
         } else {
             Label totalLabel = new Label("Total Achieved Goals: " + allAchievedGoals.size());
-            totalLabel.setFont(Font.font("System", FontWeight.BOLD, 14));
+            TaskStyleUtils.fontBold(totalLabel, 14);
             totalLabel.setTextFill(Color.web("#27ae60"));
             content.getChildren().add(totalLabel);
             
@@ -418,8 +411,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             for (Map.Entry<String, List<StudyGoal>> monthEntry : goalsByMonth.entrySet()) {
                 // Month header
                 Label monthLabel = new Label("» " + monthEntry.getKey());
-                monthLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
-                monthLabel.setTextFill(Color.web("#2c3e50"));
+                TaskStyleUtils.fontBold(monthLabel, 16);
                 monthLabel.setPadding(new Insets(15, 0, 5, 0));
                 goalsContainer.getChildren().add(monthLabel);
                 
@@ -450,27 +442,26 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         item.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 8; -fx-border-color: #27ae60; -fx-border-radius: 8; -fx-border-width: 1;");
         
         Label checkLabel = new Label("✅");
-        checkLabel.setFont(Font.font("System", FontWeight.NORMAL, 16));
+        TaskStyleUtils.fontNormal(checkLabel, 16);
         
         VBox textContainer = new VBox(4);
         HBox.setHgrow(textContainer, Priority.ALWAYS);
         
         Label descLabel = new Label(goal.getDescription());
-        descLabel.setFont(Font.font("System", FontWeight.NORMAL, 13));
-        descLabel.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontNormal(descLabel, 13);
         descLabel.setWrapText(true);
         
         HBox detailsBox = new HBox(15);
         detailsBox.setAlignment(Pos.CENTER_LEFT);
         
         Label dateLabel = new Label("» " + goal.getDate().format(DateTimeFormatter.ofPattern("EEE, MMM dd, yyyy")));
-        dateLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+        TaskStyleUtils.fontNormal(dateLabel, 11);
         dateLabel.setTextFill(Color.web("#7f8c8d"));
         
         // Show if it was delayed before achievement
         if (goal.isDelayed()) {
             Label delayLabel = new Label("[!]  Delayed " + goal.getDaysDelayed() + " day(s)");
-            delayLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+            TaskStyleUtils.fontNormal(delayLabel, 11);
             delayLabel.setTextFill(Color.web("#e67e22"));
             detailsBox.getChildren().addAll(dateLabel, delayLabel);
         } else {
@@ -500,15 +491,15 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         card.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-border-color: " + color + "; -fx-border-width: 2; -fx-border-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 3, 0, 0, 1);");
         
         Label titleLabel = new Label(title);
-        titleLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
+        TaskStyleUtils.fontBold(titleLabel, 12);
         titleLabel.setTextFill(Color.web("#7f8c8d"));
         
         Label valueLabel = new Label(value);
-        valueLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
+        TaskStyleUtils.fontBold(valueLabel, 24);
         valueLabel.setTextFill(Color.web(color));
         
         Label subtitleLabel = new Label(subtitle);
-        subtitleLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
+        TaskStyleUtils.fontNormal(subtitleLabel, 10);
         subtitleLabel.setTextFill(Color.web("#95a5a6"));
         subtitleLabel.setWrapText(true);
         subtitleLabel.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
@@ -584,17 +575,19 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             // Focus level trend chart
             LineChart<String, Number> focusChart = createFocusTrendChart();
             VBox focusChartBox = new VBox(10);
-            focusChartBox.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+            focusChartBox.getStyleClass().add("section-card");
+            focusChartBox.setPadding(new Insets(15));
             Label focusChartTitle = new Label("↑ Focus Level Trend (Last 14 Days)");
-            focusChartTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
+            TaskStyleUtils.fontBold(focusChartTitle, 16);
             focusChartBox.getChildren().addAll(focusChartTitle, focusChart);
             
             // Daily productivity chart
             BarChart<String, Number> productivityChart = createDailyProductivityChart();
             VBox productivityChartBox = new VBox(10);
-            productivityChartBox.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+            productivityChartBox.getStyleClass().add("section-card");
+            productivityChartBox.setPadding(new Insets(15));
             Label productivityChartTitle = new Label("▪ Daily Study Time (Last 7 Days)");
-            productivityChartTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
+            TaskStyleUtils.fontBold(productivityChartTitle, 16);
             productivityChartBox.getChildren().addAll(productivityChartTitle, productivityChart);
             
             chartsContainer.getChildren().addAll(focusChartBox, productivityChartBox);

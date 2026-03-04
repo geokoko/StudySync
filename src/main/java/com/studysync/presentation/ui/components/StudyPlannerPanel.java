@@ -16,8 +16,6 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.Node;
-import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -78,7 +76,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox mainContent = new VBox(20);
         mainContent.setPadding(new Insets(20));
-        mainContent.setStyle("-fx-background-color: linear-gradient(to bottom, #f8f9fa, #e9ecef);");
+        mainContent.getStyleClass().add("panel-bg");
 
         this.setContent(mainContent);
         this.setFitToWidth(true);
@@ -114,27 +112,26 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         navRow.setAlignment(Pos.CENTER);
 
         Button prevBtn = new Button("◀");
-        prevBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
+        prevBtn.getStyleClass().add("btn-primary");
         prevBtn.setOnAction(e -> {
             displayDate = displayDate.minusDays(1);
             updateDisplay();
         });
 
         dateNavLabel = new Label();
-        dateNavLabel.setFont(Font.font("System", FontWeight.BOLD, 22));
-        dateNavLabel.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(dateNavLabel, 22);
         dateNavLabel.setMinWidth(300);
         dateNavLabel.setAlignment(Pos.CENTER);
 
         Button nextBtn = new Button("▶");
-        nextBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
+        nextBtn.getStyleClass().add("btn-primary");
         nextBtn.setOnAction(e -> {
             displayDate = displayDate.plusDays(1);
             updateDisplay();
         });
 
         Button todayBtn = new Button("» Today");
-        todayBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 5;");
+        todayBtn.getStyleClass().add("btn-success");
         todayBtn.setOnAction(e -> {
             displayDate = dateTimeService.getCurrentDate();
             updateDisplay();
@@ -147,7 +144,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         dailyProgressBar.setStyle("-fx-accent: #27ae60;");
 
         progressLabel = new Label("Daily Progress: 0%");
-        progressLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 14));
+        TaskStyleUtils.fontSemiBold(progressLabel, 14);
         progressLabel.setTextFill(Color.web("#34495e"));
 
         header.getChildren().addAll(navRow, dailyProgressBar, progressLabel);
@@ -157,22 +154,20 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     /** Tasks section (replaces "Today's Goals"). */
     private void createTasksSection(VBox mainContent) {
         VBox section = new VBox(15);
-        section.setStyle("-fx-background-color: white; -fx-background-radius: 10;" +
-                         " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+        section.getStyleClass().add("section-card");
         section.setPadding(new Insets(20));
 
         HBox sectionHeader = new HBox(15);
         sectionHeader.setAlignment(Pos.CENTER_LEFT);
 
         Label sectionTitle = new Label("☑ Today's Tasks");
-        sectionTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
-        sectionTitle.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(sectionTitle, 18);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         Button addGoalBtn = new Button("+ Add Goal");
-        addGoalBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-background-radius: 5;");
+        addGoalBtn.getStyleClass().add("btn-purple");
         addGoalBtn.setOnAction(e -> showAddGoalDialog(null));
 
         sectionHeader.getChildren().addAll(sectionTitle, spacer, addGoalBtn);
@@ -185,26 +180,24 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     /** Session section: controls + FlowPane of session cards. */
     private void createSessionSection(VBox mainContent) {
         VBox sessionSection = new VBox(15);
-        sessionSection.setStyle("-fx-background-color: white; -fx-background-radius: 10;" +
-                                " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+        sessionSection.getStyleClass().add("section-card");
         sessionSection.setPadding(new Insets(20));
 
         Label sessionTitle = new Label("✎ Study Session");
-        sessionTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
-        sessionTitle.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(sessionTitle, 18);
 
         HBox sessionControls = new HBox(15);
         sessionControls.setAlignment(Pos.CENTER_LEFT);
 
         Button startSessionBtn = new Button("Start Session");
-        startSessionBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 5;");
+        startSessionBtn.getStyleClass().add("btn-success");
 
         Button endSessionBtn = new Button("End Session");
-        endSessionBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 5;");
+        endSessionBtn.getStyleClass().add("btn-danger");
         endSessionBtn.setDisable(true);
 
         Label sessionStatus = new Label("No active session");
-        sessionStatus.setFont(Font.font("System", FontWeight.NORMAL, 14));
+        TaskStyleUtils.fontNormal(sessionStatus, 14);
 
         startSessionBtn.setOnAction(e -> {
             currentSession = studyService.startStudySession();
@@ -240,8 +233,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         sessionTextArea.setDisable(true);
 
         Label completedLabel = new Label("☑ Today's Completed Sessions");
-        completedLabel.setFont(Font.font("System", FontWeight.BOLD, 14));
-        completedLabel.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(completedLabel, 14);
 
         // FlowPane for compact session cards
         sessionsFlowPane = new FlowPane(10, 10);
@@ -255,13 +247,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     private void createReflectionSection(VBox mainContent) {
         VBox reflectionSection = new VBox(15);
-        reflectionSection.setStyle("-fx-background-color: white; -fx-background-radius: 10;" +
-                                   " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+        reflectionSection.getStyleClass().add("section-card");
         reflectionSection.setPadding(new Insets(20));
 
         Label reflectionTitle = new Label("Daily Reflection");
-        reflectionTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
-        reflectionTitle.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(reflectionTitle, 18);
 
         reflectionArea = new TextArea();
         reflectionArea.setPromptText("What helped you focus today?\nWhat distracted you?\nOne thing to improve tomorrow?");
@@ -269,7 +259,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         reflectionArea.setWrapText(true);
 
         Button saveReflectionBtn = new Button("Save Reflection");
-        saveReflectionBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-background-radius: 5;");
+        saveReflectionBtn.getStyleClass().add("btn-purple");
         saveReflectionBtn.setOnAction(e -> saveReflection());
 
         reflectionSection.getChildren().addAll(reflectionTitle, reflectionArea, saveReflectionBtn);
@@ -290,11 +280,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             VBox emptyBox = new VBox(8);
             emptyBox.setAlignment(Pos.CENTER_LEFT);
             Label emptyLabel = new Label("No tasks scheduled for this day.");
-            emptyLabel.setFont(Font.font("System", FontWeight.NORMAL, 14));
+            TaskStyleUtils.fontNormal(emptyLabel, 14);
             emptyLabel.setTextFill(Color.web("#7f8c8d"));
 
             Button createTaskBtn = new Button("+ Create Task");
-            createTaskBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
+            createTaskBtn.getStyleClass().add("btn-primary");
             createTaskBtn.setOnAction(e -> showCreateTaskDialog());
 
             emptyBox.getChildren().addAll(emptyLabel, createTaskBtn);
@@ -314,7 +304,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             VBox unlinkedSection = new VBox(6);
             unlinkedSection.setPadding(new Insets(10, 0, 0, 0));
             Label unlinkedTitle = new Label("Goals without a task:");
-            unlinkedTitle.setFont(Font.font("System", FontWeight.BOLD, 13));
+            TaskStyleUtils.fontBold(unlinkedTitle, 13);
             unlinkedTitle.setTextFill(Color.web("#6c757d"));
             unlinkedSection.getChildren().add(unlinkedTitle);
             for (StudyGoal goal : unlinkedGoals) {
@@ -330,7 +320,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private VBox buildTaskRow(Task task) {
         VBox card = new VBox();
         card.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
-                      " -fx-border-color: " + taskBorderColor(task) + ";" +
+                      " -fx-border-color: " + TaskStyleUtils.taskBorderColor(task) + ";" +
                       " -fx-border-radius: 8;" +
                       " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
 
@@ -341,26 +331,25 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         headerRow.setStyle("-fx-cursor: hand;");
 
         Label arrow = new Label("▶");
-        arrow.setFont(Font.font("System", FontWeight.BOLD, 11));
+        TaskStyleUtils.fontBold(arrow, 11);
         arrow.setTextFill(Color.web("#7f8c8d"));
 
         Label taskTitle = new Label(task.getTitle());
-        taskTitle.setFont(Font.font("System", FontWeight.BOLD, 14));
-        taskTitle.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(taskTitle, 14);
 
         Label priorityLabel = new Label(task.getPriority() != null ? task.getPriority().toString() : "");
         priorityLabel.setTextFill(Color.web("#f39c12"));
 
         Label statusBadge = new Label(task.getStatus().name());
-        statusBadge.setFont(Font.font("System", FontWeight.BOLD, 10));
         statusBadge.setPadding(new Insets(2, 6, 2, 6));
-        statusBadge.setStyle("-fx-background-color: " + statusBadgeBg(task.getStatus()) +
+        statusBadge.setStyle("-fx-background-color: " + TaskStyleUtils.statusBadgeBg(task.getStatus()) +
                              "; -fx-background-radius: 10;");
-        statusBadge.setTextFill(statusTextColor(task.getStatus()));
+        TaskStyleUtils.fontBold(statusBadge, 10);
+        statusBadge.setTextFill(TaskStyleUtils.statusTextColor(task.getStatus()));
 
         if (task.isRecurring()) {
             Label recurBadge = new Label("\uD83D\uDD01");
-            recurBadge.setFont(Font.font("System", FontWeight.NORMAL, 12));
+            TaskStyleUtils.fontNormal(recurBadge, 12);
             recurBadge.setTooltip(new Tooltip(task.getRecurringSummary()));
             headerRow.getChildren().add(recurBadge);
         }
@@ -401,12 +390,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         if (goals.isEmpty()) {
             Label noGoals = new Label("No goals linked to this task yet.");
-            noGoals.setFont(Font.font("System", FontWeight.NORMAL, 12));
+            TaskStyleUtils.fontNormal(noGoals, 12);
             noGoals.setTextFill(Color.web("#7f8c8d"));
 
             Button addGoalBtn = new Button("+ Create Goal");
-            addGoalBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white;" +
-                                " -fx-background-radius: 4; -fx-font-size: 11px;");
+            addGoalBtn.getStyleClass().addAll("btn-purple", "btn-small");
             addGoalBtn.setOnAction(e -> {
                 showAddGoalDialog(task);
                 populateGoalsPanel(goalsPanel, task); // refresh after add
@@ -418,8 +406,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 goalsPanel.getChildren().add(buildGoalRow(goal, task));
             }
             Button addMoreBtn = new Button("+ Add Goal");
-            addMoreBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white;" +
-                                " -fx-background-radius: 4; -fx-font-size: 11px;");
+            addMoreBtn.getStyleClass().addAll("btn-purple", "btn-small");
             addMoreBtn.setOnAction(e -> {
                 showAddGoalDialog(task);
                 populateGoalsPanel(goalsPanel, task);
@@ -449,17 +436,17 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox textBox = new VBox(2);
         Label goalLabel = new Label(goal.getDescription());
-        goalLabel.setFont(Font.font("System", FontWeight.NORMAL, 13));
         if (goal.isAchieved()) {
             goalLabel.setStyle("-fx-strikethrough: true; -fx-text-fill: #7f8c8d;");
         }
+        TaskStyleUtils.fontNormal(goalLabel, 13);
         textBox.getChildren().add(goalLabel);
 
         if (goal.isDelayed()) {
             Label delayLabel = new Label(String.format("Delayed %d day(s) — -%d pts",
                     goal.getDaysDelayed(), goal.getPointsDeducted()));
-            delayLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
             delayLabel.setStyle("-fx-text-fill: #dc3545;");
+            TaskStyleUtils.fontNormal(delayLabel, 11);
             textBox.getChildren().add(delayLabel);
         }
 
@@ -483,7 +470,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         if (sessionsFlowPane.getChildren().isEmpty()) {
             Label none = new Label("No completed sessions yet.");
-            none.setFont(Font.font("System", FontWeight.NORMAL, 13));
+            TaskStyleUtils.fontNormal(none, 13);
             none.setTextFill(Color.web("#7f8c8d"));
             sessionsFlowPane.getChildren().add(none);
         }
@@ -504,22 +491,21 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 ? session.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "?";
 
         Label timeLabel = new Label("⏰ " + startStr + "–" + endStr);
-        timeLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
-        timeLabel.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(timeLabel, 12);
 
         Label durationLabel = new Label(session.getDurationMinutes() + " min");
-        durationLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+        TaskStyleUtils.fontNormal(durationLabel, 11);
         durationLabel.setTextFill(Color.web("#7f8c8d"));
 
         // Focus stars (compact)
         StringBuilder stars = new StringBuilder();
         for (int i = 1; i <= 5; i++) stars.append(i <= session.getFocusLevel() ? "★" : "☆");
         Label focusLabel = new Label(stars.toString());
-        focusLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        TaskStyleUtils.fontNormal(focusLabel, 12);
         focusLabel.setTextFill(Color.web("#f39c12"));
 
         Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " pts");
-        pointsLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 11));
+        TaskStyleUtils.fontSemiBold(pointsLabel, 11);
         pointsLabel.setTextFill(Color.web("#27ae60"));
 
         // Action buttons row
@@ -527,13 +513,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         btnRow.setAlignment(Pos.CENTER_RIGHT);
 
         Button detailsBtn = new Button("Details");
-        detailsBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;" +
-                            " -fx-background-radius: 3; -fx-font-size: 10px; -fx-padding: 3 7;");
+        detailsBtn.getStyleClass().addAll("btn-primary", "btn-small");
+        detailsBtn.setStyle("-fx-padding: 3 7;");
         detailsBtn.setOnAction(e -> showSessionDetails(session));
 
         Button deleteBtn = new Button("✕");
-        deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;" +
-                           " -fx-background-radius: 3; -fx-font-size: 10px; -fx-padding: 3 7;");
+        deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
+        deleteBtn.setStyle("-fx-padding: 3 7;");
         deleteBtn.setOnAction(e -> {
             Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
                     "Delete this session?", ButtonType.OK, ButtonType.CANCEL);
@@ -560,28 +546,27 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         // Minimal task-creation modal (title + category selector is enough to bootstrap)
         VBox content = new VBox(12);
         content.setPadding(new Insets(20));
-        content.setStyle("-fx-background-color: white; -fx-background-radius: 10;" +
-                         " -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.getStyleClass().add("modal-content");
         content.setMaxWidth(400);
         content.setMaxHeight(Region.USE_PREF_SIZE);
 
         Label header = new Label("Create a new task");
-        header.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(header, 16);
 
         Label hint = new Label("You can add full details in the Tasks tab.");
-        hint.setFont(Font.font("System", FontWeight.NORMAL, 11));
+        TaskStyleUtils.fontNormal(hint, 11);
         hint.setTextFill(Color.web("#7f8c8d"));
 
         TextField titleField = new TextField();
         titleField.setPromptText("Task title *");
 
         Button okBtn = new Button("Create");
-        okBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        okBtn.getStyleClass().add("btn-primary");
         okBtn.setDisable(true);
         titleField.textProperty().addListener((obs, o, n) -> okBtn.setDisable(n.trim().isEmpty()));
 
         Button cancelBtn = new Button("Cancel");
-        cancelBtn.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+        cancelBtn.getStyleClass().add("btn-cancel");
         cancelBtn.setOnAction(e -> closeModal.run());
 
         okBtn.setOnAction(e -> {
@@ -613,15 +598,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private void showAddGoalDialog(Task linkedTask) {
         VBox content = new VBox(12);
         content.setPadding(new Insets(20));
-        content.setStyle("-fx-background-color: white; -fx-background-radius: 10;" +
-                         " -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.getStyleClass().add("modal-content");
         content.setMaxWidth(450);
         content.setMaxHeight(Region.USE_PREF_SIZE);
 
         Label headerLabel = new Label(linkedTask != null
                 ? "Add goal for: " + linkedTask.getTitle()
                 : "Create a new study goal");
-        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(headerLabel, 16);
 
         // Date
         DatePicker datePicker = new DatePicker(displayDate);
@@ -649,7 +633,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox taskSection = new VBox(4);
         if (linkedTask == null) {
             Label taskLabel = new Label("Link to task (optional):");
-            taskLabel.setFont(Font.font("System", FontWeight.BOLD, 12));
+            TaskStyleUtils.fontBold(taskLabel, 12);
             taskCombo.setPromptText("None");
             taskCombo.setMaxWidth(Double.MAX_VALUE);
             taskCombo.getItems().add(null);
@@ -677,12 +661,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         }
 
         Button okBtn = new Button("Add Goal");
-        okBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white;");
+        okBtn.getStyleClass().add("btn-purple");
         okBtn.setDisable(true);
         descArea.textProperty().addListener((obs, o, n) -> okBtn.setDisable(n.trim().isEmpty()));
 
         Button cancelBtn = new Button("Cancel");
-        cancelBtn.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+        cancelBtn.getStyleClass().add("btn-cancel");
         cancelBtn.setOnAction(e -> closeModal.run());
 
         okBtn.setOnAction(e -> {
@@ -713,13 +697,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private void showEndSessionDialog() {
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
-        content.setStyle("-fx-background-color: white; -fx-background-radius: 10;" +
-                         " -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.getStyleClass().add("modal-content");
         content.setMaxWidth(400);
         content.setMaxHeight(Region.USE_PREF_SIZE);
 
         Label headerLabel = new Label("How was your study session?");
-        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(headerLabel, 16);
 
         Label focusLabel = new Label("Focus Level (1–5):");
         Slider focusSlider = new Slider(1, 5, 3);
@@ -729,7 +712,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         focusSlider.setSnapToTicks(true);
 
         Label focusWarning = new Label("• Average focus.");
-        focusWarning.setFont(Font.font("System", FontWeight.NORMAL, 11));
+        TaskStyleUtils.fontNormal(focusWarning, 11);
         focusWarning.setWrapText(true);
         focusWarning.setTextFill(Color.web("#f39c12"));
 
@@ -752,9 +735,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         notesArea.setPrefRowCount(3);
 
         Button okBtn = new Button("OK");
-        okBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        okBtn.getStyleClass().add("btn-primary");
         Button cancelBtn = new Button("Cancel");
-        cancelBtn.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+        cancelBtn.getStyleClass().add("btn-cancel");
         cancelBtn.setOnAction(e -> closeModal.run());
 
         okBtn.setOnAction(e -> {
@@ -795,7 +778,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         mainContent.getChildren().add(detailsTabs);
 
         Button closeButton = new Button("Close");
-        closeButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        closeButton.getStyleClass().add("btn-primary");
         closeButton.setOnAction(e -> closeModal.run());
         HBox btnBox = new HBox(closeButton);
         btnBox.setAlignment(Pos.CENTER_RIGHT);
@@ -803,7 +786,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         ScrollPane scrollPane = new ScrollPane(mainContent);
         scrollPane.setFitToWidth(true);
-        scrollPane.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        scrollPane.getStyleClass().add("transparent-bg");
         scrollPane.setMaxWidth(720);
         scrollPane.setMaxHeight(650);
         showModal.accept(scrollPane);
@@ -819,14 +802,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                         " -fx-background-radius: 10; -fx-padding: 20;");
 
         Label sessionTitle = new Label("✎ Study Session");
-        sessionTitle.setFont(Font.font("System", FontWeight.BOLD, 24));
+        TaskStyleUtils.fontBold(sessionTitle, 24);
         sessionTitle.setTextFill(Color.WHITE);
 
         Label dateTime = new Label(
                 session.getDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")) +
                 " • " + (session.getStartTime() != null
                         ? session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "N/A"));
-        dateTime.setFont(Font.font("System", FontWeight.NORMAL, 16));
+        TaskStyleUtils.fontNormal(dateTime, 16);
         dateTime.setTextFill(Color.web("#f8f9fa"));
 
         HBox metrics = new HBox(30);
@@ -847,12 +830,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox box = new VBox(5);
         box.setAlignment(Pos.CENTER);
         Label iconL = new Label(icon);
-        iconL.setFont(Font.font("System", FontWeight.NORMAL, 20));
+        TaskStyleUtils.fontNormal(iconL, 20);
         Label valueL = new Label(value);
-        valueL.setFont(Font.font("System", FontWeight.BOLD, 18));
+        TaskStyleUtils.fontBold(valueL, 18);
         valueL.setTextFill(Color.WHITE);
         Label descL = new Label(label);
-        descL.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        TaskStyleUtils.fontNormal(descL, 12);
         descL.setTextFill(Color.web("#f8f9fa"));
         box.getChildren().addAll(iconL, valueL, descL);
         return box;
@@ -865,7 +848,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox timeSection = new VBox(10);
         timeSection.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 10; -fx-padding: 15;");
         Label timeTitle = new Label("⏰ Time Breakdown");
-        timeTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(timeTitle, 16);
 
         GridPane grid = new GridPane();
         grid.setHgap(20);
@@ -891,12 +874,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox focusSection = new VBox(15);
         focusSection.setStyle("-fx-background-color: #fff3cd; -fx-background-radius: 10; -fx-padding: 15;");
         Label focusTitle = new Label("◎ Focus & Productivity");
-        focusTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(focusTitle, 16);
 
         HBox starsBox = new HBox(2);
         for (int i = 1; i <= 5; i++) {
             Label star = new Label(i <= session.getFocusLevel() ? "★" : "☆");
-            star.setFont(Font.font("System", FontWeight.NORMAL, 20));
+            TaskStyleUtils.fontNormal(star, 20);
             star.setTextFill(i <= session.getFocusLevel() ? Color.web("#f39c12") : Color.web("#bdc3c7"));
             starsBox.getChildren().add(star);
         }
@@ -914,7 +897,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
         Label notesTitle = new Label("▪ Session Notes");
-        notesTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
+        TaskStyleUtils.fontBold(notesTitle, 18);
 
         String text = session.getSessionText();
         TextArea notesArea = new TextArea(text != null && !text.isBlank()
@@ -934,7 +917,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox compSection = new VBox(15);
         compSection.setStyle("-fx-background-color: #f0f8ff; -fx-background-radius: 10; -fx-padding: 15;");
         Label compTitle = new Label("▪ Performance Analysis");
-        compTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(compTitle, 16);
 
         List<StudySession> recent = studyService.getRecentStudySessions(7);
         if (recent.size() > 1) {
@@ -1016,14 +999,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
-        content.setStyle("-fx-background-color: white; -fx-background-radius: 10;" +
-                         " -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.getStyleClass().add("modal-content");
         content.setMaxWidth(300);
         content.setMaxHeight(Region.USE_PREF_SIZE);
         Label titleL = new Label("Reflection Saved");
-        titleL.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(titleL, 16);
         Button okBtn = new Button("OK");
-        okBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        okBtn.getStyleClass().add("btn-primary");
         okBtn.setOnAction(e -> closeModal.run());
         HBox btnRow = new HBox(okBtn);
         btnRow.setAlignment(Pos.CENTER_RIGHT);
@@ -1065,40 +1047,4 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         return this;
     }
 
-    // ──────────────────────────────────────────────
-    // STYLE HELPERS
-    // ──────────────────────────────────────────────
-
-    private static String taskBorderColor(Task task) {
-        return switch (task.getStatus()) {
-            case COMPLETED -> "#27ae60";
-            case DELAYED   -> "#e74c3c";
-            case IN_PROGRESS -> "#f39c12";
-            case CANCELLED -> "#bdc3c7";
-            case POSTPONED -> "#9c27b0";
-            default        -> "#3498db";
-        };
-    }
-
-    private static String statusBadgeBg(TaskStatus s) {
-        return switch (s) {
-            case COMPLETED   -> "#e8f5e9";
-            case DELAYED     -> "#ffebee";
-            case IN_PROGRESS -> "#fff3e0";
-            case CANCELLED   -> "#eceff1";
-            case POSTPONED   -> "#f3e5f5";
-            default          -> "#e3f2fd";
-        };
-    }
-
-    private static Color statusTextColor(TaskStatus s) {
-        return switch (s) {
-            case COMPLETED   -> Color.web("#27ae60");
-            case DELAYED     -> Color.web("#e74c3c");
-            case IN_PROGRESS -> Color.web("#f39c12");
-            case CANCELLED   -> Color.web("#7f8c8d");
-            case POSTPONED   -> Color.web("#9c27b0");
-            default          -> Color.web("#3498db");
-        };
-    }
 }

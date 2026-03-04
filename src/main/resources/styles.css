@@ -14,10 +14,243 @@
     src: url('fonts/NotoEmoji-Regular.ttf');
 }
 
+/*
+ * ============================================================
+ * FORCE LIGHT THEME
+ * JavaFX 21 auto-detects OS dark mode and adjusts Modena's
+ * looked-up colors (e.g. white label text). We override the
+ * key looked-up colors here so that even if Modena resolves
+ * dark-mode values, our author-stylesheet rules win.
+ * ============================================================
+ */
 .root {
     -fx-font-family: 'Roboto', 'Noto Emoji', 'System';
+    /* Force light base colors */
+    -fx-base: #ececec;
+    -fx-background: #f4f4f4;
+    -fx-control-inner-background: white;
+    -fx-control-inner-background-alt: derive(-fx-control-inner-background, -2%);
+    /* Explicit dark text color for light theme */
+    -fx-text-base-color: #2c3e50;
+    -fx-text-fill: #2c3e50;
+    -fx-light-text-color: white;
+    -fx-mid-text-color: #2c3e50;
+    -fx-dark-text-color: #2c3e50;
+    /* Accent / focus colors */
+    -fx-accent: #3498db;
+    -fx-focus-color: #3498db;
+    -fx-faint-focus-color: rgba(52, 152, 219, 0.3);
+    /* Mark color (checkboxes etc.) */
+    -fx-mark-color: white;
+    -fx-mark-highlight-color: derive(-fx-mark-color, 20%);
+    /* Background fills */
+    -fx-color: -fx-base;
+    -fx-body-color: #f4f4f4;
 }
 
+/*
+ * ============================================================
+ * GLOBAL TEXT COLOR OVERRIDES
+ * These rules ensure ALL text-bearing controls render with
+ * dark text on our light backgrounds, regardless of what
+ * Modena's ladder() functions compute from the OS theme.
+ * ============================================================
+ */
+.label,
+.text {
+    -fx-text-fill: #2c3e50;
+    -fx-fill: #2c3e50;
+}
+
+.button {
+    -fx-text-fill: #2c3e50;
+    -fx-background-radius: 5;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+    -fx-alignment: center;
+    -fx-text-alignment: center;
+    -fx-content-display: center;
+}
+
+.button .text {
+    -fx-text-alignment: center;
+    -fx-fill: inherit;
+}
+
+.button:hover {
+    -fx-opacity: 0.8;
+}
+
+.check-box {
+    -fx-text-fill: #2c3e50;
+}
+
+.check-box .box {
+    -fx-background-color: white;
+    -fx-border-color: #bdc3c7;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+}
+
+.radio-button {
+    -fx-text-fill: #2c3e50;
+}
+
+.hyperlink {
+    -fx-text-fill: #3498db;
+}
+
+.toggle-button {
+    -fx-text-fill: #2c3e50;
+}
+
+.choice-box {
+    -fx-text-fill: #2c3e50;
+}
+
+.menu-button {
+    -fx-text-fill: #2c3e50;
+}
+
+.titled-pane > .title > .text {
+    -fx-fill: #2c3e50;
+}
+
+.tooltip {
+    -fx-text-fill: white;
+    -fx-background-color: rgba(44, 62, 80, 0.9);
+    -fx-background-radius: 4;
+}
+
+/*
+ * ============================================================
+ * INPUT CONTROLS
+ * ============================================================
+ */
+.text-field,
+.password-field {
+    -fx-text-fill: #2c3e50;
+    -fx-prompt-text-fill: #95a5a6;
+    -fx-background-color: white;
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: #bdc3c7;
+}
+
+.text-area {
+    -fx-text-fill: #2c3e50;
+    -fx-prompt-text-fill: #95a5a6;
+    -fx-background-color: white;
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: #bdc3c7;
+}
+
+.text-area .content {
+    -fx-background-color: white;
+}
+
+.combo-box {
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: #bdc3c7;
+}
+
+.combo-box .list-cell {
+    -fx-text-fill: #2c3e50;
+}
+
+.combo-box-popup .list-view .list-cell {
+    -fx-text-fill: #2c3e50;
+    -fx-background-color: white;
+}
+
+.combo-box-popup .list-view .list-cell:hover {
+    -fx-background-color: #ecf0f1;
+}
+
+.combo-box-popup .list-view .list-cell:selected {
+    -fx-background-color: #3498db;
+    -fx-text-fill: white;
+}
+
+.date-picker {
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: #bdc3c7;
+}
+
+.date-picker .text-field {
+    -fx-text-fill: #2c3e50;
+}
+
+.text-field:focused, .text-area:focused, .combo-box:focused, .date-picker:focused {
+    -fx-border-color: #3498db;
+}
+
+.spinner .text-field {
+    -fx-text-fill: #2c3e50;
+}
+
+/*
+ * ============================================================
+ * LIST / TABLE / TREE VIEWS
+ * ============================================================
+ */
+.list-view {
+    -fx-background-color: white;
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: #bdc3c7;
+}
+
+.list-view .list-cell {
+    -fx-text-fill: #2c3e50;
+    -fx-background-color: transparent;
+}
+
+.list-view .list-cell:filled:hover {
+    -fx-background-color: #ecf0f1;
+}
+
+.list-view .list-cell:filled:selected {
+    -fx-background-color: #3498db;
+    -fx-text-fill: white;
+}
+
+.list-view .list-cell:filled:selected .label {
+    -fx-text-fill: white;
+}
+
+.table-view .column-header .label {
+    -fx-text-fill: #2c3e50;
+}
+
+.table-row-cell {
+    -fx-text-fill: #2c3e50;
+}
+
+.table-row-cell .text {
+    -fx-fill: #2c3e50;
+}
+
+.table-row-cell:selected .text {
+    -fx-fill: white;
+}
+
+.tree-view .tree-cell {
+    -fx-text-fill: #2c3e50;
+}
+
+.tree-view .tree-cell:selected {
+    -fx-text-fill: white;
+}
+
+/*
+ * ============================================================
+ * TABS
+ * ============================================================
+ */
 .tab-pane {
     -fx-tab-min-width: 150px;
     -fx-tab-max-width: 150px;
@@ -29,35 +262,55 @@
     -fx-font-weight: bold;
 }
 
+.tab .tab-label {
+    -fx-text-fill: #2c3e50;
+}
+
 .tab:selected {
     -fx-background-color: #3498db;
     -fx-text-fill: white;
 }
 
-.button {
-    -fx-background-radius: 5;
-    -fx-font-weight: bold;
-    -fx-cursor: hand;
+.tab:selected .tab-label {
+    -fx-text-fill: white;
 }
 
-.button:hover {
-    -fx-opacity: 0.8;
+/*
+ * ============================================================
+ * DIALOGS / ALERTS
+ * ============================================================
+ */
+.dialog-pane {
+    -fx-background-color: white;
 }
 
-.text-field, .text-area, .combo-box, .date-picker {
-    -fx-background-radius: 5;
-    -fx-border-radius: 5;
-    -fx-border-color: #bdc3c7;
+.dialog-pane .label {
+    -fx-text-fill: #2c3e50;
 }
 
-.text-field:focused, .text-area:focused, .combo-box:focused, .date-picker:focused {
-    -fx-border-color: #3498db;
+.dialog-pane .content.label {
+    -fx-text-fill: #2c3e50;
 }
 
-.list-view {
-    -fx-background-radius: 5;
-    -fx-border-radius: 5;
-    -fx-border-color: #bdc3c7;
+.dialog-pane .header-panel .label {
+    -fx-text-fill: #2c3e50;
+}
+
+.alert .label {
+    -fx-text-fill: #2c3e50;
+}
+
+/*
+ * ============================================================
+ * SCROLL PANE / MISC CONTAINERS
+ * ============================================================
+ */
+.scroll-pane {
+    -fx-background-color: transparent;
+}
+
+.scroll-pane > .viewport {
+    -fx-background-color: transparent;
 }
 
 .progress-bar {
@@ -83,18 +336,6 @@
     -fx-background-color: transparent;
 }
 
-/* Button alignment fixes */
-.button {
-    -fx-alignment: center;
-    -fx-text-alignment: center;
-    -fx-content-display: center;
-}
-
-/* Ensure button text is properly centered */
-.button .text {
-    -fx-text-alignment: center;
-}
-
 /* Fix for nested TabPane in Projects page */
 .tab-content-area {
     -fx-background-color: transparent;
@@ -116,4 +357,155 @@
 /* ListView within tab content should expand properly */
 .tab-content-area .list-view {
     -fx-min-height: 100px;
+}
+
+/*
+ * ============================================================
+ * CONTEXT MENUS
+ * ============================================================
+ */
+.context-menu {
+    -fx-background-color: white;
+    -fx-border-color: #bdc3c7;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.menu-item .label {
+    -fx-text-fill: #2c3e50;
+}
+
+.menu-item:hover .label {
+    -fx-text-fill: white;
+}
+
+.menu-item:focused .label {
+    -fx-text-fill: white;
+}
+
+/*
+ * ============================================================
+ * APPLICATION CSS CLASSES
+ * Reusable style classes to replace inline setStyle() calls.
+ * ============================================================
+ */
+
+/* PANEL BACKGROUNDS */
+.panel-bg {
+    -fx-background-color: linear-gradient(to bottom, #f8f9fa, #e9ecef);
+}
+
+.panel-bg-alt {
+    -fx-background-color: linear-gradient(to bottom, #f1f2f6, #dfe4ea);
+}
+
+.panel-bg-warm {
+    -fx-background-color: linear-gradient(to bottom, #faf9f7, #f4f3f1);
+}
+
+/* SECTION CARDS */
+.section-card {
+    -fx-background-color: white;
+    -fx-background-radius: 10;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);
+    -fx-padding: 20;
+}
+
+.section-card-light {
+    -fx-background-color: white;
+    -fx-background-radius: 10;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 6, 0, 0, 2);
+    -fx-padding: 20;
+}
+
+.section-card-flat {
+    -fx-background-color: white;
+    -fx-background-radius: 10;
+    -fx-padding: 15;
+}
+
+/* BUTTONS */
+.btn-primary {
+    -fx-background-color: #3498db;
+    -fx-text-fill: white;
+    -fx-background-radius: 5;
+}
+
+.btn-success {
+    -fx-background-color: #27ae60;
+    -fx-text-fill: white;
+    -fx-background-radius: 5;
+}
+
+.btn-danger {
+    -fx-background-color: #e74c3c;
+    -fx-text-fill: white;
+    -fx-background-radius: 5;
+}
+
+.btn-cancel {
+    -fx-background-color: #95a5a6;
+    -fx-text-fill: white;
+    -fx-background-radius: 5;
+}
+
+.btn-purple {
+    -fx-background-color: #9b59b6;
+    -fx-text-fill: white;
+    -fx-background-radius: 5;
+}
+
+.btn-orange {
+    -fx-background-color: #e67e22;
+    -fx-text-fill: white;
+    -fx-background-radius: 5;
+}
+
+.btn-google {
+    -fx-background-color: #4285F4;
+    -fx-text-fill: white;
+    -fx-background-radius: 6;
+}
+
+.btn-gray {
+    -fx-background-color: #bdc3c7;
+    -fx-text-fill: #2c3e50;
+    -fx-background-radius: 6;
+}
+
+.btn-success-alt {
+    -fx-background-color: #2ecc71;
+    -fx-text-fill: white;
+    -fx-background-radius: 5;
+}
+
+.btn-orange-download {
+    -fx-background-color: #f39c12;
+    -fx-text-fill: white;
+    -fx-background-radius: 6;
+}
+
+.btn-small {
+    -fx-font-size: 11px;
+    -fx-padding: 4 10;
+    -fx-background-radius: 4;
+}
+
+/* MODAL CONTENT */
+.modal-content {
+    -fx-background-color: white;
+    -fx-background-radius: 10;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);
+}
+
+.modal-content-light {
+    -fx-background-color: white;
+    -fx-background-radius: 10;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 12, 0, 0, 4);
+}
+
+/* TRANSPARENT CONTAINERS */
+.transparent-bg {
+    -fx-background-color: transparent;
+    -fx-background: transparent;
 }

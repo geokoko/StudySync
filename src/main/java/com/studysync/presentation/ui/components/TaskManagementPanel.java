@@ -16,8 +16,6 @@ import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
-import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
 
 import java.time.LocalDate;
 import java.util.*;
@@ -57,7 +55,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         this.closeModal = closeModal;
 
         VBox mainContent = new VBox(0);
-        mainContent.setStyle("-fx-background-color: linear-gradient(to bottom, #f8f9fa, #e9ecef);");
+        mainContent.getStyleClass().add("panel-bg");
 
         this.setContent(mainContent);
         this.setFitToWidth(true);
@@ -83,15 +81,15 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         header.setPadding(new Insets(20, 20, 10, 20));
         header.setAlignment(Pos.CENTER_LEFT);
 
-        Label title = new Label("» Task Management");
-        title.setFont(Font.font("System", FontWeight.BOLD, 24));
-        title.setTextFill(Color.web("#2c3e50"));
+        Label title = new Label("Task Management");
+        TaskStyleUtils.fontBold(title, 24);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         Button newTaskBtn = new Button("+ New Task");
-        newTaskBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5; -fx-font-size: 13px; -fx-padding: 8 16;");
+        newTaskBtn.getStyleClass().add("btn-primary");
+        newTaskBtn.setStyle("-fx-font-size: 13px; -fx-padding: 8 16;");
         newTaskBtn.setOnAction(e -> showTaskForm(null));
 
         header.getChildren().addAll(title, spacer, newTaskBtn);
@@ -138,7 +136,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         sortCombo.setOnAction(e -> rebuildAllTabs());
 
         Label sortLabel = new Label("Sort:");
-        sortLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        TaskStyleUtils.fontNormal(sortLabel, 12);
 
         row.getChildren().addAll(searchField, categoryFilter, priorityFilter, sortLabel, sortCombo);
         toolbar.getChildren().add(row);
@@ -148,7 +146,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private TabPane buildStatusTabPane() {
         statusTabPane = new TabPane();
         statusTabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        statusTabPane.setStyle("-fx-background-color: transparent;");
+        statusTabPane.getStyleClass().add("transparent-bg");
         VBox.setVgrow(statusTabPane, Priority.ALWAYS);
 
         // One tab per status group + "All" tab
@@ -177,11 +175,12 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         List<Task> tasks = getFilteredTasks(statusGroup);
 
         VBox listBox = new VBox(8);
+        listBox.setFillWidth(true);
         listBox.setPadding(new Insets(15, 20, 20, 20));
 
         if (tasks.isEmpty()) {
             Label empty = new Label("No tasks in this category.");
-            empty.setFont(Font.font("System", FontWeight.NORMAL, 14));
+            TaskStyleUtils.fontNormal(empty, 14);
             empty.setTextFill(Color.web("#7f8c8d"));
             empty.setPadding(new Insets(30));
             listBox.getChildren().add(empty);
@@ -193,7 +192,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         ScrollPane sp = new ScrollPane(listBox);
         sp.setFitToWidth(true);
-        sp.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        sp.getStyleClass().add("transparent-bg");
         sp.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         return sp;
@@ -203,9 +202,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         HBox card = new HBox(15);
         card.setPadding(new Insets(14));
         card.setAlignment(Pos.CENTER_LEFT);
+        card.setMaxWidth(Double.MAX_VALUE);
 
-        String bgColor = statusBackground(task.getStatus());
-        String borderColor = statusBorderColor(task.getStatus());
+        String bgColor = TaskStyleUtils.statusBackground(task.getStatus());
+        String borderColor = TaskStyleUtils.taskBorderColor(task.getStatus());
         card.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 8;" +
                       " -fx-border-color: " + borderColor + "; -fx-border-radius: 8;" +
                       " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
@@ -220,109 +220,65 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         VBox info = new VBox(5);
         HBox.setHgrow(info, Priority.ALWAYS);
 
+        String safeTitle = task.getTitle() != null && !task.getTitle().trim().isEmpty()
+                ? task.getTitle().trim()
+                : "(Untitled task)";
+        String safeCategory = task.getCategory() != null && !task.getCategory().trim().isEmpty()
+                ? task.getCategory().trim()
+                : "Uncategorized";
+
         // Title row
         HBox titleRow = new HBox(8);
         titleRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label titleLabel = new Label(task.getTitle());
-        titleLabel.setFont(Font.font("System", FontWeight.BOLD, 15));
-        titleLabel.setTextFill(Color.web("#2c3e50"));
+        Label titleLabel = new Label(safeTitle);
+        titleLabel.setWrapText(true);
+        HBox.setHgrow(titleLabel, Priority.ALWAYS);
         if (task.getStatus() == TaskStatus.COMPLETED) {
             titleLabel.setStyle("-fx-strikethrough: true; -fx-text-fill: #7f8c8d;");
         }
+        TaskStyleUtils.fontBold(titleLabel, 15);
 
         // Priority stars
         Label priorityLabel = new Label(task.getPriority() != null ? task.getPriority().toString() : "");
-        priorityLabel.setFont(Font.font("System", FontWeight.NORMAL, 13));
+        TaskStyleUtils.fontNormal(priorityLabel, 13);
         priorityLabel.setTextFill(Color.web("#f39c12"));
 
         // Status badge
-        Label statusBadge = new Label(statusEmoji(task.getStatus()) + " " + task.getStatus().name());
-        statusBadge.setFont(Font.font("System", FontWeight.BOLD, 11));
-        statusBadge.setTextFill(statusTextColor(task.getStatus()));
+        Label statusBadge = new Label(TaskStyleUtils.statusEmoji(task.getStatus()) + " " + task.getStatus().name());
+        statusBadge.setTextFill(TaskStyleUtils.statusTextColor(task.getStatus()));
         statusBadge.setPadding(new Insets(2, 7, 2, 7));
-        statusBadge.setStyle("-fx-background-color: " + statusBadgeBg(task.getStatus()) +
+        statusBadge.setStyle("-fx-background-color: " + TaskStyleUtils.statusBadgeBg(task.getStatus()) +
                              "; -fx-background-radius: 10;");
+        TaskStyleUtils.fontBold(statusBadge, 11);
 
-        // Recurring badge
-        if (task.isRecurring()) {
-            Label recurBadge = new Label("\uD83D\uDD01 Recurring");
-            recurBadge.setFont(Font.font("System", FontWeight.BOLD, 11));
-            recurBadge.setTextFill(Color.web("#7c4dff"));
-            recurBadge.setPadding(new Insets(2, 7, 2, 7));
-            recurBadge.setStyle("-fx-background-color: #ede7f6; -fx-background-radius: 10;");
-            titleRow.getChildren().addAll(titleLabel, priorityLabel, statusBadge, recurBadge);
-        } else {
-            titleRow.getChildren().addAll(titleLabel, priorityLabel, statusBadge);
-        }
-
-        // Meta row
-        HBox metaRow = new HBox(18);
-        metaRow.setAlignment(Pos.CENTER_LEFT);
-
-        Label catLabel = new Label("▸ " + task.getCategory());
-        catLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
-        catLabel.setTextFill(Color.web("#6c757d"));
-
-        metaRow.getChildren().add(catLabel);
-
-        if (task.getDeadline() != null) {
-            boolean overdue = task.getDeadline().isBefore(LocalDate.now())
-                    && task.getStatus() != TaskStatus.COMPLETED
-                    && task.getStatus() != TaskStatus.CANCELLED;
-            Label deadlineLabel = new Label("⏰ " + task.getDeadline().toString());
-            deadlineLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
-            deadlineLabel.setTextFill(overdue ? Color.web("#e74c3c") : Color.web("#6c757d"));
-            metaRow.getChildren().add(deadlineLabel);
-        }
-
-        if (task.isRecurring()) {
-            Label recurringDetail = new Label(task.getRecurringSummary());
-            recurringDetail.setFont(Font.font("System", FontWeight.NORMAL, 11));
-            recurringDetail.setTextFill(Color.web("#9c27b0"));
-            metaRow.getChildren().add(recurringDetail);
-        }
-
-        // Description (if any)
-        if (task.getDescription() != null && !task.getDescription().isBlank()) {
-            Label desc = new Label(task.getDescription().length() > 120
-                    ? task.getDescription().substring(0, 120) + "…"
-                    : task.getDescription());
-            desc.setFont(Font.font("System", FontWeight.NORMAL, 12));
-            desc.setTextFill(Color.web("#7f8c8d"));
-            desc.setWrapText(true);
-            info.getChildren().addAll(titleRow, metaRow, desc);
-        } else {
-            info.getChildren().addAll(titleRow, metaRow);
-        }
+        Region titleSpacer = new Region();
+        HBox.setHgrow(titleSpacer, Priority.ALWAYS);
 
         // Right: Action buttons
-        VBox actions = new VBox(5);
+        HBox actions = new HBox(5);
         actions.setAlignment(Pos.CENTER_RIGHT);
 
         Button editBtn = new Button("Edit");
-        editBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 4; -fx-font-size: 11px; -fx-padding: 4 10;");
+        editBtn.getStyleClass().addAll("btn-primary", "btn-small");
         editBtn.setOnAction(e -> showTaskForm(task));
 
-        HBox quickStatusRow = new HBox(5);
-        quickStatusRow.setAlignment(Pos.CENTER_RIGHT);
-
         if (task.getStatus() != TaskStatus.COMPLETED && task.getStatus() != TaskStatus.CANCELLED) {
-            Button completeBtn = new Button("✓ Done");
-            completeBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-background-radius: 4; -fx-font-size: 11px; -fx-padding: 4 10;");
+            Button completeBtn = new Button("Done");
+            completeBtn.getStyleClass().addAll("btn-success", "btn-small");
             completeBtn.setOnAction(e -> {
                 taskService.updateTaskStatus(task, TaskStatus.COMPLETED);
                 reminderService.removeRemindersForTask(task.getId());
                 rebuildAllTabs();
             });
-            quickStatusRow.getChildren().add(completeBtn);
+            actions.getChildren().add(completeBtn);
         }
 
         Button deleteBtn = new Button("Delete");
-        deleteBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 4; -fx-font-size: 11px; -fx-padding: 4 10;");
+        deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setOnAction(e -> {
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                    "Delete \"" + task.getTitle() + "\"?", ButtonType.OK, ButtonType.CANCEL);
+                    "Delete \"" + safeTitle + "\"?", ButtonType.OK, ButtonType.CANCEL);
             confirm.setTitle("Delete Task");
             confirm.setHeaderText(null);
             confirm.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
@@ -335,10 +291,63 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             });
         });
 
-        quickStatusRow.getChildren().add(deleteBtn);
-        actions.getChildren().addAll(editBtn, quickStatusRow);
+        actions.getChildren().addAll(editBtn, deleteBtn);
 
-        card.getChildren().addAll(colorBar, info, actions);
+        titleRow.getChildren().addAll(titleLabel, priorityLabel, statusBadge);
+        if (task.isRecurring()) {
+            Label recurBadge = new Label("Recurring");
+            recurBadge.setTextFill(Color.web("#7c4dff"));
+            recurBadge.setPadding(new Insets(2, 7, 2, 7));
+            recurBadge.setStyle("-fx-background-color: #ede7f6; -fx-background-radius: 10;");
+            TaskStyleUtils.fontBold(recurBadge, 11);
+            titleRow.getChildren().add(recurBadge);
+        }
+        titleRow.getChildren().addAll(titleSpacer, actions);
+
+        // Meta row
+        HBox metaRow = new HBox(18);
+        metaRow.setAlignment(Pos.CENTER_LEFT);
+
+         Label catLabel = new Label("Category: " + safeCategory);
+         TaskStyleUtils.fontNormal(catLabel, 12);
+         catLabel.setTextFill(Color.web("#495057"));
+
+        metaRow.getChildren().add(catLabel);
+
+        if (task.getDeadline() != null) {
+            boolean overdue = task.getDeadline().isBefore(LocalDate.now())
+                    && task.getStatus() != TaskStatus.COMPLETED
+                    && task.getStatus() != TaskStatus.CANCELLED;
+            Label deadlineLabel = new Label("Due: " + task.getDeadline().toString());
+            TaskStyleUtils.fontNormal(deadlineLabel, 12);
+            deadlineLabel.setTextFill(overdue ? Color.web("#c0392b") : Color.web("#495057"));
+            metaRow.getChildren().add(deadlineLabel);
+        }
+
+        if (task.isRecurring()) {
+            Label recurringDetail = new Label(task.getRecurringSummary());
+            TaskStyleUtils.fontNormal(recurringDetail, 11);
+            recurringDetail.setTextFill(Color.web("#6f42c1"));
+            metaRow.getChildren().add(recurringDetail);
+        }
+
+        // Description
+        if (task.getDescription() != null && !task.getDescription().isBlank()) {
+            Label desc = new Label(task.getDescription().length() > 120
+                    ? task.getDescription().substring(0, 120) + "…"
+                    : task.getDescription());
+            TaskStyleUtils.fontNormal(desc, 12);
+            desc.setTextFill(Color.web("#7f8c8d"));
+            desc.setWrapText(true);
+            info.getChildren().addAll(titleRow, metaRow, desc);
+        } else {
+            Label desc = new Label("No description");
+            TaskStyleUtils.fontNormal(desc, 12);
+            desc.setTextFill(Color.web("#9aa0a6"));
+            info.getChildren().addAll(titleRow, metaRow, desc);
+        }
+
+        card.getChildren().addAll(colorBar, info);
         return card;
     }
 
@@ -351,14 +360,12 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         VBox form = new VBox(12);
         form.setPadding(new Insets(24));
-        form.setStyle("-fx-background-color: white; -fx-background-radius: 10;" +
-                      " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 12, 0, 0, 4);");
+        form.getStyleClass().add("modal-content-light");
         form.setMaxWidth(520);
         form.setMaxHeight(Region.USE_PREF_SIZE);
 
         Label formTitle = new Label(isNew ? "+ New Task" : "Edit Task");
-        formTitle.setFont(Font.font("System", FontWeight.BOLD, 18));
-        formTitle.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(formTitle, 18);
 
         // Title
         TextField titleField = new TextField(isNew ? "" : existingTask.getTitle());
@@ -385,7 +392,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         TextField newCatField = new TextField();
         newCatField.setPromptText("Or type new category name…");
         Button addCatBtn = new Button("+ Add");
-        addCatBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 11px;");
+        addCatBtn.getStyleClass().addAll("btn-primary", "btn-small");
         addCatBtn.setOnAction(e -> {
             String name = newCatField.getText().trim();
             if (name.isEmpty()) return;
@@ -427,7 +434,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         // Recurring
         CheckBox recurringCheck = new CheckBox("Recurring task");
-        recurringCheck.setFont(Font.font("System", FontWeight.BOLD, 12));
+        TaskStyleUtils.fontBold(recurringCheck, 12);
 
         VBox recurringOptions = new VBox(8);
         recurringOptions.setPadding(new Insets(8));
@@ -447,7 +454,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         daysRow.setAlignment(Pos.CENTER_LEFT);
         for (int i = 0; i < 7; i++) {
             dayBoxes[i] = new CheckBox(dayLabels[i]);
-            dayBoxes[i].setFont(Font.font("System", FontWeight.NORMAL, 11));
+            TaskStyleUtils.fontNormal(dayBoxes[i], 11);
             daysRow.getChildren().add(dayBoxes[i]);
         }
 
@@ -475,9 +482,11 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         // Buttons
         Button saveBtn = new Button(isNew ? "Create Task" : "Save Changes");
-        saveBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-padding: 8 18; -fx-background-radius: 5;");
+        saveBtn.getStyleClass().add("btn-primary");
+        saveBtn.setStyle("-fx-padding: 8 18;");
         Button cancelBtn = new Button("Cancel");
-        cancelBtn.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white; -fx-padding: 8 18; -fx-background-radius: 5;");
+        cancelBtn.getStyleClass().add("btn-cancel");
+        cancelBtn.setStyle("-fx-padding: 8 18;");
         cancelBtn.setOnAction(e -> closeModal.run());
 
         saveBtn.setOnAction(e -> {
@@ -547,7 +556,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         ScrollPane wrapper = new ScrollPane(form);
         wrapper.setFitToWidth(true);
-        wrapper.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        wrapper.getStyleClass().add("transparent-bg");
         wrapper.setMaxWidth(540);
         wrapper.setMaxHeight(680);
         showModal.accept(wrapper);
@@ -558,7 +567,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         form.getChildren().removeIf(n -> "error-label".equals(n.getUserData()));
         Label err = new Label("⚠ " + message);
         err.setUserData("error-label");
-        err.setFont(Font.font("System", FontWeight.NORMAL, 12));
+        TaskStyleUtils.fontNormal(err, 12);
         err.setTextFill(Color.web("#e74c3c"));
         err.setWrapText(true);
         form.getChildren().add(err);
@@ -656,60 +665,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         return 0;
     }
 
-    private static String statusBackground(TaskStatus s) {
-        return switch (s) {
-            case COMPLETED -> "#f0fff0";
-            case DELAYED -> "#fff5f5";
-            case IN_PROGRESS -> "#fff8e1";
-            case CANCELLED -> "#f5f5f5";
-            case POSTPONED -> "#f3e5f5";
-            default -> "white";
-        };
-    }
 
-    private static String statusBorderColor(TaskStatus s) {
-        return switch (s) {
-            case COMPLETED -> "#27ae60";
-            case DELAYED -> "#e74c3c";
-            case IN_PROGRESS -> "#f39c12";
-            case CANCELLED -> "#bdc3c7";
-            case POSTPONED -> "#9c27b0";
-            default -> "#3498db";
-        };
-    }
-
-    private static Color statusTextColor(TaskStatus s) {
-        return switch (s) {
-            case COMPLETED -> Color.web("#27ae60");
-            case DELAYED -> Color.web("#e74c3c");
-            case IN_PROGRESS -> Color.web("#f39c12");
-            case CANCELLED -> Color.web("#7f8c8d");
-            case POSTPONED -> Color.web("#9c27b0");
-            default -> Color.web("#3498db");
-        };
-    }
-
-    private static String statusBadgeBg(TaskStatus s) {
-        return switch (s) {
-            case COMPLETED -> "#e8f5e9";
-            case DELAYED -> "#ffebee";
-            case IN_PROGRESS -> "#fff3e0";
-            case CANCELLED -> "#eceff1";
-            case POSTPONED -> "#f3e5f5";
-            default -> "#e3f2fd";
-        };
-    }
-
-    private static String statusEmoji(TaskStatus s) {
-        return switch (s) {
-            case COMPLETED -> "✓";
-            case DELAYED -> "⏳";
-            case IN_PROGRESS -> "▶";
-            case CANCELLED -> "✕";
-            case POSTPONED -> "⏸";
-            default -> "○";
-        };
-    }
 
     private static String nvl(String s) {
         return s != null ? s : "";
