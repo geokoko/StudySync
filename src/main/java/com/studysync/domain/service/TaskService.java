@@ -25,6 +25,7 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -357,13 +358,13 @@ public class TaskService {
                 // (so overdue tasks remain visible until resolved)
                 return !date.isBefore(deadline);
             })
-            .collect(Collectors.toCollection(java.util.ArrayList::new));
+            .collect(Collectors.toCollection(ArrayList::new));
 
         // Also include IN_PROGRESS or DELAYED tasks that have a goal planned for
         // this date but would not otherwise surface (e.g. deadline is in the future
         // or the task has no deadline but this isn't today).
         // POSTPONED and CANCELLED tasks are intentionally excluded.
-        java.util.Set<String> resultIds = result.stream()
+        Set<String> resultIds = result.stream()
                 .map(Task::getId)
                 .collect(Collectors.toSet());
 
