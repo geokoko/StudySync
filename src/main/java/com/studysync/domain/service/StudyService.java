@@ -158,8 +158,8 @@ public class StudyService {
                         return false; // Only show goals tied to a task
                     }
                     return Task.findById(goal.getTaskId())
-                            .map(task -> task.getStatus() != com.studysync.domain.valueobject.TaskStatus.CANCELLED
-                                      && task.getStatus() != com.studysync.domain.valueobject.TaskStatus.POSTPONED)
+                            .map(task -> task.getStatus() != TaskStatus.CANCELLED
+                                      && task.getStatus() != TaskStatus.POSTPONED)
                             .orElse(false);
                 })
                 .collect(Collectors.toList());
