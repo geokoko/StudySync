@@ -189,7 +189,6 @@ public class TaskService {
         if (today.equals(lastDelayedTasksProcessedDate)) {
             return 0;
         }
-        lastDelayedTasksProcessedDate = today;
 
         List<Task> delayedTasks = Task.findAll().stream()
                 .filter(task -> task.getStatus() != TaskStatus.COMPLETED &&
@@ -199,18 +198,22 @@ public class TaskService {
                                  task.getStatus() != TaskStatus.DELAYED)
                 .map(this::applyBusinessRules)
                 .collect(Collectors.toList());
-        
+
         int updatedCount = 0;
         for (Task task : delayedTasks) {
             task.save();
             updatedCount++;
         }
-        
+
+        // Only record the processed date after successful completion so that
+        // any exception during the DB scan or save allows a retry on the next call.
+        lastDelayedTasksProcessedDate = today;
+
         if (updatedCount > 0) {
             logger.info("Marked {} tasks as DELAYED", updatedCount);
             markDirty();
         }
-        
+
         return updatedCount;
     }
     

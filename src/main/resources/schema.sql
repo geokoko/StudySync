@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS study_goals (
     is_delayed BOOLEAN DEFAULT FALSE,
     points_deducted INTEGER DEFAULT 0,
     task_id VARCHAR(50),
+    replanned_for_date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
