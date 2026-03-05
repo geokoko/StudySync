@@ -10,7 +10,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![JavaFX](https://img.shields.io/badge/JavaFX-21-blue.svg)](https://openjfx.io/)
 [![H2 Database](https://img.shields.io/badge/Database-H2-blue.svg)](https://www.h2database.com/)
-[![Version](https://img.shields.io/badge/Version-0.1.2-red.svg)](https://github.com/geokoko/StudySync/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.3-red.svg)](https://github.com/geokoko/StudySync/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
@@ -19,7 +19,7 @@ StudySync is a comprehensive Study Management System built with modern Java tech
 
 Perfect for students who want to integrate their academic calendar with task management and study tracking! 📚✨
 
-> **⚠️ Beta Release**: This is version 0.1.2 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
+> **⚠️ Beta Release**: This is version 0.1.3 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
 
 ## Key Features
 
@@ -59,24 +59,21 @@ StudySync provides comprehensive academic management with three main modules:
 
 ## Installation & Running the Application
 
-### Quick Install (Linux - Recommended)
+### Quick Install (Linux)
 
-**Option 1: Download from GitHub Releases**
+Both options run the same installer — the difference is whether you start from a pre-built release or compile from source.
+
+**Pre-built release** (no Gradle required, just Java 21):
 ```bash
-# Download the latest release
 curl -LO https://github.com/geokoko/StudySync/releases/latest/download/studysync-linux.tar.gz
 curl -LO https://github.com/geokoko/StudySync/releases/latest/download/studysync-linux.tar.gz.sha256
-
-# Verify archive integrity
 sha256sum -c studysync-linux.tar.gz.sha256
-
-# Extract and install
 tar -xzf studysync-linux.tar.gz
 cd studysync-*-linux
 ./install.sh
 ```
 
-**Option 2: Build from Source**
+**Build from source** (requires Gradle):
 ```bash
 git clone https://github.com/geokoko/StudySync.git
 cd StudySync
