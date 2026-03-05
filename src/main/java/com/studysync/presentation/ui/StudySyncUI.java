@@ -75,8 +75,8 @@ public class StudySyncUI {
 
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
         panels.put(new Tab("▦ Calendar View"), new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
-        panels.put(new Tab("✎ Study Planner"), new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService, 
-                this::showModal, this::closeModal));
+        panels.put(new Tab("✎ Study Planner"), new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService,
+                this.categoryService, this::showModal, this::closeModal));
         panels.put(new Tab("★ Reflection Diary"), new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
         panels.put(new Tab("≡ Projects"), new ProjectManagementPanel(this.projectService, this.categoryService,
                 this::showModal, this::closeModal));
