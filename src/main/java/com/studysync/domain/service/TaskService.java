@@ -35,11 +35,14 @@ public class TaskService {
     
     private final CategoryService categoryService;
     private final GoogleDriveService googleDriveService;
+    private final DateTimeService dateTimeService;
     
     @Autowired
-    public TaskService(CategoryService categoryService, GoogleDriveService googleDriveService) {
+    public TaskService(CategoryService categoryService, GoogleDriveService googleDriveService,
+                       DateTimeService dateTimeService) {
         this.categoryService = categoryService;
         this.googleDriveService = googleDriveService;
+        this.dateTimeService = dateTimeService;
     }
 
     private void markDirty() {
@@ -274,21 +277,32 @@ public class TaskService {
     }
 
     /**
-     * Get tasks relevant for a specific date.
-     * Includes:
+     * Returns the tasks that are relevant for a specific calendar date.
+     *
+     * <h3>Recurring tasks</h3>
+     * Active (OPEN / IN_PROGRESS) recurring tasks whose pattern matches the
+     * given date (using the task's creation Monday as the interval reference).
+     *
+     * <h3>Non-recurring tasks</h3>
      * <ul>
-     *   <li>Active (OPEN / IN_PROGRESS) non-recurring tasks</li>
-     *   <li>Active recurring tasks whose pattern matches the given date
-     *       (using the task's creation Monday as the reference)</li>
-     *   <li>POSTPONED / DELAYED non-recurring tasks (still surfaced until resolved)</li>
+     *   <li><strong>deadline == date</strong> — shown (this is the task's due date)</li>
+     *   <li><strong>deadline &lt; date</strong> (overdue) — shown from the deadline
+     *       date onwards so the task remains visible until resolved</li>
+     *   <li><strong>deadline &gt; date</strong> (future) — not shown yet</li>
+     *   <li><strong>deadline == null</strong> — shown only when {@code date} is
+     *       today (undated tasks surface as daily to-dos)</li>
      * </ul>
+     * In all cases the task must still be unresolved (OPEN, IN_PROGRESS,
+     * POSTPONED or DELAYED).
      *
      * @param date the date to retrieve relevant tasks for
-     * @return list of tasks relevant for the date, ordered by priority DESC then deadline ASC
+     * @return list of tasks relevant for the date
      */
     @Transactional(readOnly = true)
     public List<Task> getTasksForDate(LocalDate date) {
         if (date == null) return List.of();
+
+        LocalDate today = dateTimeService.getCurrentDate();
 
         return Task.findAll().stream()
             .filter(task -> {
@@ -305,10 +319,19 @@ public class TaskService {
                             .with(java.time.temporal.TemporalAdjusters
                                     .previousOrSame(java.time.DayOfWeek.MONDAY));
                     return isActive && recurringTaskAppliesTo(task, date, taskCreationMonday);
-                } else {
-                    // Non-recurring: show if active or still pending resolution
-                    return isActive || isPending;
                 }
+
+                // Non-recurring: must be unresolved
+                if (!(isActive || isPending)) return false;
+
+                LocalDate deadline = task.getDeadline();
+                if (deadline == null) {
+                    // Undated tasks only surface for today
+                    return date.equals(today);
+                }
+                // Tasks with a deadline: show on the due date and every day after
+                // (so overdue tasks remain visible until resolved)
+                return !date.isBefore(deadline);
             })
             .collect(Collectors.toList());
     }
