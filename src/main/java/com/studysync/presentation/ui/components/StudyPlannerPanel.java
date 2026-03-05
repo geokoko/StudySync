@@ -33,6 +33,7 @@ import java.util.stream.Collectors;
 import javafx.animation.Timeline;
 import javafx.animation.KeyFrame;
 import javafx.util.Duration;
+import javafx.util.StringConverter;
 import java.util.function.Consumer;
 
 /**
@@ -352,6 +353,82 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             }
             tasksContainer.getChildren().add(unlinkedSection);
         }
+
+        // Re-plan section — only available when viewing today
+        if (displayDate.equals(today)) {
+            tasksContainer.getChildren().add(buildReplanSection());
+        }
+    }
+
+    /**
+     * Builds the "Re-plan a delayed goal for today" section.
+     * Shows a ComboBox of delayed goals (from non-cancelled/non-postponed tasks)
+     * and a button to reschedule the selected goal to appear today exactly once.
+     */
+    private VBox buildReplanSection() {
+        List<StudyGoal> candidates = studyService.getDelayedGoalsForReplanning();
+
+        VBox section = new VBox(8);
+        section.setPadding(new Insets(14, 0, 0, 0));
+
+        // Collapsible header row
+        Label header = new Label("\u21BA Re-plan a Delayed Goal");
+        TaskStyleUtils.fontBold(header, 13);
+        header.setTextFill(Color.web("#6c757d"));
+
+        if (candidates.isEmpty()) {
+            Label none = new Label("No delayed goals available to re-plan.");
+            TaskStyleUtils.fontNormal(none, 12);
+            none.setTextFill(Color.web("#7f8c8d"));
+            section.getChildren().addAll(header, none);
+            return section;
+        }
+
+        ComboBox<StudyGoal> combo = new ComboBox<>();
+        combo.getItems().addAll(candidates);
+        combo.setMaxWidth(Double.MAX_VALUE);
+        combo.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(StudyGoal goal) {
+                if (goal == null) return "";
+                String taskLabel = "";
+                if (goal.getTaskId() != null) {
+                    taskLabel = Task.findById(goal.getTaskId())
+                            .map(t -> t.getTitle() + ": ")
+                            .orElse("");
+                }
+                String desc = goal.getDescription();
+                if (desc != null && desc.length() > 60) {
+                    desc = desc.substring(0, 57) + "...";
+                }
+                return taskLabel + desc + " (" + goal.getDaysDelayed() + "d delayed)";
+            }
+
+            @Override
+            public StudyGoal fromString(String s) { return null; }
+        });
+        combo.setPromptText("Select a delayed goal to re-plan...");
+
+        Button replanBtn = new Button("\u21BA Re-plan for Today");
+        replanBtn.getStyleClass().addAll("btn-orange", "btn-small");
+        replanBtn.setDisable(true);
+
+        combo.setOnAction(e -> replanBtn.setDisable(combo.getValue() == null));
+
+        replanBtn.setOnAction(e -> {
+            StudyGoal selected = combo.getValue();
+            if (selected == null) return;
+            studyService.replanGoalForToday(selected.getId());
+            updateTasksDisplay();
+            updateProgress();
+        });
+
+        HBox controls = new HBox(8, combo, replanBtn);
+        controls.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(combo, Priority.ALWAYS);
+
+        section.getChildren().addAll(header, controls);
+        return section;
     }
 
     /**

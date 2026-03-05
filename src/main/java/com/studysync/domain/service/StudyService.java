@@ -144,6 +144,46 @@ public class StudyService {
         markDirty();
     }
 
+    /**
+     * Returns delayed, unachieved goals that are eligible for manual rescheduling
+     * to today. Goals linked to CANCELLED or POSTPONED tasks are excluded.
+     *
+     * @return list of goals the user can choose to re-plan for today
+     */
+    @Transactional(readOnly = true)
+    public List<StudyGoal> getDelayedGoalsForReplanning() {
+        return StudyGoal.findDelayedAndNotReplanned().stream()
+                .filter(goal -> {
+                    if (goal.getTaskId() == null || goal.getTaskId().isBlank()) {
+                        return false; // Only show goals tied to a task
+                    }
+                    return Task.findById(goal.getTaskId())
+                            .map(task -> task.getStatus() != com.studysync.domain.valueobject.TaskStatus.CANCELLED
+                                      && task.getStatus() != com.studysync.domain.valueobject.TaskStatus.POSTPONED)
+                            .orElse(false);
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Reschedules a delayed goal to appear on today's date exactly once.
+     * The goal's achieved status is not changed. If the user does not complete
+     * it today it will not carry forward again — it is a one-shot reschedule.
+     *
+     * @param goalId ID of the goal to reschedule
+     */
+    public void replanGoalForToday(String goalId) {
+        StudyGoal.findById(goalId).ifPresent(goal -> {
+            if (goal.isAchieved() || goal.getReplannedForDate() != null) {
+                return; // Already done or already rescheduled
+            }
+            goal.setReplannedForDate(LocalDate.now());
+            goal.save();
+            markDirty();
+            logger.info("Rescheduled goal '{}' to appear today ({})", goal.getDescription(), LocalDate.now());
+        });
+    }
+
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
         Optional<StudyGoal> goalOpt = StudyGoal.findById(goalId);
         if (goalOpt.isPresent()) {
@@ -281,6 +321,12 @@ public class StudyService {
         for (StudyGoal goal : allGoals) {
             // Skip if goal is achieved
             if (goal.isAchieved()) {
+                continue;
+            }
+
+            // Skip goals that were manually rescheduled — they had their one chance
+            // and should not be picked up by automatic delay carry-forward again.
+            if (goal.getReplannedForDate() != null) {
                 continue;
             }
             
