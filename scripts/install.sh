@@ -281,6 +281,14 @@ setup_config() {
             cp "$PROJECT_ROOT/src/main/resources/application.yml.template" "$INSTALL_DIR/config/application.yml"
         fi
     fi
+
+    # Rewrite the datasource URL to use an absolute path so that the database
+    # file is always found regardless of the working directory at launch time.
+    local db_path="$INSTALL_DIR/data/studysync"
+    # Escape forward slashes for sed
+    local db_path_escaped="${db_path//\//\\/}"
+    sed -i "s|url: jdbc:h2:file:.*studysync;|url: jdbc:h2:file:${db_path_escaped};|" \
+        "$INSTALL_DIR/config/application.yml"
     
     # Create data directory for database
     mkdir -p "$INSTALL_DIR/data"
