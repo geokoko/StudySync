@@ -1,5 +1,10 @@
 # StudySync - Agent Reference
 
+## Rules
+
+- NEVER commit, push, force-push, or create/delete tags without explicit user confirmation first.
+- Always show the exact commands you plan to run and wait for approval.
+
 ## Overview
 
 StudySync is a **JavaFX 21 + Spring Boot 3.2.0** desktop application for personal study and task management. It uses an **H2 file-based database** with optional **Google Drive sync**. There is no FXML — all UI is built programmatically in Java.
