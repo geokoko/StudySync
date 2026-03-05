@@ -4,6 +4,7 @@
 
 - NEVER commit, push, force-push, or create/delete tags without explicit user confirmation first.
 - Always show the exact commands you plan to run and wait for approval.
+- When requested to add a new feature, enhancement or fix, first switch to a new branch with a descriptive name (e.g., `feature/calendar-integration`, `fix/task-deletion-bug`) before making any code changes. Work on that branch until the feature is complete, then when you finish a substantial piece of work, stop and ask for confirmation and code review before committing and pushing.
 
 ## Overview
 
