@@ -324,9 +324,11 @@ public class StudyService {
                 continue;
             }
 
-            // Skip goals that were manually rescheduled — they had their one chance
-            // and should not be picked up by automatic delay carry-forward again.
-            if (goal.getReplannedForDate() != null) {
+            // Protect replanned goals from deletion only while the replan date
+            // hasn't passed yet (user still has a chance to complete it today).
+            // Once the replan date is in the past and the goal is still unachieved,
+            // fall through to the normal 14-day cleanup logic.
+            if (goal.getReplannedForDate() != null && !goal.getReplannedForDate().isBefore(today)) {
                 continue;
             }
             
