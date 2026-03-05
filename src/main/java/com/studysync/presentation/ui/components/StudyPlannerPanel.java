@@ -5,10 +5,13 @@ import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.StudySessionEnd;
 import com.studysync.domain.service.DateTimeService;
 import com.studysync.domain.service.TaskService;
+import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.Task;
+import com.studysync.domain.valueobject.TaskCategory;
+import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -22,6 +25,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import javafx.animation.Timeline;
 import javafx.animation.KeyFrame;
@@ -40,6 +46,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private final StudyService studyService;
     private final DateTimeService dateTimeService;
     private final TaskService taskService;
+    private final CategoryService categoryService;
 
     private final Consumer<Node> showModal;
     private final Runnable closeModal;
@@ -65,11 +72,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     // ──────────────────────────────────────────────
 
     public StudyPlannerPanel(StudyService studyService, DateTimeService dateTimeService,
-                             TaskService taskService,
+                             TaskService taskService, CategoryService categoryService,
                              Consumer<Node> showModal, Runnable closeModal) {
         this.studyService = studyService;
         this.dateTimeService = dateTimeService;
         this.taskService = taskService;
+        this.categoryService = categoryService;
         this.showModal = showModal;
         this.closeModal = closeModal;
         this.displayDate = dateTimeService.getCurrentDate();
@@ -543,56 +551,190 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     // ──────────────────────────────────────────────
 
     private void showCreateTaskDialog() {
-        // Minimal task-creation modal (title + category selector is enough to bootstrap)
-        VBox content = new VBox(12);
-        content.setPadding(new Insets(20));
-        content.getStyleClass().add("modal-content");
-        content.setMaxWidth(400);
-        content.setMaxHeight(Region.USE_PREF_SIZE);
+        VBox form = new VBox(10);
+        form.setPadding(new Insets(20));
+        form.getStyleClass().add("modal-content");
+        form.setMaxWidth(480);
+        form.setMaxHeight(Region.USE_PREF_SIZE);
 
-        Label header = new Label("Create a new task");
-        TaskStyleUtils.fontBold(header, 16);
+        Label formTitle = new Label("Create a new task");
+        TaskStyleUtils.fontBold(formTitle, 16);
 
-        Label hint = new Label("You can add full details in the Tasks tab.");
-        TaskStyleUtils.fontNormal(hint, 11);
-        hint.setTextFill(Color.web("#7f8c8d"));
-
+        // Title
         TextField titleField = new TextField();
         titleField.setPromptText("Task title *");
+        titleField.setMaxWidth(Double.MAX_VALUE);
 
-        Button okBtn = new Button("Create");
-        okBtn.getStyleClass().add("btn-primary");
-        okBtn.setDisable(true);
-        titleField.textProperty().addListener((obs, o, n) -> okBtn.setDisable(n.trim().isEmpty()));
+        // Description
+        TextArea descArea = new TextArea();
+        descArea.setPromptText("Description (optional)");
+        descArea.setPrefRowCount(3);
+        descArea.setWrapText(true);
+        descArea.setMaxWidth(Double.MAX_VALUE);
 
+        // Category
+        ComboBox<TaskCategory> catCombo = new ComboBox<>();
+        catCombo.setPromptText("Category *");
+        catCombo.setMaxWidth(Double.MAX_VALUE);
+        catCombo.getItems().addAll(categoryService.getCategories());
+
+        // New category inline
+        TextField newCatField = new TextField();
+        newCatField.setPromptText("Or type new category name…");
+        Button addCatBtn = new Button("+ Add");
+        addCatBtn.getStyleClass().addAll("btn-primary", "btn-small");
+        addCatBtn.setOnAction(e -> {
+            String name = newCatField.getText().trim();
+            if (name.isEmpty()) return;
+            try {
+                if (categoryService.getCategories().stream().noneMatch(c -> c.name().equalsIgnoreCase(name))) {
+                    categoryService.addCategory(name);
+                }
+                catCombo.getItems().setAll(categoryService.getCategories());
+                catCombo.getItems().stream().filter(c -> c.name().equalsIgnoreCase(name))
+                        .findFirst().ifPresent(catCombo::setValue);
+                newCatField.clear();
+            } catch (Exception ex) {
+                showInlineError(form, "Could not add category: " + ex.getMessage());
+            }
+        });
+        HBox newCatRow = new HBox(8, newCatField, addCatBtn);
+        HBox.setHgrow(newCatField, Priority.ALWAYS);
+        newCatRow.setAlignment(Pos.CENTER_LEFT);
+
+        // Priority
+        ComboBox<Integer> priorityCombo = new ComboBox<>();
+        priorityCombo.setPromptText("Priority *");
+        priorityCombo.setMaxWidth(Double.MAX_VALUE);
+        priorityCombo.getItems().addAll(5, 4, 3, 2, 1);
+        priorityCombo.setCellFactory(lv -> starCell());
+        priorityCombo.setButtonCell(starCell());
+
+        // Deadline
+        DatePicker deadlinePicker = new DatePicker();
+        deadlinePicker.setPromptText("Deadline (optional)");
+        deadlinePicker.setMaxWidth(Double.MAX_VALUE);
+
+        // Recurring
+        CheckBox recurringCheck = new CheckBox("Recurring task");
+        TaskStyleUtils.fontBold(recurringCheck, 12);
+
+        VBox recurringOptions = new VBox(8);
+        recurringOptions.setPadding(new Insets(8));
+        recurringOptions.setStyle("-fx-background-color: #f0f8ff; -fx-background-radius: 5;"
+                + " -fx-border-color: #b0d4f1; -fx-border-radius: 5;");
+        recurringOptions.setVisible(false);
+        recurringOptions.setManaged(false);
+
+        Spinner<Integer> intervalSpinner = new Spinner<>(1, 4, 1);
+        intervalSpinner.setPrefWidth(70);
+        HBox intervalRow = new HBox(8, intervalSpinner, new Label("week(s)"));
+        intervalRow.setAlignment(Pos.CENTER_LEFT);
+
+        String[] dayLabels = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+        CheckBox[] dayBoxes = new CheckBox[7];
+        HBox daysRow = new HBox(6);
+        daysRow.setAlignment(Pos.CENTER_LEFT);
+        for (int i = 0; i < 7; i++) {
+            dayBoxes[i] = new CheckBox(dayLabels[i]);
+            TaskStyleUtils.fontNormal(dayBoxes[i], 11);
+            daysRow.getChildren().add(dayBoxes[i]);
+        }
+        recurringOptions.getChildren().addAll(new Label("Repeat every:"), intervalRow,
+                new Label("On days:"), daysRow);
+        recurringCheck.selectedProperty().addListener((obs, o, n) -> {
+            recurringOptions.setVisible(n);
+            recurringOptions.setManaged(n);
+        });
+
+        // Buttons
+        Button createBtn = new Button("Create Task");
+        createBtn.getStyleClass().add("btn-primary");
+        createBtn.setStyle("-fx-padding: 8 18;");
         Button cancelBtn = new Button("Cancel");
         cancelBtn.getStyleClass().add("btn-cancel");
+        cancelBtn.setStyle("-fx-padding: 8 18;");
         cancelBtn.setOnAction(e -> closeModal.run());
 
-        okBtn.setOnAction(e -> {
+        createBtn.setOnAction(e -> {
             String title = titleField.getText().trim();
-            if (title.isEmpty()) return;
+            TaskCategory cat = catCombo.getValue();
+            Integer prio = priorityCombo.getValue();
+            if (title.isEmpty() || cat == null || prio == null) {
+                showInlineError(form, "Title, category and priority are required.");
+                return;
+            }
+
+            String recurPattern = "";
+            if (recurringCheck.isSelected()) {
+                StringBuilder days = new StringBuilder();
+                for (int i = 0; i < 7; i++) {
+                    if (dayBoxes[i].isSelected()) {
+                        if (days.length() > 0) days.append(",");
+                        days.append(i + 1);
+                    }
+                }
+                if (days.length() == 0) {
+                    showInlineError(form, "Select at least one day for the recurring schedule.");
+                    return;
+                }
+                recurPattern = intervalSpinner.getValue() + ":" + days;
+            }
+
             try {
-                // Use "General" as default category if nothing else — user can edit later
-                String defaultCat = "General";
-                Task t = new Task(null, title, "", defaultCat,
-                        new com.studysync.domain.valueobject.TaskPriority(1),
-                        null, TaskStatus.OPEN, 0, null);
-                taskService.addTask(t);
+                Task newTask = new Task(null, title, descArea.getText().trim(),
+                        cat.name(), new TaskPriority(prio),
+                        deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern);
+                taskService.addTask(newTask);
                 closeModal.run();
                 updateTasksDisplay();
             } catch (Exception ex) {
-                Label err = new Label("⚠ " + ex.getMessage());
-                err.setTextFill(Color.web("#e74c3c"));
-                content.getChildren().add(err);
+                showInlineError(form, ex.getMessage());
             }
         });
 
-        HBox btnRow = new HBox(10, okBtn, cancelBtn);
+        HBox btnRow = new HBox(10, createBtn, cancelBtn);
         btnRow.setAlignment(Pos.CENTER_RIGHT);
+        btnRow.setPadding(new Insets(8, 0, 0, 0));
 
-        content.getChildren().addAll(header, hint, new Label("Title:"), titleField, btnRow);
-        showModal.accept(content);
+        form.getChildren().addAll(formTitle,
+                new Label("Title:"), titleField,
+                new Label("Description:"), descArea,
+                new Label("Category:"), catCombo, newCatRow,
+                new Label("Priority:"), priorityCombo,
+                new Label("Deadline:"), deadlinePicker,
+                recurringCheck, recurringOptions, btnRow);
+
+        ScrollPane wrapper = new ScrollPane(form);
+        wrapper.setFitToWidth(true);
+        wrapper.getStyleClass().add("transparent-bg");
+        wrapper.setMaxWidth(520);
+        wrapper.setMaxHeight(600);
+        showModal.accept(wrapper);
+    }
+
+    private void showInlineError(VBox form, String message) {
+        form.getChildren().removeIf(n -> "error-label".equals(n.getUserData()));
+        Label err = new Label("⚠ " + message);
+        err.setUserData("error-label");
+        TaskStyleUtils.fontNormal(err, 12);
+        err.setTextFill(Color.web("#e74c3c"));
+        err.setWrapText(true);
+        form.getChildren().add(err);
+    }
+
+    private ListCell<Integer> starCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(Integer item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    setText(new TaskPriority(item).toString() + " (" + item + " star" + (item == 1 ? "" : "s") + ")");
+                }
+            }
+        };
     }
 
     private void showAddGoalDialog(Task linkedTask) {
