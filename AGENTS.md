@@ -48,6 +48,8 @@ src/main/java/com/studysync/
     └── components/
         ├── RefreshablePanel.java      # Interface: getView() + updateDisplay()
         ├── TaskStyleUtils.java        # Shared task status styling (border color, badge bg, emoji)
+        │                              # + CSS-safe font helpers (fontBold/fontNormal/fontSemiBold/fontItalic/fontEmoji)
+        │                              # + overdue/due-today/missed badge factories
         ├── CalendarViewPanel.java     # Monthly calendar with tasks and study goals
         ├── StudyPlannerPanel.java     # Daily study planner with sessions, goals, tasks
         ├── ReflectionDiaryPanel.java  # Daily reflection diary with sidebar navigation
@@ -85,8 +87,8 @@ Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordC
 
 | Entity | Table | Key Static Methods |
 |---|---|---|
-| `Task` | `tasks` | `findAll`, `findById`, `findByStatus`, `findByCategory`, `findByDeadlineBetween`, `save`, `delete` |
-| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findByDateRange`, `findDelayed`, `save`, `delete` |
+| `Task` | `tasks` | `findAll`, `findById`, `findByStatus`, `findByCategory`, `findDueBy`, `findOverdue`, `findByPriority`, `search`, `findHighPriority`, `findRecurring`, `findActiveRecurring`, `countByStatus`, `existsById`, `updateStatus`, `deleteById`, `deleteByIds`, `save`, `delete` |
+| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findByDateIncludingDelayed`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `deleteById`, `save`, `delete` |
 | `StudySession` | `study_sessions` | `findAll`, `findById`, `findByDate`, `findActiveSession`, `save`, `delete` |
 | `Project` | `projects` | `findAll`, `findById`, `findByStatus`, `save`, `delete` |
 | `ProjectSession` | `project_sessions` | `findAll`, `findById`, `findByProjectId`, `findByDate`, `save`, `delete` |
@@ -98,7 +100,7 @@ Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordC
 
 | Service | Responsibility |
 |---|---|
-| `TaskService` | Task CRUD, filtering, status transitions, bulk operations, recurring task spawning |
+| `TaskService` | Task CRUD, filtering, status transitions, bulk operations, recurring task date matching, missed occurrence detection, task statistics, async queries |
 | `StudyService` | Study sessions (start/end), study goals, daily reflections, delayed goal processing |
 | `ProjectService` | Project CRUD, project sessions (start/end), progress tracking |
 | `CategoryService` | Category CRUD for tasks and projects |
@@ -114,6 +116,7 @@ Services call `googleDriveService.markLocalDbDirty()` after mutations (via `Tran
 | `TaskUpdate` | `TaskService` | DTO for partial task updates |
 | `StudySessionEnd` | `StudyService` | DTO for ending a study session |
 | `ProjectSessionEnd` | `ProjectService` | DTO for ending a project session |
+| `MissedOccurrence` | `TaskService` | DTO: a missed past occurrence of a recurring task (task + missedDate) |
 
 ## Database
 
@@ -121,7 +124,7 @@ H2 file-based database at `./data/studysync.mv.db`. Schema is in `schema.sql` an
 
 ### Tables
 
-- **tasks** — id, title, description, category, priority, deadline, status, points, recurring_pattern, timestamps
+- **tasks** — id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, timestamps
 - **projects** — id, title, description, category, status, priority, dates, progress, hours, notes, timestamps
 - **study_sessions** — id, date, times, duration, completion flags, focus/confidence levels, session notes, active tracking fields, timestamps
 - **project_sessions** — id, project_id (FK → projects), date, times, duration, objectives, progress, notes, timestamps
@@ -151,9 +154,9 @@ Default tab order: Calendar View, Study Planner, Reflection Diary, Projects, Tas
 
 `styles.css` has two sections:
 
-1. **Lines 1-384: Global text color overrides** — Forces dark text (`#2c3e50`) on all JavaFX controls (`.label`, `.text`, `.text-field`, `.button`, `.combo-box`, `.table-view` cells, etc.) to prevent invisible text when the OS is in dark mode. JavaFX 21's Modena theme auto-detects OS dark mode and sets white text, which clashes with our light backgrounds. We also force `Application.setUserAgentStylesheet(Application.STYLESHEET_MODENA)` in `StudySyncUI.start()`.
+1. **Lines 1-394: Global text color overrides** — Forces dark text (`#2c3e50`) on all JavaFX controls (`.label`, `.text`, `.text-field`, `.button`, `.combo-box`, `.table-view` cells, etc.) to prevent invisible text when the OS is in dark mode. JavaFX 21's Modena theme auto-detects OS dark mode and sets white text, which clashes with our light backgrounds. We also force `Application.setUserAgentStylesheet(Application.STYLESHEET_MODENA)` in `StudySyncUI.start()`. Includes checkbox selected-state rules (`.check-box:selected .box` / `.check-box:selected .mark`) to keep the tick mark visible.
 
-2. **Lines 386-511: Reusable CSS classes** — Application-specific styles extracted from inline `setStyle()` calls:
+2. **Lines 395-520: Reusable CSS classes** — Application-specific styles extracted from inline `setStyle()` calls:
 
 | Category | Classes |
 |---|---|
@@ -171,6 +174,23 @@ Default tab order: Calendar View, Study Planner, Reflection Diary, Projects, Tas
 - **`setTextFill(Color.WHITE)` on buttons** is handled by button CSS classes — do NOT set it explicitly when using `.btn-*` classes.
 - **Task status styling** is centralized in `TaskStyleUtils` — use its static methods instead of inline switch expressions.
 - The `.button` base CSS class already includes `-fx-font-weight: bold; -fx-cursor: hand;`.
+
+## Window Dimensions
+
+- Default size: 1200 x 800 (set via `setWidth`/`setHeight` on the primary stage)
+- Minimum size: 900 x 600 (set via `setMinWidth`/`setMinHeight`)
+- Stage is centered on screen at startup
+
+## Recurring Tasks
+
+Single-entity virtual-recurrence model — one DB row appears on multiple calendar dates. No task spawning.
+
+- **Pattern format**: `"intervalWeeks:daysOfWeek"` — e.g., `"2:1,4"` = every 2 weeks on Mon (`1`) and Thu (`4`)
+- **`startDate`** (`DATE`): First date the task can appear + recurrence interval anchor. Falls back to `createdAt` if null (backward compatibility). Set via `getRecurrenceAnchor()`.
+- **`deadline`** on recurring tasks = end-of-recurrence (task stops appearing after this date). NOT a due date.
+- **Completing** a recurring task is permanent — stops all future recurrences.
+- **Missed occurrence detection**: A past scheduled date is "missed" if no achieved `StudyGoal` is linked to the task (`task_id`) for that date. `TaskService.getMissedRecurringOccurrences()` walks back up to 28 days. Today's occurrence is never considered missed.
+- **Carry-forward** of missed occurrences is only shown in StudyPlannerPanel (not in CalendarViewPanel day cells).
 
 ## Google Drive Integration
 
