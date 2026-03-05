@@ -14,8 +14,6 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.Node;
-import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -63,7 +61,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         // Create main content container
         VBox mainContent = new VBox(15);
         mainContent.setPadding(new Insets(20));
-        mainContent.setStyle("-fx-background-color: linear-gradient(to bottom, #f1f2f6, #dfe4ea);");
+        mainContent.getStyleClass().add("panel-bg-alt");
         mainContent.setFillWidth(true);
         mainContent.setPrefWidth(Region.USE_COMPUTED_SIZE);
         mainContent.setMaxWidth(Double.MAX_VALUE);
@@ -89,8 +87,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     private void initializeComponents(VBox mainContent) {
         // Header
         Label headerLabel = new Label("■ Project Management");
-        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
-        headerLabel.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(headerLabel, 24);
         
         // Create main layout with tabs
         TabPane mainTabPane = new TabPane();
@@ -122,10 +119,10 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         
         // Project list
         VBox listSection = new VBox(10);
-        listSection.setStyle("-fx-background-color: white; -fx-padding: 15; -fx-background-radius: 10;");
+        listSection.getStyleClass().add("section-card-flat");
         
         Label listTitle = new Label("Your Projects");
-        listTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(listTitle, 16);
         
         projectListView = new ListView<>();
         projectListView.setPrefHeight(200);
@@ -148,10 +145,10 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     
     private VBox createProjectForm() {
         VBox formSection = new VBox(10);
-        formSection.setStyle("-fx-background-color: white; -fx-padding: 15; -fx-background-radius: 10;");
+        formSection.getStyleClass().add("section-card-flat");
         
         Label formTitle = new Label("Project Details");
-        formTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(formTitle, 16);
         
         // Form fields
         GridPane formGrid = new GridPane();
@@ -173,7 +170,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         newProjectCategoryField = new TextField();
         newProjectCategoryField.setPromptText("Or create new category...");
         Button addProjectCategoryBtn = new Button("+ Add Category");
-        addProjectCategoryBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 11px;");
+        addProjectCategoryBtn.getStyleClass().addAll("btn-danger", "btn-small");
         addProjectCategoryBtn.setOnAction(e -> addNewProjectCategory());
         
         HBox projectCategoryInputBox = new HBox(8);
@@ -235,15 +232,15 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         buttonBox.setAlignment(Pos.CENTER);
         
         Button saveProjectBtn = new Button("Save Project");
-        saveProjectBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        saveProjectBtn.getStyleClass().add("btn-primary");
         saveProjectBtn.setOnAction(e -> saveProject());
         
         Button newProjectBtn = new Button("+ New Project");
-        newProjectBtn.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white;");
+        newProjectBtn.getStyleClass().add("btn-success-alt");
         newProjectBtn.setOnAction(e -> clearProjectForm());
         
         Button deleteProjectBtn = new Button("Delete Project");
-        deleteProjectBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+        deleteProjectBtn.getStyleClass().add("btn-danger");
         deleteProjectBtn.setOnAction(e -> deleteSelectedProject());
         
         buttonBox.getChildren().addAll(saveProjectBtn, newProjectBtn, deleteProjectBtn);
@@ -261,10 +258,10 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         
         // Current project selection
         VBox projectSection = new VBox(10);
-        projectSection.setStyle("-fx-background-color: white; -fx-padding: 15; -fx-background-radius: 10;");
+        projectSection.getStyleClass().add("section-card-flat");
         
         Label projectLabel = new Label("Select Project to Work On:");
-        projectLabel.setFont(Font.font("System", FontWeight.BOLD, 14));
+        TaskStyleUtils.fontBold(projectLabel, 14);
         
         ComboBox<Project> projectSelector = new ComboBox<>();
         projectSelector.setPromptText("Choose a project...");
@@ -297,7 +294,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         });
         
         currentProjectLabel = new Label("No project selected");
-        currentProjectLabel.setFont(Font.font("System", FontWeight.BOLD, 14));
+        TaskStyleUtils.fontBold(currentProjectLabel, 14);
         currentProjectLabel.setTextFill(Color.web("#34495e"));
         
         projectSection.getChildren().addAll(projectLabel, projectSelector, currentProjectLabel);
@@ -311,23 +308,25 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     
     private VBox createSessionControls() {
         VBox controls = new VBox(10);
-        controls.setStyle("-fx-background-color: white; -fx-padding: 15; -fx-background-radius: 10;");
+        controls.getStyleClass().add("section-card-flat");
         controls.setAlignment(Pos.CENTER);
         
         sessionTimerLabel = new Label("Ready to start session");
-        sessionTimerLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(sessionTimerLabel, 16);
         sessionTimerLabel.setTextFill(Color.web("#2c3e50"));
         
         HBox buttonBox = new HBox(15);
         buttonBox.setAlignment(Pos.CENTER);
         
         startSessionBtn = new Button("Start Session");
-        startSessionBtn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-padding: 10 20;");
+        startSessionBtn.getStyleClass().add("btn-success");
+        startSessionBtn.setStyle("-fx-padding: 10 20;");
         startSessionBtn.setOnAction(e -> startSession());
         startSessionBtn.setDisable(true);
         
         endSessionBtn = new Button("End Session");
-        endSessionBtn.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white; -fx-padding: 10 20;");
+        endSessionBtn.getStyleClass().add("btn-orange");
+        endSessionBtn.setStyle("-fx-padding: 10 20;");
         endSessionBtn.setOnAction(e -> showEndSessionDialog());
         endSessionBtn.setDisable(true);
         
@@ -540,12 +539,11 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         if (selectedProject != null) {
             VBox content = new VBox(20);
             content.setPadding(new Insets(20));
-            content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
-            content.setMaxWidth(400);
+            content.getStyleClass().add("modal-content");
             content.setMaxHeight(Region.USE_PREF_SIZE);
             
             Label titleLabel = new Label("Delete Project");
-            titleLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+            TaskStyleUtils.fontBold(titleLabel, 16);
             
             Label msgLabel = new Label("Are you sure you want to delete this project?\nThis will also delete all associated sessions. This action cannot be undone.");
             msgLabel.setWrapText(true);
@@ -554,7 +552,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
             buttons.setAlignment(Pos.CENTER_RIGHT);
             
             Button yesButton = new Button("Delete");
-            yesButton.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white;");
+            yesButton.getStyleClass().add("btn-danger");
             
             Button noButton = new Button("Cancel");
             
@@ -602,12 +600,12 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
-        content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.getStyleClass().add("modal-content");
         content.setMaxWidth(500);
         content.setMaxHeight(Region.USE_PREF_SIZE);
         
         Label headerLabel = new Label("Session Summary for " + (selectedProject != null ? selectedProject.getTitle() : "Project"));
-        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(headerLabel, 16);
         
         GridPane formGrid = new GridPane();
         formGrid.setHgap(10);
@@ -661,10 +659,10 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         buttonBox.setPadding(new Insets(10, 0, 0, 0));
         
         Button saveButton = new Button("Save Session");
-        saveButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white;");
+        saveButton.getStyleClass().add("btn-success");
         
         Button cancelButton = new Button("Cancel Session");
-        cancelButton.setStyle("-fx-background-color: #95a5a6; -fx-text-fill: white;");
+        cancelButton.getStyleClass().add("btn-cancel");
         
         buttonBox.getChildren().addAll(cancelButton, saveButton);
         
@@ -672,7 +670,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         ScrollPane gridScroll = new ScrollPane(formGrid);
         gridScroll.setFitToWidth(true);
         gridScroll.setMaxHeight(400); 
-        gridScroll.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        gridScroll.getStyleClass().add("transparent-bg");
 
         content.getChildren().addAll(headerLabel, gridScroll, buttonBox);
         
@@ -740,19 +738,19 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
     private void showAlert(String title, String message) {
         VBox content = new VBox(20);
         content.setPadding(new Insets(20));
-        content.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);");
+        content.getStyleClass().add("modal-content");
         content.setMaxWidth(300);
         content.setMaxHeight(Region.USE_PREF_SIZE);
         
         Label titleLabel = new Label(title);
-        titleLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        TaskStyleUtils.fontBold(titleLabel, 16);
         
         Label msgLabel = new Label(message);
         msgLabel.setWrapText(true);
         
         Button okButton = new Button("OK");
         okButton.setOnAction(e -> closeModal.run());
-        okButton.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        okButton.getStyleClass().add("btn-primary");
         
         HBox buttonBox = new HBox();
         buttonBox.setAlignment(Pos.CENTER_RIGHT);
@@ -774,15 +772,15 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
             } else {
                 VBox content = new VBox(2);
                 Label title = new Label(project.getTitle());
-                title.setFont(Font.font("System", FontWeight.BOLD, 14));
+                TaskStyleUtils.fontBold(title, 14);
                 
                 Label details = new Label(String.format("%s | %s | %d sessions | %s", 
                     project.getStatus(), 
                     project.getPriority().toString(),
                     project.getTotalSessionsCount(),
                     project.getFormattedTotalTime()));
-                details.setFont(Font.font("System", 11));
                 details.setTextFill(Color.GRAY);
+                TaskStyleUtils.fontNormal(details, 11);
                 
                 content.getChildren().addAll(title, details);
                 setGraphic(content);
@@ -809,13 +807,13 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                 HBox headerBox = new HBox(10);
                 headerBox.setAlignment(Pos.CENTER_LEFT);
                 
-                Label projectLabel = new Label("📁 " + projectTitle);
-                projectLabel.setFont(Font.font("System", FontWeight.BOLD, 13));
+                Label projectLabel = new Label("\uD83D\uDCC1 " + projectTitle);
+                TaskStyleUtils.fontBold(projectLabel, 13);
                 projectLabel.setTextFill(Color.web("#2c3e50"));
                 
                 if (session.getSessionTitle() != null && !session.getSessionTitle().trim().isEmpty()) {
                     Label sessionLabel = new Label("• " + session.getSessionTitle());
-                    sessionLabel.setFont(Font.font("System", FontWeight.NORMAL, 12));
+                    TaskStyleUtils.fontNormal(sessionLabel, 12);
                     sessionLabel.setTextFill(Color.web("#34495e"));
                     headerBox.getChildren().addAll(projectLabel, sessionLabel);
                 } else {
@@ -827,15 +825,15 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                 metricsBox.setAlignment(Pos.CENTER_LEFT);
                 
                 Label dateLabel = new Label("» " + session.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
-                dateLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+                TaskStyleUtils.fontNormal(dateLabel, 11);
                 dateLabel.setTextFill(Color.web("#7f8c8d"));
                 
                 Label durationLabel = new Label("⌚ " + session.getDurationMinutes() + " min");
-                durationLabel.setFont(Font.font("System", FontWeight.NORMAL, 11));
+                TaskStyleUtils.fontNormal(durationLabel, 11);
                 durationLabel.setTextFill(Color.web("#3498db"));
                 
                 Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " pts");
-                pointsLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 11));
+                TaskStyleUtils.fontSemiBold(pointsLabel, 11);
                 pointsLabel.setTextFill(Color.web("#27ae60"));
                 
                 metricsBox.getChildren().addAll(dateLabel, durationLabel, pointsLabel);
@@ -848,7 +846,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                                            session.getProgress().substring(0, 100) + "..." : 
                                            session.getProgress();
                     Label progressLabel = new Label("[✓] " + progressPreview);
-                    progressLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
+                    TaskStyleUtils.fontNormal(progressLabel, 10);
                     progressLabel.setTextFill(Color.web("#6c757d"));
                     progressLabel.setWrapText(true);
                     content.getChildren().add(progressLabel);
@@ -860,7 +858,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                                             session.getNextSteps().substring(0, 80) + "..." : 
                                             session.getNextSteps();
                     Label nextStepsLabel = new Label("» Next: " + nextStepsPreview);
-                    nextStepsLabel.setFont(Font.font("System", FontWeight.NORMAL, 10));
+                    TaskStyleUtils.fontNormal(nextStepsLabel, 10);
                     nextStepsLabel.setTextFill(Color.web("#8e44ad"));
                     nextStepsLabel.setWrapText(true);
                     content.getChildren().add(nextStepsLabel);

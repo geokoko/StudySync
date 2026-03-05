@@ -9,8 +9,6 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.Node;
-import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -40,7 +38,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
         // Create main content container
         VBox mainContent = new VBox(20);
         mainContent.setPadding(new Insets(20));
-        mainContent.setStyle("-fx-background-color: linear-gradient(to bottom, #faf9f7, #f4f3f1);");
+        mainContent.getStyleClass().add("panel-bg-warm");
         
         // Set up ScrollPane properties
         this.setContent(mainContent);
@@ -60,8 +58,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
     private void initializeComponents(VBox mainContent) {
         // Header
         Label headerLabel = new Label("📔 Daily Reflection Diary");
-        headerLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
-        headerLabel.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(headerLabel, 24);
         
         // Create main layout with sidebar and content
         HBox mainLayout = new HBox(20);
@@ -83,15 +80,15 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
     
     private VBox createSidebar() {
         VBox sidebar = new VBox(15);
-        sidebar.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 15; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+        sidebar.getStyleClass().add("section-card");
+        sidebar.setPadding(new Insets(15));
         
         Label sidebarTitle = new Label("» Navigation");
-        sidebarTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
-        sidebarTitle.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(sidebarTitle, 16);
         
         // Date picker for navigation
         Label dateLabel = new Label("Select Date:");
-        dateLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 12));
+        TaskStyleUtils.fontSemiBold(dateLabel, 12);
         
         datePicker = new DatePicker(dateTimeService.getCurrentDate());
         datePicker.setMaxWidth(Double.MAX_VALUE);
@@ -101,24 +98,24 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
         VBox quickNav = new VBox(5);
         Button todayBtn = new Button("Today");
         todayBtn.setMaxWidth(Double.MAX_VALUE);
-        todayBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white;");
+        todayBtn.getStyleClass().add("btn-primary");
         todayBtn.setOnAction(e -> navigateToDate(dateTimeService.getCurrentDate()));
         
         Button yesterdayBtn = new Button("Yesterday");
         yesterdayBtn.setMaxWidth(Double.MAX_VALUE);
-        yesterdayBtn.setStyle("-fx-background-color: #9b59b6; -fx-text-fill: white;");
+        yesterdayBtn.getStyleClass().add("btn-purple");
         yesterdayBtn.setOnAction(e -> navigateToDate(dateTimeService.getCurrentDate().minusDays(1)));
         
         Button lastWeekBtn = new Button("One Week Ago");
         lastWeekBtn.setMaxWidth(Double.MAX_VALUE);
-        lastWeekBtn.setStyle("-fx-background-color: #e67e22; -fx-text-fill: white;");
+        lastWeekBtn.getStyleClass().add("btn-orange");
         lastWeekBtn.setOnAction(e -> navigateToDate(dateTimeService.getCurrentDate().minusDays(7)));
         
         quickNav.getChildren().addAll(todayBtn, yesterdayBtn, lastWeekBtn);
         
         // Recent reflections list
         Label recentLabel = new Label("Recent Reflections:");
-        recentLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 12));
+        TaskStyleUtils.fontSemiBold(recentLabel, 12);
         
         recentReflectionsList = new ListView<>();
         recentReflectionsList.setPrefHeight(200);
@@ -162,16 +159,15 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
     
     private VBox createContentArea() {
         VBox contentArea = new VBox(15);
-        contentArea.setStyle("-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 20; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 5, 0, 0, 2);");
+        contentArea.getStyleClass().add("section-card");
         
         // Date header
         dateHeaderLabel = new Label();
-        dateHeaderLabel.setFont(Font.font("System", FontWeight.BOLD, 18));
-        dateHeaderLabel.setTextFill(Color.web("#2c3e50"));
+        TaskStyleUtils.fontBold(dateHeaderLabel, 18);
         
         // Reflection text area
         Label reflectionLabel = new Label("💭 Daily Reflection:");
-        reflectionLabel.setFont(Font.font("System", FontWeight.SEMI_BOLD, 14));
+        TaskStyleUtils.fontSemiBold(reflectionLabel, 14);
         
         reflectionTextArea = new TextArea();
         reflectionTextArea.setPromptText("Write your daily reflection here...\n\nSome questions to consider:\n• What went well today?\n• What challenges did you face?\n• What did you learn?\n• What would you do differently?\n• How do you feel about your progress?");
@@ -184,11 +180,11 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
         buttonBox.setAlignment(Pos.CENTER_RIGHT);
         
         saveButton = new Button("💾 Save Reflection");
-        saveButton.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;");
+        saveButton.getStyleClass().add("btn-success");
         saveButton.setOnAction(e -> saveCurrentReflection());
         
         Button newReflectionBtn = new Button("▪ New Entry");
-        newReflectionBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5;");
+        newReflectionBtn.getStyleClass().add("btn-primary");
         newReflectionBtn.setOnAction(e -> createNewReflection());
         
         buttonBox.getChildren().addAll(newReflectionBtn, saveButton);
@@ -284,6 +280,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
             
             // Show success message
             Alert success = new Alert(Alert.AlertType.INFORMATION);
+            success.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
             success.setTitle("Success");
             success.setHeaderText(null);
             success.setContentText("Reflection saved successfully for " + selectedDate.format(DateTimeFormatter.ofPattern("MMMM d, yyyy")));
@@ -294,6 +291,7 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
             
         } catch (Exception e) {
             Alert error = new Alert(Alert.AlertType.ERROR);
+            error.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
             error.setTitle("Error");
             error.setHeaderText(null);
             error.setContentText("Failed to save reflection: " + e.getMessage());

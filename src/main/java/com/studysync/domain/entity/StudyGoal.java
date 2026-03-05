@@ -567,6 +567,73 @@ public class StudyGoal {
     }
     
     /**
+     * Find goals linked to a specific task for a given date, including delayed unachieved goals.
+     * Returns goals that are either planned for the date or delayed from earlier dates.
+     *
+     * @param taskId the task ID to find linked goals for
+     * @param date the date to scope the query
+     * @return list of study goals linked to the task for the given date context
+     */
+    public static List<StudyGoal> findByTaskIdForDate(String taskId, LocalDate date) {
+        if (jdbcTemplate == null || taskId == null || taskId.isBlank() || date == null) {
+            return List.of();
+        }
+        
+        String sql = """
+            SELECT * FROM study_goals 
+            WHERE task_id = ? 
+              AND (date = ? OR (is_delayed = TRUE AND achieved = FALSE AND date <= ?))
+            ORDER BY is_delayed ASC, date ASC, created_at ASC
+            """;
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), taskId, date, date);
+        logger.debug("Retrieved {} goals for task {} on date {}", goals.size(), taskId, date);
+        return goals;
+    }
+
+    /**
+     * Checks whether at least one achieved study goal exists for the given
+     * task on exactly the specified date.  Used to determine whether a
+     * recurring-task occurrence was "handled".
+     *
+     * @param taskId the task ID
+     * @param date   the exact occurrence date to check
+     * @return {@code true} if a linked, achieved goal exists for that date
+     */
+    public static boolean hasAchievedGoalForTask(String taskId, LocalDate date) {
+        if (jdbcTemplate == null || taskId == null || taskId.isBlank() || date == null) {
+            return false;
+        }
+        String sql = """
+            SELECT COUNT(*) FROM study_goals
+            WHERE task_id = ? AND date = ? AND achieved = TRUE
+            """;
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, taskId, date);
+        return count != null && count > 0;
+    }
+    
+    /**
+     * Find goals that are NOT linked to any task for a given date, including delayed unachieved ones.
+     *
+     * @param date the date to scope the query
+     * @return list of unlinked study goals for the given date context
+     */
+    public static List<StudyGoal> findUnlinkedForDate(LocalDate date) {
+        if (jdbcTemplate == null || date == null) {
+            return List.of();
+        }
+        
+        String sql = """
+            SELECT * FROM study_goals 
+            WHERE task_id IS NULL 
+              AND (date = ? OR (is_delayed = TRUE AND achieved = FALSE AND date <= ?))
+            ORDER BY is_delayed ASC, date ASC, created_at ASC
+            """;
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
+        logger.debug("Retrieved {} unlinked goals for date {}", goals.size(), date);
+        return goals;
+    }
+    
+    /**
      * RowMapper for converting database rows to StudyGoal objects.
      */
     private static RowMapper<StudyGoal> getRowMapper() {

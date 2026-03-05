@@ -9,10 +9,16 @@ public record TaskUpdate(
     String category,
     TaskPriority priority,
     LocalDate deadline,
-    String recurringPattern
+    String recurringPattern,
+    LocalDate startDate
 ) {
-    /** Convenience constructor without recurring pattern (preserves existing). */
+    /** Convenience constructor without recurring pattern or start date (preserves existing). */
     public TaskUpdate(String title, String description, String category, TaskPriority priority, LocalDate deadline) {
-        this(title, description, category, priority, deadline, null);
+        this(title, description, category, priority, deadline, null, null);
+    }
+
+    /** Convenience constructor without start date (preserves existing). */
+    public TaskUpdate(String title, String description, String category, TaskPriority priority, LocalDate deadline, String recurringPattern) {
+        this(title, description, category, priority, deadline, recurringPattern, null);
     }
 }
