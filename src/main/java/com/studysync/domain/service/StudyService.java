@@ -4,6 +4,8 @@ import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
+import com.studysync.domain.entity.Task;
+import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.domain.service.StudySessionEnd;
 import com.studysync.integration.drive.GoogleDriveService;
 import org.slf4j.Logger;
@@ -126,6 +128,19 @@ public class StudyService {
         }
         StudyGoal goal = new StudyGoal(null, date, description, false, null, 0, false, 0, taskId);
         goal.save();
+
+        // When a goal is created for an OPEN task, automatically transition it
+        // to IN_PROGRESS to reflect that active work has been planned.
+        if (taskId != null && !taskId.isBlank()) {
+            Task.findById(taskId).ifPresent(task -> {
+                if (task.getStatus() == TaskStatus.OPEN) {
+                    Task.updateStatus(taskId, TaskStatus.IN_PROGRESS);
+                    logger.info("Auto-transitioned task '{}' from OPEN to IN_PROGRESS after goal creation",
+                            task.getTitle());
+                }
+            });
+        }
+
         markDirty();
     }
 
