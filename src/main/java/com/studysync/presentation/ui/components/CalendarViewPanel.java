@@ -316,27 +316,82 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             metricsBox.getChildren().add(goalsBox);
         }
         
-        // Tasks indicator
+        // Tasks indicator — split overdue / missed / due-today / normal
         if (!dayData.tasks.isEmpty()) {
-            HBox tasksBox = new HBox(3);
-            tasksBox.setAlignment(Pos.CENTER_LEFT);
-            
-            Label taskIcon = new Label("☑");
-            TaskStyleUtils.fontNormal(taskIcon, 11);
-            taskIcon.setTextFill(Color.web("#9b59b6"));
-            
-            // Show count + first task title (truncated)
-            String firstTitle = dayData.tasks.get(0).getTitle();
-            if (firstTitle.length() > 14) firstTitle = firstTitle.substring(0, 13) + "…";
-            String taskText = dayData.tasks.size() == 1
-                    ? firstTitle
-                    : firstTitle + " +" + (dayData.tasks.size() - 1);
-            Label taskLabel = new Label(taskText);
-            TaskStyleUtils.fontNormal(taskLabel, 9);
-            taskLabel.setTextFill(Color.web("#9b59b6"));
-            
-            tasksBox.getChildren().addAll(taskIcon, taskLabel);
-            metricsBox.getChildren().add(tasksBox);
+            LocalDate today = LocalDate.now();
+            long overdueCount = dayData.tasks.stream()
+                    .filter(t -> TaskStyleUtils.isOverdue(t, date)).count();
+            long dueTodayCount = dayData.tasks.stream()
+                    .filter(t -> TaskStyleUtils.isDueToday(t, date)).count();
+
+            // Missed recurring-task occurrences (past dates only)
+            long missedCount = 0;
+            if (date.isBefore(today)) {
+                missedCount = dayData.tasks.stream()
+                        .filter(Task::isRecurring)
+                        .filter(t -> !StudyGoal.hasAchievedGoalForTask(t.getId(), date))
+                        .count();
+            }
+            long handledRecurring = dayData.tasks.stream().filter(Task::isRecurring).count() - missedCount;
+            long normalCount = handledRecurring
+                    + (dayData.tasks.size() - overdueCount - dueTodayCount
+                       - dayData.tasks.stream().filter(Task::isRecurring).count());
+
+            // Overdue line (red)
+            if (overdueCount > 0) {
+                HBox overdueBox = new HBox(3);
+                overdueBox.setAlignment(Pos.CENTER_LEFT);
+                Label warnIcon = new Label("\u26A0");
+                TaskStyleUtils.fontNormal(warnIcon, 10);
+                warnIcon.setTextFill(Color.web(TaskStyleUtils.OVERDUE_COLOR));
+                Label overdueLabel = new Label(overdueCount + " overdue");
+                TaskStyleUtils.fontNormal(overdueLabel, 9);
+                overdueLabel.setTextFill(Color.web(TaskStyleUtils.OVERDUE_COLOR));
+                overdueBox.getChildren().addAll(warnIcon, overdueLabel);
+                metricsBox.getChildren().add(overdueBox);
+            }
+
+            // Missed recurring line (red)
+            if (missedCount > 0) {
+                HBox missedBox = new HBox(3);
+                missedBox.setAlignment(Pos.CENTER_LEFT);
+                Label missedIcon = new Label("\u26A0");
+                TaskStyleUtils.fontNormal(missedIcon, 10);
+                missedIcon.setTextFill(Color.web(TaskStyleUtils.MISSED_COLOR));
+                Label missedLabel = new Label(missedCount + " missed");
+                TaskStyleUtils.fontNormal(missedLabel, 9);
+                missedLabel.setTextFill(Color.web(TaskStyleUtils.MISSED_COLOR));
+                missedBox.getChildren().addAll(missedIcon, missedLabel);
+                metricsBox.getChildren().add(missedBox);
+            }
+
+            // Due-today line (amber)
+            if (dueTodayCount > 0) {
+                HBox dueTodayBox = new HBox(3);
+                dueTodayBox.setAlignment(Pos.CENTER_LEFT);
+                Label dueIcon = new Label("☑");
+                TaskStyleUtils.fontNormal(dueIcon, 10);
+                dueIcon.setTextFill(Color.web(TaskStyleUtils.DUE_TODAY_COLOR));
+                Label dueLabel = new Label(dueTodayCount + " due");
+                TaskStyleUtils.fontNormal(dueLabel, 9);
+                dueLabel.setTextFill(Color.web(TaskStyleUtils.DUE_TODAY_COLOR));
+                dueTodayBox.getChildren().addAll(dueIcon, dueLabel);
+                metricsBox.getChildren().add(dueTodayBox);
+            }
+
+            // Normal tasks line (purple — handled recurring or no special state)
+            if (normalCount > 0) {
+                HBox tasksBox = new HBox(3);
+                tasksBox.setAlignment(Pos.CENTER_LEFT);
+                Label taskIcon = new Label("☑");
+                TaskStyleUtils.fontNormal(taskIcon, 11);
+                taskIcon.setTextFill(Color.web("#9b59b6"));
+                Label taskLabel = new Label(normalCount + " task" + (normalCount > 1 ? "s" : ""));
+                TaskStyleUtils.fontNormal(taskLabel, 9);
+                taskLabel.setTextFill(Color.web("#9b59b6"));
+                tasksBox.getChildren().addAll(taskIcon, taskLabel);
+                metricsBox.getChildren().add(tasksBox);
+            }
         }
         
         // Productivity indicator
@@ -489,8 +544,11 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         
         tabPane.getTabs().addAll(overviewTab, goalsTab, sessionsTab, tasksTab, performanceTab);
         
-        dialog.getDialogPane().setContent(tabPane);
-        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        DialogPane dialogPane = dialog.getDialogPane();
+        dialogPane.setContent(tabPane);
+        dialogPane.getButtonTypes().add(ButtonType.CLOSE);
+        dialogPane.setMinSize(820, 640);
+        dialogPane.setPrefSize(820, 640);
         dialog.setResizable(true);
         
         dialog.showAndWait();
@@ -727,7 +785,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             VBox taskBox = new VBox(6);
             taskBox.setPadding(new Insets(12));
 
-            String borderColor = TaskStyleUtils.taskBorderColor(task);
+            String borderColor = TaskStyleUtils.taskBorderColor(task, date);
             taskBox.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
                     " -fx-border-color: " + borderColor + "; -fx-border-radius: 8;");
 
@@ -754,7 +812,22 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
 
             Region spacer = new Region();
             HBox.setHgrow(spacer, Priority.ALWAYS);
-            headerRow.getChildren().addAll(taskTitle, spacer, statusBadge);
+            headerRow.getChildren().addAll(taskTitle, spacer);
+
+            // Overdue / due-today / missed badge (between spacer and status badge)
+            if (TaskStyleUtils.isOverdue(task, date)) {
+                headerRow.getChildren().add(TaskStyleUtils.createOverdueBadge());
+            } else if (TaskStyleUtils.isDueToday(task, date)) {
+                headerRow.getChildren().add(TaskStyleUtils.createDueTodayBadge());
+            } else if (task.isRecurring() && date.isBefore(LocalDate.now())
+                       && !StudyGoal.hasAchievedGoalForTask(task.getId(), date)) {
+                headerRow.getChildren().add(TaskStyleUtils.createMissedBadge());
+                // Red border for missed recurring occurrence
+                taskBox.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
+                        " -fx-border-color: " + TaskStyleUtils.MISSED_COLOR + "; -fx-border-radius: 8;");
+            }
+
+            headerRow.getChildren().add(statusBadge);
             taskBox.getChildren().add(headerRow);
 
             // Description (if non-empty)

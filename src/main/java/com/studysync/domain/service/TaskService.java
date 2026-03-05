@@ -1,6 +1,7 @@
 package com.studysync.domain.service;
 
 import com.studysync.domain.exception.ValidationException;
+import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.Task;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
@@ -13,10 +14,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.validation.annotation.Validated;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -78,7 +84,7 @@ public class TaskService {
         
         Task taskToSave = task;
         if (task.getPriority() == null) {
-            taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(), new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints(), task.getRecurringPattern());
+            taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(), new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints(), task.getRecurringPattern(), task.getStartDate());
             logger.debug("Set default priority for task: {}", taskToSave.getTitle());
         }
 
@@ -282,6 +288,8 @@ public class TaskService {
      * <h3>Recurring tasks</h3>
      * Active (OPEN / IN_PROGRESS) recurring tasks whose pattern matches the
      * given date (using the task's creation Monday as the interval reference).
+     * If the task has a deadline, occurrences after that deadline are excluded
+     * (the deadline acts as an end-of-recurrence boundary).
      *
      * <h3>Non-recurring tasks</h3>
      * <ul>
@@ -311,14 +319,21 @@ public class TaskService {
                 boolean isPending = s == TaskStatus.POSTPONED || s == TaskStatus.DELAYED;
 
                 if (task.isRecurring()) {
-                    // Reference Monday is derived from the task's creation date,
-                    // so that multi-week intervals (e.g. every 2 weeks) are
-                    // measured from when the task was created — not from the
-                    // queried date (which would always yield weeksBetween == 0).
-                    LocalDate taskCreationMonday = task.getCreatedAt().toLocalDate()
-                            .with(java.time.temporal.TemporalAdjusters
-                                    .previousOrSame(java.time.DayOfWeek.MONDAY));
-                    return isActive && recurringTaskAppliesTo(task, date, taskCreationMonday);
+                    // Start date on a recurring task means "don't appear before this date"
+                    if (task.getStartDate() != null && date.isBefore(task.getStartDate())) {
+                        return false;
+                    }
+                    // Deadline on a recurring task means "stop recurring after this date"
+                    if (task.getDeadline() != null && date.isAfter(task.getDeadline())) {
+                        return false;
+                    }
+                    // Reference Monday is derived from the task's recurrence
+                    // anchor (startDate if set, otherwise createdAt), so that
+                    // multi-week intervals are measured consistently.
+                    LocalDate anchorMonday = task.getRecurrenceAnchor()
+                            .with(TemporalAdjusters
+                                    .previousOrSame(DayOfWeek.MONDAY));
+                    return isActive && recurringTaskAppliesTo(task, date, anchorMonday);
                 }
 
                 // Non-recurring: must be unresolved
@@ -400,13 +415,27 @@ public class TaskService {
                 newRecurringPattern = update.recurringPattern();
             }
         }
-        return new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline, task.getStatus(), task.getPoints(), newRecurringPattern);
+
+        // Start date: null in the update means "keep existing"
+        LocalDate newStartDate = task.getStartDate();
+        if (update.startDate() != null) {
+            newStartDate = update.startDate();
+        }
+        // If recurring pattern is being cleared, also clear start date
+        if (newRecurringPattern == null) {
+            newStartDate = null;
+        }
+        return new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline, task.getStatus(), task.getPoints(), newRecurringPattern, newStartDate);
     }
     
     private Task applyBusinessRules(Task task) {
-        if (task.getDeadline() != null &&
-                task.getDeadline().isBefore(LocalDate.now()) &&
-                task.getStatus() != TaskStatus.COMPLETED) {
+        // Only mark non-recurring tasks as DELAYED for overdue deadlines.
+        // For recurring tasks, the deadline is an end-of-recurrence boundary,
+        // not a due date, so it should not trigger DELAYED status.
+        if (!task.isRecurring()
+                && task.getDeadline() != null
+                && task.getDeadline().isBefore(LocalDate.now())
+                && task.getStatus() != TaskStatus.COMPLETED) {
             logger.info("Task '{}' marked as DELAYED due to overdue deadline", task.getTitle());
             task.updateStatus(TaskStatus.DELAYED);
         }
@@ -460,13 +489,84 @@ public class TaskService {
             if (!dayMatches) return false;
 
             // Check week interval
-            long weeksBetween = java.time.temporal.ChronoUnit.WEEKS.between(
+            long weeksBetween = ChronoUnit.WEEKS.between(
                     referenceMonday,
-                    date.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)));
+                    date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)));
             return weeksBetween >= 0 && weeksBetween % intervalWeeks == 0;
         } catch (Exception e) {
             logger.warn("Invalid recurring pattern '{}' for task '{}'", task.getRecurringPattern(), task.getTitle());
             return false;
         }
+    }
+
+    // ================================================================
+    // MISSED RECURRING OCCURRENCE DETECTION
+    // ================================================================
+
+    /** Maximum number of days to look back when searching for missed occurrences. */
+    private static final int MISSED_LOOKBACK_DAYS = 28;
+
+    /**
+     * Returns all missed occurrences of active recurring tasks between the
+     * most recent <em>handled</em> date and {@code today} (exclusive).
+     *
+     * <p>An occurrence is "missed" when no achieved {@link StudyGoal} is
+     * linked to the task on that date.  The search walks backwards from
+     * yesterday for up to {@value #MISSED_LOOKBACK_DAYS} days.</p>
+     *
+     * <p>Only occurrences that fall <em>before</em> today are returned
+     * (today's occurrence is not missed yet — the user still has time).</p>
+     *
+     * @param today the current date (usually {@code dateTimeService.getCurrentDate()})
+     * @return list of missed occurrences, ordered by task then date ascending
+     */
+    @Transactional(readOnly = true)
+    public List<MissedOccurrence> getMissedRecurringOccurrences(LocalDate today) {
+        if (today == null) return List.of();
+
+        List<Task> activeTasks = Task.findActiveRecurring();
+        List<MissedOccurrence> result = new ArrayList<>();
+        LocalDate earliest = today.minusDays(MISSED_LOOKBACK_DAYS);
+
+        for (Task task : activeTasks) {
+            LocalDate anchor = task.getRecurrenceAnchor();
+            LocalDate anchorMonday = anchor
+                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            // Don't search before the task's start date (or creation date)
+            LocalDate taskEarliest = task.getStartDate() != null
+                    ? task.getStartDate()
+                    : task.getCreatedAt().toLocalDate();
+            LocalDate searchStart = taskEarliest.isAfter(earliest)
+                    ? taskEarliest
+                    : earliest;
+
+            // Walk forward from searchStart to yesterday, collecting missed dates
+            for (LocalDate d = searchStart; d.isBefore(today); d = d.plusDays(1)) {
+                // Respect deadline-as-end-of-recurrence
+                if (task.getDeadline() != null && d.isAfter(task.getDeadline())) {
+                    break;
+                }
+                if (!recurringTaskAppliesTo(task, d, anchorMonday)) {
+                    continue;
+                }
+                if (!StudyGoal.hasAchievedGoalForTask(task.getId(), d)) {
+                    result.add(new MissedOccurrence(task, d));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Checks whether a specific past occurrence of a recurring task was
+     * "handled" — i.e. at least one achieved study goal is linked to
+     * the task on that date.
+     *
+     * @param task the recurring task
+     * @param date the occurrence date to check
+     * @return {@code true} if the occurrence was handled
+     */
+    public boolean isOccurrenceHandled(Task task, LocalDate date) {
+        return StudyGoal.hasAchievedGoalForTask(task.getId(), date);
     }
 }

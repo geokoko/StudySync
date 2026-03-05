@@ -150,6 +150,10 @@ public class StudySyncUI {
         }
         
         primaryStage.setScene(scene);
+        primaryStage.setWidth(DEFAULT_WINDOW_WIDTH);
+        primaryStage.setHeight(DEFAULT_WINDOW_HEIGHT);
+        primaryStage.setMinWidth(900);
+        primaryStage.setMinHeight(600);
         primaryStage.centerOnScreen();
 
         primaryStage.show();

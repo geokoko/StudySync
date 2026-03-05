@@ -64,6 +64,18 @@ public class Task {
      */
     private String recurringPattern;
 
+    /**
+     * Start date for recurring tasks.  Acts as:
+     * <ul>
+     *   <li>The first date from which the task can appear</li>
+     *   <li>The recurrence interval anchor (the Monday of start date's week
+     *       is used instead of createdAt for interval calculation)</li>
+     * </ul>
+     * NULL for non-recurring tasks.  When null on a recurring task, the
+     * system falls back to {@link #createdAt} for backward compatibility.
+     */
+    private LocalDate startDate;
+
     // Default constructor
     public Task() {
         this.id = UUID.randomUUID().toString();
@@ -72,18 +84,26 @@ public class Task {
         this.status = TaskStatus.OPEN;
         this.points = 0;
         this.recurringPattern = null;
+        this.startDate = null;
     }
 
-    // Full constructor
+    // Constructor without recurring pattern
     public Task(String id, String title, String description, String category, 
                 TaskPriority priority, LocalDate deadline, TaskStatus status, int points) {
-        this(id, title, description, category, priority, deadline, status, points, null);
+        this(id, title, description, category, priority, deadline, status, points, null, null);
     }
 
-    // Full constructor with recurring pattern
+    // Constructor with recurring pattern (no start date)
     public Task(String id, String title, String description, String category, 
                 TaskPriority priority, LocalDate deadline, TaskStatus status, int points,
                 String recurringPattern) {
+        this(id, title, description, category, priority, deadline, status, points, recurringPattern, null);
+    }
+
+    // Full constructor with recurring pattern and start date
+    public Task(String id, String title, String description, String category, 
+                TaskPriority priority, LocalDate deadline, TaskStatus status, int points,
+                String recurringPattern, LocalDate startDate) {
         this.id = id != null ? id : UUID.randomUUID().toString();
         this.title = title;
         this.description = description;
@@ -95,6 +115,7 @@ public class Task {
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
         this.recurringPattern = recurringPattern;
+        this.startDate = startDate;
         
         // Validation
         Objects.requireNonNull(this.id, "id cannot be null");
@@ -252,6 +273,33 @@ public class Task {
     }
 
     /**
+     * Gets the start date for this recurring task.
+     * @return the start date, or null if not set (falls back to createdAt)
+     */
+    public LocalDate getStartDate() {
+        return startDate;
+    }
+
+    /**
+     * Sets the start date for this recurring task.
+     * @param startDate the date from which the task starts recurring
+     */
+    public void setStartDate(LocalDate startDate) {
+        this.startDate = startDate;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * Returns the effective recurrence anchor date.
+     * If {@code startDate} is set, returns it; otherwise falls back to
+     * the date portion of {@code createdAt}.
+     * @return the date used as the recurrence interval anchor
+     */
+    public LocalDate getRecurrenceAnchor() {
+        return startDate != null ? startDate : createdAt.toLocalDate();
+    }
+
+    /**
      * Checks whether this task is recurring.
      * @return true if the task has a recurrence pattern
      */
@@ -307,8 +355,8 @@ public class Task {
         this.updatedAt = LocalDateTime.now();
         
         String sql = """
-            MERGE INTO tasks (id, title, description, category, priority, deadline, status, points, recurring_pattern, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            MERGE INTO tasks (id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         
         jdbcTemplate.update(sql,
@@ -320,7 +368,8 @@ public class Task {
             this.deadline,
             this.status != null ? this.status.name() : TaskStatus.OPEN.name(),
             this.points,
-            this.recurringPattern
+            this.recurringPattern,
+            this.startDate
         );
         
         logger.debug("Task saved: {} - {}", id, this.title);
@@ -606,7 +655,8 @@ public class Task {
                 rs.getObject("deadline", LocalDate.class),
                 TaskStatus.valueOf(rs.getString("status")),
                 rs.getInt("points"),
-                rs.getString("recurring_pattern")
+                rs.getString("recurring_pattern"),
+                rs.getObject("start_date", LocalDate.class)
             );
             java.sql.Timestamp createdTs = rs.getTimestamp("created_at");
             if (createdTs != null) {

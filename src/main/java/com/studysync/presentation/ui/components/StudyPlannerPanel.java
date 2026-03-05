@@ -6,6 +6,7 @@ import com.studysync.domain.service.StudySessionEnd;
 import com.studysync.domain.service.DateTimeService;
 import com.studysync.domain.service.TaskService;
 import com.studysync.domain.service.CategoryService;
+import com.studysync.domain.service.MissedOccurrence;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.DailyReflection;
@@ -304,6 +305,37 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             tasksContainer.getChildren().add(buildTaskRow(task));
         }
 
+        // Missed recurring-task occurrences (carry-forward to today)
+        LocalDate today = dateTimeService.getCurrentDate();
+        if (displayDate.equals(today)) {
+            List<MissedOccurrence> missed = taskService.getMissedRecurringOccurrences(today);
+            // Group by task — exclude tasks already shown above (scheduled for today)
+            Set<String> shownTaskIds = tasks.stream().map(Task::getId).collect(Collectors.toSet());
+            // Build per-task missed-date lists, preserving insertion order
+            java.util.LinkedHashMap<String, List<MissedOccurrence>> byTask = new java.util.LinkedHashMap<>();
+            for (MissedOccurrence mo : missed) {
+                byTask.computeIfAbsent(mo.task().getId(), k -> new ArrayList<>()).add(mo);
+            }
+
+            if (!byTask.isEmpty()) {
+                VBox missedSection = new VBox(6);
+                missedSection.setPadding(new Insets(10, 0, 0, 0));
+                Label missedTitle = new Label("\u26A0 Missed recurring tasks:");
+                TaskStyleUtils.fontBold(missedTitle, 13);
+                missedTitle.setTextFill(Color.web(TaskStyleUtils.MISSED_COLOR));
+                missedSection.getChildren().add(missedTitle);
+
+                for (var entry : byTask.entrySet()) {
+                    Task task = entry.getValue().get(0).task();
+                    List<MissedOccurrence> occurrences = entry.getValue();
+                    boolean alsoScheduledToday = shownTaskIds.contains(task.getId());
+                    missedSection.getChildren().add(
+                            buildMissedTaskRow(task, occurrences, alsoScheduledToday));
+                }
+                tasksContainer.getChildren().add(missedSection);
+            }
+        }
+
         // Unlinked goals section (goals with no task)
         List<StudyGoal> unlinkedGoals = StudyGoal.findUnlinkedForDate(displayDate).stream()
                 .filter(g -> !g.isAchieved())
@@ -328,7 +360,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private VBox buildTaskRow(Task task) {
         VBox card = new VBox();
         card.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
-                      " -fx-border-color: " + TaskStyleUtils.taskBorderColor(task) + ";" +
+                      " -fx-border-color: " + TaskStyleUtils.taskBorderColor(task, displayDate) + ";" +
                       " -fx-border-radius: 8;" +
                       " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
 
@@ -366,7 +398,16 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         headerRow.getChildren().addAll(0, List.of(arrow)); // arrow first
-        headerRow.getChildren().addAll(taskTitle, priorityLabel, statusBadge, spacer);
+        headerRow.getChildren().addAll(taskTitle, priorityLabel, spacer);
+
+        // Overdue / due-today badge (between spacer and status badge)
+        if (TaskStyleUtils.isOverdue(task, displayDate)) {
+            headerRow.getChildren().add(TaskStyleUtils.createOverdueBadge());
+        } else if (TaskStyleUtils.isDueToday(task, displayDate)) {
+            headerRow.getChildren().add(TaskStyleUtils.createDueTodayBadge());
+        }
+
+        headerRow.getChildren().add(statusBadge);
 
         // ── Expandable goals panel ──
         VBox goalsPanel = new VBox(6);
@@ -386,6 +427,52 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         });
 
         card.getChildren().addAll(headerRow, goalsPanel);
+        return card;
+    }
+
+    /**
+     * Builds a compact card for a recurring task with missed past occurrences.
+     * Shows the task title with one "Missed [Day]" badge per missed date.
+     *
+     * @param task               the recurring task
+     * @param occurrences        the missed occurrence dates (non-empty)
+     * @param alsoScheduledToday true if the task is also shown in the regular
+     *                           task list (avoids duplicating the full card)
+     */
+    private VBox buildMissedTaskRow(Task task, List<MissedOccurrence> occurrences,
+                                    boolean alsoScheduledToday) {
+        VBox card = new VBox(4);
+        card.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
+                      " -fx-border-color: " + TaskStyleUtils.MISSED_COLOR + ";" +
+                      " -fx-border-radius: 8;" +
+                      " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
+        card.setPadding(new Insets(10, 14, 10, 14));
+
+        // Title row
+        HBox headerRow = new HBox(8);
+        headerRow.setAlignment(Pos.CENTER_LEFT);
+
+        Label taskTitle = new Label(task.getTitle());
+        TaskStyleUtils.fontBold(taskTitle, 13);
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        headerRow.getChildren().addAll(taskTitle, spacer);
+
+        // One badge per missed date
+        for (MissedOccurrence mo : occurrences) {
+            headerRow.getChildren().add(TaskStyleUtils.createMissedDayBadge(mo.missedDate()));
+        }
+
+        card.getChildren().add(headerRow);
+
+        if (alsoScheduledToday) {
+            Label hint = new Label("(also scheduled today \u2014 see above)");
+            TaskStyleUtils.fontItalic(hint, 11);
+            hint.setTextFill(Color.web("#7f8c8d"));
+            card.getChildren().add(hint);
+        }
+
         return card;
     }
 
@@ -640,11 +727,27 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             TaskStyleUtils.fontNormal(dayBoxes[i], 11);
             daysRow.getChildren().add(dayBoxes[i]);
         }
+
+        DatePicker startDatePicker = new DatePicker(LocalDate.now());
+        startDatePicker.setMaxWidth(Double.MAX_VALUE);
+
         recurringOptions.getChildren().addAll(new Label("Repeat every:"), intervalRow,
-                new Label("On days:"), daysRow);
+                new Label("On days:"), daysRow,
+                new Label("Start date:"), startDatePicker);
+
+        Label deadlineHint = new Label("");
+        TaskStyleUtils.fontNormal(deadlineHint, 10);
+        deadlineHint.setTextFill(Color.web("#7f8c8d"));
+        deadlineHint.setWrapText(true);
+        deadlineHint.setVisible(false);
+        deadlineHint.setManaged(false);
+
         recurringCheck.selectedProperty().addListener((obs, o, n) -> {
             recurringOptions.setVisible(n);
             recurringOptions.setManaged(n);
+            deadlineHint.setVisible(n);
+            deadlineHint.setManaged(n);
+            deadlineHint.setText(n ? "For recurring tasks, the deadline acts as the end-of-recurrence date." : "");
         });
 
         // Buttons
@@ -682,9 +785,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             }
 
             try {
+                LocalDate startDate = recurringCheck.isSelected() ? startDatePicker.getValue() : null;
                 Task newTask = new Task(null, title, descArea.getText().trim(),
                         cat.name(), new TaskPriority(prio),
-                        deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern);
+                        deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern, startDate);
                 taskService.addTask(newTask);
                 closeModal.run();
                 updateTasksDisplay();
@@ -702,7 +806,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 new Label("Description:"), descArea,
                 new Label("Category:"), catCombo, newCatRow,
                 new Label("Priority:"), priorityCombo,
-                new Label("Deadline:"), deadlinePicker,
+                new Label("Deadline:"), deadlinePicker, deadlineHint,
                 recurringCheck, recurringOptions, btnRow);
 
         ScrollPane wrapper = new ScrollPane(form);

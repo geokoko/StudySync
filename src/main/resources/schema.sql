@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status VARCHAR(20) DEFAULT 'OPEN',
     points INTEGER DEFAULT 0,
     recurring_pattern VARCHAR(100),
+    start_date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -169,3 +170,7 @@ CREATE INDEX IF NOT EXISTS idx_daily_reflections_date ON daily_reflections(date)
 -- Add recurring_pattern column to tasks table for existing databases.
 -- For new databases the column is already in the CREATE TABLE above.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurring_pattern VARCHAR(100);
+
+-- Add start_date column for recurring tasks (recurrence anchor / first occurrence).
+-- For new databases the column is already in the CREATE TABLE above.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_date DATE;

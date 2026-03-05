@@ -92,6 +92,15 @@
     -fx-background-radius: 3;
 }
 
+.check-box:selected .mark {
+    -fx-background-color: white;
+}
+
+.check-box:selected .box {
+    -fx-background-color: #3498db;
+    -fx-border-color: #2980b9;
+}
+
 .radio-button {
     -fx-text-fill: #2c3e50;
 }

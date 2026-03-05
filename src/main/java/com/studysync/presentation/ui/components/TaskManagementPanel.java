@@ -458,12 +458,27 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             daysRow.getChildren().add(dayBoxes[i]);
         }
 
+        DatePicker startDatePicker = new DatePicker(isNew ? LocalDate.now() : null);
+        startDatePicker.setPromptText("Start date");
+        startDatePicker.setMaxWidth(Double.MAX_VALUE);
+
         recurringOptions.getChildren().addAll(new Label("Repeat every:"), intervalRow,
-                new Label("On days:"), daysRow);
+                new Label("On days:"), daysRow,
+                new Label("Start date:"), startDatePicker);
+
+        Label deadlineHint = new Label("");
+        TaskStyleUtils.fontNormal(deadlineHint, 10);
+        deadlineHint.setTextFill(Color.web("#7f8c8d"));
+        deadlineHint.setWrapText(true);
+        deadlineHint.setVisible(false);
+        deadlineHint.setManaged(false);
 
         recurringCheck.selectedProperty().addListener((obs, o, n) -> {
             recurringOptions.setVisible(n);
             recurringOptions.setManaged(n);
+            deadlineHint.setVisible(n);
+            deadlineHint.setManaged(n);
+            deadlineHint.setText(n ? "For recurring tasks, the deadline acts as the end-of-recurrence date." : "");
         });
 
         // Pre-fill recurring pattern if editing
@@ -478,6 +493,9 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                     dayBoxes[i].setSelected(activeDays.contains(i + 1));
                 }
             } catch (Exception ignored) { }
+            if (existingTask.getStartDate() != null) {
+                startDatePicker.setValue(existingTask.getStartDate());
+            }
         }
 
         // Buttons
@@ -515,15 +533,16 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             }
 
             try {
+                LocalDate startDate = recurringCheck.isSelected() ? startDatePicker.getValue() : null;
                 if (isNew) {
                     Task newTask = new Task(null, title, descArea.getText().trim(),
                             cat.name(), new TaskPriority(prio),
-                            deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern);
+                            deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern, startDate);
                     taskService.addTask(newTask);
                 } else {
                     TaskUpdate update = new TaskUpdate(title, descArea.getText().trim(),
                             cat.name(), new TaskPriority(prio),
-                            deadlinePicker.getValue(), recurPattern);
+                            deadlinePicker.getValue(), recurPattern, startDate);
                     taskService.updateTask(existingTask, update);
                     // Apply status change separately if editing
                     if (statusCombo.getValue() != null && statusCombo.getValue() != existingTask.getStatus()) {
@@ -546,7 +565,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                 new Label("Description:"), descArea,
                 new Label("Category:"), catCombo, newCatRow,
                 new Label("Priority:"), priorityCombo,
-                new Label("Deadline:"), deadlinePicker);
+                new Label("Deadline:"), deadlinePicker, deadlineHint);
 
         if (!isNew) {
             form.getChildren().addAll(new Label("Status:"), statusCombo);

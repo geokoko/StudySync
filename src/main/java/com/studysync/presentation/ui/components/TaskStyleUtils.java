@@ -2,8 +2,15 @@ package com.studysync.presentation.ui.components;
 
 import com.studysync.domain.entity.Task;
 import com.studysync.domain.valueobject.TaskStatus;
+import javafx.geometry.Insets;
+import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
 import javafx.scene.paint.Color;
+
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.format.TextStyle;
+import java.util.Locale;
 
 /**
  * Shared styling helpers for task status rendering and CSS-safe font
@@ -144,5 +151,115 @@ public final class TaskStyleUtils {
             case POSTPONED   -> "\u23F8"; // ⏸
             default          -> "\u25CB"; // ○
         };
+    }
+
+    // ── Overdue / due-today helpers ─────────────────────────────
+
+    /** Red used for overdue task borders and accents. */
+    public static final String OVERDUE_COLOR = "#c0392b";
+
+    /** Amber/orange used for "due today" accents. */
+    public static final String DUE_TODAY_COLOR = "#e67e22";
+
+    /**
+     * Returns {@code true} when the task's deadline is strictly before
+     * {@code date} and the task is still unresolved.  Recurring tasks are
+     * never considered overdue (they repeat and have no single deadline).
+     */
+    public static boolean isOverdue(Task task, LocalDate date) {
+        if (task.isRecurring()) return false;
+        LocalDate deadline = task.getDeadline();
+        if (deadline == null) return false;
+        TaskStatus s = task.getStatus();
+        boolean unresolved = s == TaskStatus.OPEN || s == TaskStatus.IN_PROGRESS
+                          || s == TaskStatus.POSTPONED || s == TaskStatus.DELAYED;
+        return unresolved && deadline.isBefore(date);
+    }
+
+    /**
+     * Returns {@code true} when the task's deadline equals {@code date}
+     * and the task is still unresolved.  Recurring tasks are excluded.
+     */
+    public static boolean isDueToday(Task task, LocalDate date) {
+        if (task.isRecurring()) return false;
+        LocalDate deadline = task.getDeadline();
+        if (deadline == null) return false;
+        TaskStatus s = task.getStatus();
+        boolean unresolved = s == TaskStatus.OPEN || s == TaskStatus.IN_PROGRESS
+                          || s == TaskStatus.POSTPONED || s == TaskStatus.DELAYED;
+        return unresolved && deadline.equals(date);
+    }
+
+    /**
+     * Returns the appropriate border colour for a task on a given date,
+     * taking overdue state into account.  When overdue, the border is red
+     * regardless of status.
+     */
+    public static String taskBorderColor(Task task, LocalDate date) {
+        if (isOverdue(task, date)) return OVERDUE_COLOR;
+        return taskBorderColor(task);
+    }
+
+    /**
+     * Creates a small red "Overdue" badge label.
+     * Call font helpers <em>after</em> this method since it uses
+     * {@code setStyle()}.
+     */
+    public static Label createOverdueBadge() {
+        Label badge = new Label("\u26A0 Overdue");
+        badge.setPadding(new Insets(2, 6, 2, 6));
+        badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 10;");
+        fontBold(badge, 10);
+        badge.setTextFill(Color.web(OVERDUE_COLOR));
+        return badge;
+    }
+
+    /**
+     * Creates a small amber "Due today" badge label.
+     * Call font helpers <em>after</em> this method since it uses
+     * {@code setStyle()}.
+     */
+    public static Label createDueTodayBadge() {
+        Label badge = new Label("Due today");
+        badge.setPadding(new Insets(2, 6, 2, 6));
+        badge.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 10;");
+        fontBold(badge, 10);
+        badge.setTextFill(Color.web(DUE_TODAY_COLOR));
+        return badge;
+    }
+
+    // ── Missed recurring-occurrence helpers ─────────────────────
+
+    /** Red used for missed recurring-task occurrence accents. */
+    public static final String MISSED_COLOR = "#e74c3c";
+
+    /**
+     * Creates a small red "Missed" badge for a past calendar date where
+     * a recurring task was scheduled but had no achieved linked goal.
+     */
+    public static Label createMissedBadge() {
+        Label badge = new Label("\u26A0 Missed");
+        badge.setPadding(new Insets(2, 6, 2, 6));
+        badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 10;");
+        fontBold(badge, 10);
+        badge.setTextFill(Color.web(MISSED_COLOR));
+        return badge;
+    }
+
+    /**
+     * Creates a "Missed [Day]" badge for carry-forward display on today's
+     * planner (e.g. "Missed Mon").
+     *
+     * @param missedDate the date the occurrence was missed
+     */
+    public static Label createMissedDayBadge(LocalDate missedDate) {
+        String dayName = missedDate.getDayOfWeek()
+                .getDisplayName(TextStyle.SHORT, Locale.getDefault());
+        Label badge = new Label("\u26A0 Missed " + dayName);
+        badge.setPadding(new Insets(2, 6, 2, 6));
+        badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 10;");
+        fontBold(badge, 10);
+        badge.setTextFill(Color.web(MISSED_COLOR));
+        return badge;
     }
 }

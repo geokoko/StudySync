@@ -589,6 +589,27 @@ public class StudyGoal {
         logger.debug("Retrieved {} goals for task {} on date {}", goals.size(), taskId, date);
         return goals;
     }
+
+    /**
+     * Checks whether at least one achieved study goal exists for the given
+     * task on exactly the specified date.  Used to determine whether a
+     * recurring-task occurrence was "handled".
+     *
+     * @param taskId the task ID
+     * @param date   the exact occurrence date to check
+     * @return {@code true} if a linked, achieved goal exists for that date
+     */
+    public static boolean hasAchievedGoalForTask(String taskId, LocalDate date) {
+        if (jdbcTemplate == null || taskId == null || taskId.isBlank() || date == null) {
+            return false;
+        }
+        String sql = """
+            SELECT COUNT(*) FROM study_goals
+            WHERE task_id = ? AND date = ? AND achieved = TRUE
+            """;
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, taskId, date);
+        return count != null && count > 0;
+    }
     
     /**
      * Find goals that are NOT linked to any task for a given date, including delayed unachieved ones.
