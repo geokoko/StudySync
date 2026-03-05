@@ -4,6 +4,8 @@ import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
+import com.studysync.domain.entity.Task;
+import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.domain.service.StudySessionEnd;
 import com.studysync.integration.drive.GoogleDriveService;
 import org.slf4j.Logger;
@@ -126,7 +128,60 @@ public class StudyService {
         }
         StudyGoal goal = new StudyGoal(null, date, description, false, null, 0, false, 0, taskId);
         goal.save();
+
+        // When a goal is created for an OPEN task, automatically transition it
+        // to IN_PROGRESS to reflect that active work has been planned.
+        if (taskId != null && !taskId.isBlank()) {
+            Task.findById(taskId).ifPresent(task -> {
+                if (task.getStatus() == TaskStatus.OPEN) {
+                    Task.updateStatus(taskId, TaskStatus.IN_PROGRESS);
+                    logger.info("Auto-transitioned task '{}' from OPEN to IN_PROGRESS after goal creation",
+                            task.getTitle());
+                }
+            });
+        }
+
         markDirty();
+    }
+
+    /**
+     * Returns delayed, unachieved goals that are eligible for manual rescheduling
+     * to today. Goals linked to CANCELLED or POSTPONED tasks are excluded.
+     *
+     * @return list of goals the user can choose to re-plan for today
+     */
+    @Transactional(readOnly = true)
+    public List<StudyGoal> getDelayedGoalsForReplanning() {
+        return StudyGoal.findDelayedAndNotReplanned().stream()
+                .filter(goal -> {
+                    if (goal.getTaskId() == null || goal.getTaskId().isBlank()) {
+                        return false; // Only show goals tied to a task
+                    }
+                    return Task.findById(goal.getTaskId())
+                            .map(task -> task.getStatus() != TaskStatus.CANCELLED
+                                      && task.getStatus() != TaskStatus.POSTPONED)
+                            .orElse(false);
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Reschedules a delayed goal to appear on today's date exactly once.
+     * The goal's achieved status is not changed. If the user does not complete
+     * it today it will not carry forward again — it is a one-shot reschedule.
+     *
+     * @param goalId ID of the goal to reschedule
+     */
+    public void replanGoalForToday(String goalId) {
+        StudyGoal.findById(goalId).ifPresent(goal -> {
+            if (goal.isAchieved() || goal.getReplannedForDate() != null) {
+                return; // Already done or already rescheduled
+            }
+            goal.setReplannedForDate(LocalDate.now());
+            goal.save();
+            markDirty();
+            logger.info("Rescheduled goal '{}' to appear today ({})", goal.getDescription(), LocalDate.now());
+        });
     }
 
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
@@ -266,6 +321,14 @@ public class StudyService {
         for (StudyGoal goal : allGoals) {
             // Skip if goal is achieved
             if (goal.isAchieved()) {
+                continue;
+            }
+
+            // Protect replanned goals from deletion only while the replan date
+            // hasn't passed yet (user still has a chance to complete it today).
+            // Once the replan date is in the past and the goal is still unachieved,
+            // fall through to the normal 14-day cleanup logic.
+            if (goal.getReplannedForDate() != null && !goal.getReplannedForDate().isBefore(today)) {
                 continue;
             }
             
