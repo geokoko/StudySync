@@ -290,8 +290,6 @@ public class TaskService {
     public List<Task> getTasksForDate(LocalDate date) {
         if (date == null) return List.of();
 
-        LocalDate referenceMonday = date.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
-
         return Task.findAll().stream()
             .filter(task -> {
                 TaskStatus s = task.getStatus();
@@ -299,8 +297,14 @@ public class TaskService {
                 boolean isPending = s == TaskStatus.POSTPONED || s == TaskStatus.DELAYED;
 
                 if (task.isRecurring()) {
-                    // Only show active recurring tasks on matching days
-                    return isActive && recurringTaskAppliesTo(task, date, referenceMonday);
+                    // Reference Monday is derived from the task's creation date,
+                    // so that multi-week intervals (e.g. every 2 weeks) are
+                    // measured from when the task was created — not from the
+                    // queried date (which would always yield weeksBetween == 0).
+                    LocalDate taskCreationMonday = task.getCreatedAt().toLocalDate()
+                            .with(java.time.temporal.TemporalAdjusters
+                                    .previousOrSame(java.time.DayOfWeek.MONDAY));
+                    return isActive && recurringTaskAppliesTo(task, date, taskCreationMonday);
                 } else {
                     // Non-recurring: show if active or still pending resolution
                     return isActive || isPending;
@@ -411,7 +415,7 @@ public class TaskService {
      *
      * @param task the recurring task
      * @param date the date to check
-     * @param referenceMonday the Monday of the task's start week (for interval calculation)
+     * @param referenceMonday the Monday of the week the task was created (for interval calculation)
      * @return true if the task should recur on this date
      */
     public boolean recurringTaskAppliesTo(Task task, LocalDate date, LocalDate referenceMonday) {
