@@ -481,11 +481,11 @@ public class StudyGoal {
         }
 
         // Include goals originally planned for this date AND goals manually
-        // rescheduled (replanned) to appear on this date.
+        // rescheduled (replanned) to appear on this date, regardless of achieved status.
         String sql = """
             SELECT * FROM study_goals
             WHERE date = ?
-               OR (replanned_for_date = ? AND achieved = FALSE)
+               OR replanned_for_date = ?
             ORDER BY created_at
             """;
         List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
@@ -515,7 +515,7 @@ public class StudyGoal {
             SELECT * FROM study_goals
             WHERE date = ?
                OR (is_delayed = TRUE AND achieved = FALSE AND date < ? AND replanned_for_date IS NULL)
-               OR (replanned_for_date = ? AND achieved = FALSE)
+               OR replanned_for_date = ?
             ORDER BY is_delayed ASC, days_delayed DESC, created_at ASC
             """;
 
@@ -632,7 +632,7 @@ public class StudyGoal {
             WHERE task_id = ?
               AND (date = ?
                    OR (is_delayed = TRUE AND achieved = FALSE AND date <= ? AND replanned_for_date IS NULL)
-                   OR (replanned_for_date = ? AND achieved = FALSE))
+                   OR replanned_for_date = ?)
             ORDER BY is_delayed ASC, date ASC, created_at ASC
             """;
         List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), taskId, date, date, date);
@@ -677,7 +677,7 @@ public class StudyGoal {
             WHERE task_id IS NULL
               AND (date = ?
                    OR (is_delayed = TRUE AND achieved = FALSE AND date <= ? AND replanned_for_date IS NULL)
-                   OR (replanned_for_date = ? AND achieved = FALSE))
+                   OR replanned_for_date = ?)
             ORDER BY is_delayed ASC, date ASC, created_at ASC
             """;
         List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date, date);
