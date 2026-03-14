@@ -170,8 +170,14 @@ public class StudySyncUI {
         // Register pre-reload listener to show a blocking overlay during DB reload
         googleDriveService.addPreReloadListener(() -> Platform.runLater(this::showReloadOverlay));
 
-        // Register reload listener to refresh all panels when DB is reloaded from Drive
+        // Register reload listener to reset service caches and refresh all panels
+        // when the DB is reloaded from Drive.
         googleDriveService.addReloadListener(() -> Platform.runLater(() -> {
+            // Clear once-per-day processing guards so delay logic re-runs
+            // against the freshly loaded database.
+            taskService.resetAfterReload();
+            studyService.resetAfterReload();
+
             hideReloadOverlay();
             refreshAllPanels();
         }));
