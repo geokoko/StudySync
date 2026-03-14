@@ -138,9 +138,14 @@ public class StudyService {
         if (taskId != null && !taskId.isBlank()) {
             Task.findById(taskId).ifPresent(task -> {
                 if (task.getStatus() == TaskStatus.OPEN) {
-                    Task.updateStatus(taskId, TaskStatus.IN_PROGRESS);
-                    logger.info("Auto-transitioned task '{}' from OPEN to IN_PROGRESS after goal creation",
-                            task.getTitle());
+                    boolean updated = Task.updateStatus(taskId, TaskStatus.IN_PROGRESS);
+                    if (updated) {
+                        logger.info("Auto-transitioned task '{}' from OPEN to IN_PROGRESS after goal creation",
+                                task.getTitle());
+                    } else {
+                        logger.warn("Failed to auto-transition task '{}' (id={}) to IN_PROGRESS",
+                                task.getTitle(), taskId);
+                    }
                 }
             });
         }

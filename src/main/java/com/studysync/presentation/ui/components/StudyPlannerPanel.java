@@ -403,7 +403,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             }
             if (!completedUnlinked.isEmpty()) {
                 unlinkedSection.getChildren().add(
-                        buildCompletedGoalsSection(completedUnlinked, null, unlinkedSection));
+                        buildCompletedGoalsSection(completedUnlinked));
             }
             tasksContainer.getChildren().add(unlinkedSection);
         }
@@ -711,7 +711,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         // Completed goals — collapsible section
         if (!completedGoals.isEmpty()) {
             goalsPanel.getChildren().add(
-                    buildCompletedGoalsSection(completedGoals, task, goalsPanel));
+                    buildCompletedGoalsSection(completedGoals));
         }
     }
 
@@ -758,8 +758,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
      * Builds a collapsible "Completed" section for achieved goals.
      * Clicking the header toggles visibility of the completed goal rows.
      */
-    private VBox buildCompletedGoalsSection(List<StudyGoal> completedGoals,
-                                            Task linkedTask, VBox parentPanel) {
+    private VBox buildCompletedGoalsSection(List<StudyGoal> completedGoals) {
         VBox section = new VBox(4);
         section.setPadding(new Insets(6, 0, 0, 0));
 
