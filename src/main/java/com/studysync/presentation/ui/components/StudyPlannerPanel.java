@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -59,6 +60,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     // Live-session state
     private StudySession currentSession;
     private Timeline sessionTimer;
+
+    // Tracks which task cards are currently expanded so they survive UI rebuilds
+    private final Set<String> expandedTaskIds = new HashSet<>();
 
     // UI containers that get rebuilt on navigation
     private VBox tasksContainer;
@@ -504,8 +508,15 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         // ── Expandable goals panel ──
         VBox goalsPanel = new VBox(6);
         goalsPanel.setPadding(new Insets(0, 14, 12, 28));
-        goalsPanel.setVisible(false);
-        goalsPanel.setManaged(false);
+
+        // Restore previous expand state so panels survive UI rebuilds
+        boolean wasExpanded = expandedTaskIds.contains(task.getId());
+        goalsPanel.setVisible(wasExpanded);
+        goalsPanel.setManaged(wasExpanded);
+        if (wasExpanded) {
+            arrow.setText("▼");
+            populateGoalsPanel(goalsPanel, task);
+        }
 
         // Toggle expand/collapse on header click
         headerRow.setOnMouseClicked(e -> {
@@ -514,7 +525,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             goalsPanel.setManaged(nowVisible);
             arrow.setText(nowVisible ? "▼" : "▶");
             if (nowVisible) {
+                expandedTaskIds.add(task.getId());
                 populateGoalsPanel(goalsPanel, task);
+            } else {
+                expandedTaskIds.remove(task.getId());
             }
         });
 
