@@ -329,7 +329,9 @@ public class TaskService {
             .filter(task -> {
                 TaskStatus s = task.getStatus();
                 boolean isActive = s == TaskStatus.OPEN || s == TaskStatus.IN_PROGRESS;
-                boolean isPending = s == TaskStatus.POSTPONED || s == TaskStatus.DELAYED;
+                // POSTPONED and CANCELLED tasks are excluded from the daily
+                // planner — only DELAYED tasks surface alongside active ones.
+                boolean isPending = s == TaskStatus.DELAYED;
 
                 if (task.isRecurring()) {
                     // Start date on a recurring task means "don't appear before this date"
