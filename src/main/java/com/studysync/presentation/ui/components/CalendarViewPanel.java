@@ -515,6 +515,14 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         }
     }
     
+    /** Wraps a VBox in a ScrollPane so tab content is scrollable. */
+    private ScrollPane scrollWrap(VBox content) {
+        ScrollPane sp = new ScrollPane(content);
+        sp.setFitToWidth(true);
+        sp.getStyleClass().add("transparent-bg");
+        return sp;
+    }
+
     private void showDayDetailDialog(LocalDate date, DayData dayData) {
         Dialog<Void> dialog = new Dialog<>();
         dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
@@ -527,20 +535,20 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         tabPane.setPrefSize(800, 600);
         
         // Overview Tab
-        Tab overviewTab = new Tab("▪ Overview", createOverviewTab(date, dayData));
+        Tab overviewTab = new Tab("▪ Overview", scrollWrap(createOverviewTab(date, dayData)));
         
         // Goals Tab  
         Tab goalsTab = new Tab("◎ Goals");
-        goalsTab.setContent(createGoalsTab(date, goalsTab));
+        goalsTab.setContent(scrollWrap(createGoalsTab(date, goalsTab)));
         
         // Sessions Tab
-        Tab sessionsTab = new Tab("» Sessions", createSessionsTab(date));
+        Tab sessionsTab = new Tab("» Sessions", scrollWrap(createSessionsTab(date)));
         
         // Tasks Tab
-        Tab tasksTab = new Tab("☑ Tasks", createTasksTab(date, dayData));
+        Tab tasksTab = new Tab("☑ Tasks", scrollWrap(createTasksTab(date, dayData)));
         
         // Performance Tab
-        Tab performanceTab = new Tab("↑ Performance", createPerformanceTab(date, dayData));
+        Tab performanceTab = new Tab("↑ Performance", scrollWrap(createPerformanceTab(date, dayData)));
         
         tabPane.getTabs().addAll(overviewTab, goalsTab, sessionsTab, tasksTab, performanceTab);
         
@@ -678,7 +686,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             addGoalBtn.setOnAction(e -> {
                 showAddGoalDialog(date);
                 // Refresh the goals tab content after the dialog closes
-                parentTab.setContent(createGoalsTab(date, parentTab));
+                parentTab.setContent(scrollWrap(createGoalsTab(date, parentTab)));
             });
             
             Label hintLabel = new Label(isFutureDate ? "» Plan ahead for this day" : "» Set goals for today");

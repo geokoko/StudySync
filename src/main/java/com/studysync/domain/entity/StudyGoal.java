@@ -93,6 +93,12 @@ public class StudyGoal {
     private String taskId;
 
     /**
+     * When non-null, this goal has been manually rescheduled to appear on this specific date.
+     * It is excluded from automatic delay carry-forward and only surfaces on this date.
+     */
+    private LocalDate replannedForDate;
+
+    /**
      * Default constructor creating a study goal with auto-generated ID and current date.
      * 
      * <p>The goal is initialized as not achieved. The description must be set separately.</p>
@@ -162,9 +168,21 @@ public class StudyGoal {
      * Full constructor for creating StudyGoal with all delay tracking fields.
      * Used internally for database operations.
      */
-    public StudyGoal(String id, LocalDate date, String description, boolean achieved, 
-                    String reasonIfNotAchieved, int daysDelayed, 
+    public StudyGoal(String id, LocalDate date, String description, boolean achieved,
+                    String reasonIfNotAchieved, int daysDelayed,
                     boolean isDelayed, int pointsDeducted, String taskId) {
+        this(id, date, description, achieved, reasonIfNotAchieved,
+             daysDelayed, isDelayed, pointsDeducted, taskId, null);
+    }
+
+    /**
+     * Full constructor including the optional replanned-for date.
+     * Used by the row mapper and when rescheduling goals.
+     */
+    public StudyGoal(String id, LocalDate date, String description, boolean achieved,
+                    String reasonIfNotAchieved, int daysDelayed,
+                    boolean isDelayed, int pointsDeducted, String taskId,
+                    LocalDate replannedForDate) {
         this.id = id != null ? id : java.util.UUID.randomUUID().toString();
         this.date = date != null ? date : LocalDate.now();
         this.description = description;
@@ -174,6 +192,7 @@ public class StudyGoal {
         this.isDelayed = isDelayed;
         this.pointsDeducted = pointsDeducted;
         this.taskId = taskId;
+        this.replannedForDate = replannedForDate;
     }
 
     /**
@@ -306,12 +325,29 @@ public class StudyGoal {
     
     /**
      * Sets the ID of the task this goal is linked to.
-     * 
+     *
      * @param taskId task ID, or null to unlink from task
      */
     public void setTaskId(String taskId) { this.taskId = taskId; }
 
-    
+    /**
+     * Gets the date this goal was manually rescheduled to appear on.
+     * When non-null the goal surfaces only on this date and is excluded
+     * from automatic delay carry-forward.
+     *
+     * @return the replanned date, or null if not rescheduled
+     */
+    public LocalDate getReplannedForDate() { return replannedForDate; }
+
+    /**
+     * Sets the date this goal should be manually rescheduled to.
+     *
+     * @param replannedForDate the target date, or null to clear
+     */
+    public void setReplannedForDate(LocalDate replannedForDate) {
+        this.replannedForDate = replannedForDate;
+    }
+
     /**
      * Calculate the delay penalty based on days delayed.
      * Formula: 5 points for first delay, then 2 points per additional day.
@@ -362,14 +398,16 @@ public class StudyGoal {
         }
         
         String sql = """
-            MERGE INTO study_goals (id, date, description, achieved, reason_if_not_achieved, 
-                                   days_delayed, is_delayed, points_deducted, task_id, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            MERGE INTO study_goals (id, date, description, achieved, reason_if_not_achieved,
+                                   days_delayed, is_delayed, points_deducted, task_id,
+                                   replanned_for_date, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
-        
+
         jdbcTemplate.update(sql,
             this.id, this.date, this.description, this.achieved, this.reasonIfNotAchieved,
-            this.daysDelayed, this.isDelayed, this.pointsDeducted, this.taskId
+            this.daysDelayed, this.isDelayed, this.pointsDeducted, this.taskId,
+            this.replannedForDate
         );
         
         logger.debug("StudyGoal saved: {} - {}", this.id, this.description);
@@ -441,9 +479,16 @@ public class StudyGoal {
         if (jdbcTemplate == null || date == null) {
             return List.of();
         }
-        
-        String sql = "SELECT * FROM study_goals WHERE date = ? ORDER BY created_at";
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date);
+
+        // Include goals originally planned for this date AND goals manually
+        // rescheduled (replanned) to appear on this date, regardless of achieved status.
+        String sql = """
+            SELECT * FROM study_goals
+            WHERE date = ?
+               OR replanned_for_date = ?
+            ORDER BY created_at
+            """;
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
         logger.debug("Retrieved {} study goals for date: {}", goals.size(), date);
         return goals;
     }
@@ -464,14 +509,17 @@ public class StudyGoal {
             return List.of();
         }
         
+        // Delayed goals that were manually replanned are excluded from the automatic
+        // carry-forward path — they only surface via their replanned_for_date.
         String sql = """
-            SELECT * FROM study_goals 
-            WHERE date = ? 
-               OR (is_delayed = TRUE AND achieved = FALSE AND date < ?)
+            SELECT * FROM study_goals
+            WHERE date = ?
+               OR (is_delayed = TRUE AND achieved = FALSE AND date < ? AND replanned_for_date IS NULL)
+               OR replanned_for_date = ?
             ORDER BY is_delayed ASC, days_delayed DESC, created_at ASC
             """;
-        
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
+
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date, date);
         logger.debug("Retrieved {} study goals (including delayed) for date: {}", goals.size(), date);
         return goals;
     }
@@ -580,12 +628,14 @@ public class StudyGoal {
         }
         
         String sql = """
-            SELECT * FROM study_goals 
-            WHERE task_id = ? 
-              AND (date = ? OR (is_delayed = TRUE AND achieved = FALSE AND date <= ?))
+            SELECT * FROM study_goals
+            WHERE task_id = ?
+              AND (date = ?
+                   OR (is_delayed = TRUE AND achieved = FALSE AND date <= ? AND replanned_for_date IS NULL)
+                   OR replanned_for_date = ?)
             ORDER BY is_delayed ASC, date ASC, created_at ASC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), taskId, date, date);
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), taskId, date, date, date);
         logger.debug("Retrieved {} goals for task {} on date {}", goals.size(), taskId, date);
         return goals;
     }
@@ -623,16 +673,40 @@ public class StudyGoal {
         }
         
         String sql = """
-            SELECT * FROM study_goals 
-            WHERE task_id IS NULL 
-              AND (date = ? OR (is_delayed = TRUE AND achieved = FALSE AND date <= ?))
+            SELECT * FROM study_goals
+            WHERE task_id IS NULL
+              AND (date = ?
+                   OR (is_delayed = TRUE AND achieved = FALSE AND date <= ? AND replanned_for_date IS NULL)
+                   OR replanned_for_date = ?)
             ORDER BY is_delayed ASC, date ASC, created_at ASC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date, date);
         logger.debug("Retrieved {} unlinked goals for date {}", goals.size(), date);
         return goals;
     }
     
+    /**
+     * Find all delayed, unachieved goals that have not yet been manually rescheduled.
+     * Used to populate the re-plan dropdown in the Study Planner.
+     *
+     * @return delayed goals eligible for manual rescheduling, ordered by delay severity
+     */
+    public static List<StudyGoal> findDelayedAndNotReplanned() {
+        if (jdbcTemplate == null) {
+            return List.of();
+        }
+        String sql = """
+            SELECT * FROM study_goals
+            WHERE is_delayed = TRUE
+              AND achieved = FALSE
+              AND replanned_for_date IS NULL
+            ORDER BY days_delayed DESC, date ASC, created_at ASC
+            """;
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper());
+        logger.debug("Retrieved {} delayed goals eligible for rescheduling", goals.size());
+        return goals;
+    }
+
     /**
      * RowMapper for converting database rows to StudyGoal objects.
      */
@@ -647,9 +721,10 @@ public class StudyGoal {
             boolean isDelayed = rs.getBoolean("is_delayed");
             int pointsDeducted = rs.getInt("points_deducted");
             String taskId = rs.getString("task_id");
-            
-            return new StudyGoal(id, date, description, achieved, reasonIfNotAchieved, 
-                               daysDelayed, isDelayed, pointsDeducted, taskId);
+            LocalDate replannedForDate = rs.getObject("replanned_for_date", LocalDate.class);
+
+            return new StudyGoal(id, date, description, achieved, reasonIfNotAchieved,
+                               daysDelayed, isDelayed, pointsDeducted, taskId, replannedForDate);
         };
     }
 }

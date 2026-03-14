@@ -24,8 +24,11 @@ import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -38,7 +41,10 @@ import java.util.stream.Collectors;
 @Transactional
 public class TaskService {
     private static final Logger logger = LoggerFactory.getLogger(TaskService.class);
-    
+
+    /** Guards {@link #markDelayedTasks()} so it runs at most once per calendar day. */
+    private volatile LocalDate lastDelayedTasksProcessedDate = null;
+
     private final CategoryService categoryService;
     private final GoogleDriveService googleDriveService;
     private final DateTimeService dateTimeService;
@@ -179,8 +185,17 @@ public class TaskService {
     
     @Transactional
     public int markDelayedTasks() {
-        LocalDate today = LocalDate.now();
-        
+        LocalDate today = dateTimeService.getCurrentDate();
+
+        // The check-and-set must be atomic so concurrent callers cannot both
+        // pass the guard and run the DB scan.
+        synchronized (this) {
+            if (today.equals(lastDelayedTasksProcessedDate)) {
+                return 0;
+            }
+            lastDelayedTasksProcessedDate = today;
+        }
+
         List<Task> delayedTasks = Task.findAll().stream()
                 .filter(task -> task.getStatus() != TaskStatus.COMPLETED &&
                                  task.getStatus() != TaskStatus.CANCELLED &&
@@ -189,18 +204,18 @@ public class TaskService {
                                  task.getStatus() != TaskStatus.DELAYED)
                 .map(this::applyBusinessRules)
                 .collect(Collectors.toList());
-        
+
         int updatedCount = 0;
         for (Task task : delayedTasks) {
             task.save();
             updatedCount++;
         }
-        
+
         if (updatedCount > 0) {
             logger.info("Marked {} tasks as DELAYED", updatedCount);
             markDirty();
         }
-        
+
         return updatedCount;
     }
     
@@ -307,16 +322,42 @@ public class TaskService {
      * @return list of tasks relevant for the date
      */
     @Transactional(readOnly = true)
+    /**
+     * Returns the tasks that should appear in the daily planner for the given date.
+     * <p>
+     * The result includes:
+     * <ul>
+     *   <li>Active tasks ({@link TaskStatus#OPEN} and {@link TaskStatus#IN_PROGRESS})</li>
+     *   <li>Delayed tasks ({@link TaskStatus#DELAYED})</li>
+     *   <li>Tasks linked to a {@link StudyGoal} on the given date, when their status is
+     *       {@link TaskStatus#IN_PROGRESS} or {@link TaskStatus#DELAYED}, even if they would
+     *       not otherwise surface based on deadline or date rules</li>
+     * </ul>
+     * POSTPONED and CANCELLED tasks are intentionally excluded from the daily planner.
+     *
+     * @param date the calendar date for which tasks should be retrieved; if {@code null},
+     *             an empty list is returned
+     * @return the list of tasks to display for the specified date
+     */
     public List<Task> getTasksForDate(LocalDate date) {
         if (date == null) return List.of();
 
         LocalDate today = dateTimeService.getCurrentDate();
 
-        return Task.findAll().stream()
+        // Fetch all tasks once and index by ID so the goal-linking pass below
+        // can look up tasks without extra DB round-trips.
+        List<Task> allTasks = Task.findAll();
+        Map<String, Task> tasksById = allTasks.stream()
+                .collect(Collectors.toMap(Task::getId, Function.identity(),
+                        (existing, replacement) -> existing));
+
+        List<Task> result = allTasks.stream()
             .filter(task -> {
                 TaskStatus s = task.getStatus();
                 boolean isActive = s == TaskStatus.OPEN || s == TaskStatus.IN_PROGRESS;
-                boolean isPending = s == TaskStatus.POSTPONED || s == TaskStatus.DELAYED;
+                // POSTPONED and CANCELLED tasks are excluded from the daily
+                // planner — only DELAYED tasks surface alongside active ones.
+                boolean isPending = s == TaskStatus.DELAYED;
 
                 if (task.isRecurring()) {
                     // Start date on a recurring task means "don't appear before this date"
@@ -348,7 +389,33 @@ public class TaskService {
                 // (so overdue tasks remain visible until resolved)
                 return !date.isBefore(deadline);
             })
-            .collect(Collectors.toList());
+            .collect(Collectors.toCollection(ArrayList::new));
+
+        // Also include IN_PROGRESS or DELAYED tasks that have a goal planned for
+        // this date but would not otherwise surface (e.g. deadline is in the future
+        // or the task has no deadline but this isn't today).
+        // POSTPONED and CANCELLED tasks are intentionally excluded.
+        Set<String> resultIds = result.stream()
+                .map(Task::getId)
+                .collect(Collectors.toSet());
+
+        StudyGoal.findByDate(date).stream()
+                .map(StudyGoal::getTaskId)
+                .filter(tid -> tid != null && !tid.isBlank())
+                .filter(tid -> !resultIds.contains(tid))
+                .distinct()
+                .forEach(tid -> {
+                    Task task = tasksById.get(tid);
+                    if (task != null) {
+                        TaskStatus s = task.getStatus();
+                        if (s == TaskStatus.IN_PROGRESS || s == TaskStatus.DELAYED) {
+                            result.add(task);
+                            resultIds.add(task.getId());
+                        }
+                    }
+                });
+
+        return result;
     }
     
     public boolean isHealthy() {
@@ -503,55 +570,54 @@ public class TaskService {
     // MISSED RECURRING OCCURRENCE DETECTION
     // ================================================================
 
-    /** Maximum number of days to look back when searching for missed occurrences. */
-    private static final int MISSED_LOOKBACK_DAYS = 28;
-
     /**
-     * Returns all missed occurrences of active recurring tasks between the
-     * most recent <em>handled</em> date and {@code today} (exclusive).
+     * Returns missed occurrences of active recurring tasks for yesterday only.
      *
      * <p>An occurrence is "missed" when no achieved {@link StudyGoal} is
-     * linked to the task on that date.  The search walks backwards from
-     * yesterday for up to {@value #MISSED_LOOKBACK_DAYS} days.</p>
+     * linked to the task on that date. Only yesterday is checked: a missed
+     * occurrence is carried forward by exactly one day, then disappears.
+     * The task reappears naturally on its next scheduled recurring date.</p>
      *
-     * <p>Only occurrences that fall <em>before</em> today are returned
-     * (today's occurrence is not missed yet — the user still has time).</p>
+     * <p>Today's occurrence is never considered missed — the user still has
+     * time to complete it.</p>
      *
      * @param today the current date (usually {@code dateTimeService.getCurrentDate()})
-     * @return list of missed occurrences, ordered by task then date ascending
+     * @return list of missed occurrences from yesterday, one per task at most
      */
     @Transactional(readOnly = true)
     public List<MissedOccurrence> getMissedRecurringOccurrences(LocalDate today) {
         if (today == null) return List.of();
 
+        // Only carry forward a missed occurrence by exactly one day.
+        // If a recurring task was scheduled for yesterday and has no achieved
+        // goal for that date, show it today as a carry-forward. It disappears
+        // tomorrow and reappears naturally on its next scheduled occurrence.
+        LocalDate yesterday = today.minusDays(1);
+
         List<Task> activeTasks = Task.findActiveRecurring();
         List<MissedOccurrence> result = new ArrayList<>();
-        LocalDate earliest = today.minusDays(MISSED_LOOKBACK_DAYS);
 
         for (Task task : activeTasks) {
             LocalDate anchor = task.getRecurrenceAnchor();
             LocalDate anchorMonday = anchor
                     .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-            // Don't search before the task's start date (or creation date)
-            LocalDate taskEarliest = task.getStartDate() != null
+
+            // Don't consider dates before the task's own start
+            LocalDate taskStart = task.getStartDate() != null
                     ? task.getStartDate()
                     : task.getCreatedAt().toLocalDate();
-            LocalDate searchStart = taskEarliest.isAfter(earliest)
-                    ? taskEarliest
-                    : earliest;
+            if (yesterday.isBefore(taskStart)) {
+                continue;
+            }
 
-            // Walk forward from searchStart to yesterday, collecting missed dates
-            for (LocalDate d = searchStart; d.isBefore(today); d = d.plusDays(1)) {
-                // Respect deadline-as-end-of-recurrence
-                if (task.getDeadline() != null && d.isAfter(task.getDeadline())) {
-                    break;
-                }
-                if (!recurringTaskAppliesTo(task, d, anchorMonday)) {
-                    continue;
-                }
-                if (!StudyGoal.hasAchievedGoalForTask(task.getId(), d)) {
-                    result.add(new MissedOccurrence(task, d));
-                }
+            // Respect deadline-as-end-of-recurrence
+            if (task.getDeadline() != null && yesterday.isAfter(task.getDeadline())) {
+                continue;
+            }
+
+            if (recurringTaskAppliesTo(task, yesterday, anchorMonday)
+                    && !StudyGoal.hasAchievedGoalForTask(task.getId(), yesterday)) {
+                result.add(new MissedOccurrence(task, yesterday));
             }
         }
         return result;

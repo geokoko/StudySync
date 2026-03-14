@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS study_goals (
     is_delayed BOOLEAN DEFAULT FALSE,
     points_deducted INTEGER DEFAULT 0,
     task_id VARCHAR(50),
+    replanned_for_date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
@@ -174,3 +175,7 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurring_pattern VARCHAR(100);
 -- Add start_date column for recurring tasks (recurrence anchor / first occurrence).
 -- For new databases the column is already in the CREATE TABLE above.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_date DATE;
+
+-- Add replanned_for_date to study_goals to support one-shot manual rescheduling.
+-- When set, the goal appears on that date only and is excluded from automatic delay carry-forward.
+ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS replanned_for_date DATE;

@@ -158,6 +158,9 @@ public class StudySyncUI {
 
         primaryStage.show();
         
+        // Mark overdue non-recurring tasks as DELAYED
+        markDelayedTasksOnStartup();
+
         // Process yesterday's unachieved goals automatically
         processDelayedGoalsOnStartup();
         
@@ -236,6 +239,17 @@ public class StudySyncUI {
         return header;
     }
     
+    private void markDelayedTasksOnStartup() {
+        try {
+            int count = taskService.markDelayedTasks();
+            if (count > 0) {
+                logger.info("Marked {} overdue task(s) as DELAYED on startup", count);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to mark delayed tasks on startup", e);
+        }
+    }
+
     private void processDelayedGoalsOnStartup() {
         try {
             StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
