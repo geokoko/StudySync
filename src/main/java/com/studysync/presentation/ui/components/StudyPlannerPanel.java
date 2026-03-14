@@ -387,25 +387,19 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         ComboBox<StudyGoal> combo = new ComboBox<>();
         combo.getItems().addAll(candidates);
         combo.setMaxWidth(Double.MAX_VALUE);
-        combo.setConverter(new StringConverter<>() {
+        combo.setCellFactory(lv -> new ListCell<>() {
             @Override
-            public String toString(StudyGoal goal) {
-                if (goal == null) return "";
-                String taskLabel = "";
-                if (goal.getTaskId() != null) {
-                    taskLabel = Task.findById(goal.getTaskId())
-                            .map(t -> t.getTitle() + ": ")
-                            .orElse("");
-                }
-                String desc = goal.getDescription();
-                if (desc != null && desc.length() > 60) {
-                    desc = desc.substring(0, 57) + "...";
-                }
-                return taskLabel + desc + " (" + goal.getDaysDelayed() + "d delayed)";
+            protected void updateItem(StudyGoal goal, boolean empty) {
+                super.updateItem(goal, empty);
+                setText(empty || goal == null ? "" : formatDelayedGoal(goal));
             }
-
+        });
+        combo.setButtonCell(new ListCell<>() {
             @Override
-            public StudyGoal fromString(String s) { return null; }
+            protected void updateItem(StudyGoal goal, boolean empty) {
+                super.updateItem(goal, empty);
+                setText(empty || goal == null ? "" : formatDelayedGoal(goal));
+            }
         });
         combo.setPromptText("Select a delayed goal to re-plan...");
 
@@ -429,6 +423,21 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         section.getChildren().addAll(header, controls);
         return section;
+    }
+
+    /** Formats a delayed goal for display in the re-plan ComboBox. */
+    private String formatDelayedGoal(StudyGoal goal) {
+        String taskLabel = "";
+        if (goal.getTaskId() != null) {
+            taskLabel = Task.findById(goal.getTaskId())
+                    .map(t -> t.getTitle() + ": ")
+                    .orElse("");
+        }
+        String desc = goal.getDescription();
+        if (desc != null && desc.length() > 60) {
+            desc = desc.substring(0, 57) + "...";
+        }
+        return taskLabel + desc + " (" + goal.getDaysDelayed() + "d delayed)";
     }
 
     /**
