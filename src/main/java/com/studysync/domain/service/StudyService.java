@@ -45,6 +45,18 @@ public class StudyService {
         this.dateTimeService = dateTimeService;
     }
 
+    /**
+     * Clears cached processing guards so that delayed-goal processing
+     * re-runs against the newly loaded database.
+     * Must be called after a live database reload (e.g. Google Drive download).
+     */
+    public void resetAfterReload() {
+        synchronized (this) {
+            lastDelayProcessingDate = null;
+        }
+        logger.info("StudyService caches reset after DB reload");
+    }
+
     private void markDirty() {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
