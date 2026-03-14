@@ -320,6 +320,23 @@ public class TaskService {
      * @return list of tasks relevant for the date
      */
     @Transactional(readOnly = true)
+    /**
+     * Returns the tasks that should appear in the daily planner for the given date.
+     * <p>
+     * The result includes:
+     * <ul>
+     *   <li>Active tasks ({@link TaskStatus#OPEN} and {@link TaskStatus#IN_PROGRESS})</li>
+     *   <li>Delayed tasks ({@link TaskStatus#DELAYED})</li>
+     *   <li>Tasks linked to a {@link StudyGoal} on the given date, when their status is
+     *       {@link TaskStatus#IN_PROGRESS} or {@link TaskStatus#DELAYED}, even if they would
+     *       not otherwise surface based on deadline or date rules</li>
+     * </ul>
+     * POSTPONED and CANCELLED tasks are intentionally excluded from the daily planner.
+     *
+     * @param date the calendar date for which tasks should be retrieved; if {@code null},
+     *             an empty list is returned
+     * @return the list of tasks to display for the specified date
+     */
     public List<Task> getTasksForDate(LocalDate date) {
         if (date == null) return List.of();
 
