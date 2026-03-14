@@ -70,6 +70,7 @@ public class DatabaseReloadService {
         }
 
         // 2. Evict connections and wait for active ones to drain
+        int remaining = -1;
         if (dataSource instanceof HikariDataSource hikari) {
             HikariPoolMXBean pool = hikari.getHikariPoolMXBean();
             if (pool != null) {
@@ -87,15 +88,18 @@ public class DatabaseReloadService {
                         break;
                     }
                 }
-                int remaining = pool.getActiveConnections();
-                if (remaining > 0) {
-                    logger.warn("Timed out waiting for {} active connection(s) to drain "
-                            + "after SHUTDOWN; file lock may not be released", remaining);
-                }
+                remaining = pool.getActiveConnections();
             }
         }
 
-        logger.info("H2 shutdown complete");
+        if (remaining > 0) {
+            logger.warn("H2 shutdown completed with {} active connection(s) still present; "
+                    + "file lock may not be fully released", remaining);
+        } else if (remaining == 0) {
+            logger.info("H2 shutdown complete; all connections drained");
+        } else {
+            logger.info("H2 shutdown complete");
+        }
     }
 
     /**
@@ -108,56 +112,54 @@ public class DatabaseReloadService {
     public void reconnect() {
         logger.info("Reconnecting to H2 database…");
 
-        // Retry loop: stale pooled connections may cause the first attempt(s) to
-        // fail until HikariCP discards them and creates a fresh connection.
+        // Retry loop: validate a raw connection AND verify JdbcTemplate can
+        // query through the pool.  Both checks use the same attempt so that
+        // stale connections are fully drained before we proceed to migrations.
         Exception lastException = null;
         for (int attempt = 1; attempt <= RECONNECT_RETRIES; attempt++) {
             try {
-                // Get a raw connection and explicitly validate it to bypass any
-                // HikariCP caching that might return a stale wrapper.
                 try (Connection conn = dataSource.getConnection()) {
-                    if (conn.isValid(2)) {
-                        logger.info("Database connection established (attempt {})", attempt);
-                        break;
+                    if (!conn.isValid(2)) {
+                        throw new RuntimeException("Connection.isValid() returned false");
                     }
-                    throw new RuntimeException("Connection.isValid() returned false");
                 }
+                // Verify JdbcTemplate can also query (uses a potentially
+                // different pooled connection than the one validated above).
+                Integer result = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
+                if (result == null || result != 1) {
+                    throw new RuntimeException("SELECT 1 returned unexpected result: " + result);
+                }
+                logger.info("Database connection verified (attempt {})", attempt);
+                break;
             } catch (Exception e) {
                 lastException = e;
                 logger.debug("Reconnect attempt {}/{} failed: {}", attempt,
                         RECONNECT_RETRIES, e.getMessage());
-                if (attempt < RECONNECT_RETRIES) {
-                    try {
-                        Thread.sleep(RECONNECT_RETRY_DELAY_MS);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
+                if (attempt == RECONNECT_RETRIES) {
+                    String msg = "Database reconnect failed after " + RECONNECT_RETRIES
+                            + " attempts — application may need a restart";
+                    logger.error(msg, e);
+                    throw new RuntimeException(msg, e);
+                }
+                try {
+                    Thread.sleep(RECONNECT_RETRY_DELAY_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    RuntimeException interrupted = new RuntimeException(
+                            "Database reconnect interrupted while waiting to retry", ie);
+                    if (lastException != null && lastException != ie) {
+                        interrupted.addSuppressed(lastException);
                     }
-                    // Re-evict to clear any remaining stale connections
-                    if (dataSource instanceof HikariDataSource hikari) {
-                        HikariPoolMXBean pool = hikari.getHikariPoolMXBean();
-                        if (pool != null) {
-                            pool.softEvictConnections();
-                        }
+                    throw interrupted;
+                }
+                // Re-evict to clear any remaining stale connections
+                if (dataSource instanceof HikariDataSource hikari) {
+                    HikariPoolMXBean pool = hikari.getHikariPoolMXBean();
+                    if (pool != null) {
+                        pool.softEvictConnections();
                     }
                 }
             }
-        }
-
-        // Final verification: can we actually query?
-        try {
-            Integer result = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
-            if (result == null || result != 1) {
-                throw new RuntimeException("SELECT 1 returned unexpected result: " + result);
-            }
-        } catch (Exception e) {
-            if (lastException != null && lastException != e) {
-                e.addSuppressed(lastException);
-            }
-            String msg = "Database reconnect failed after " + RECONNECT_RETRIES
-                    + " attempts — application may need a restart";
-            logger.error(msg, e);
-            throw new RuntimeException(msg, e);
         }
 
         // Run idempotent schema.sql to apply any missing migrations
