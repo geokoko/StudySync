@@ -315,6 +315,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         tasksContainer.getChildren().clear();
 
         List<Task> tasks = new ArrayList<>(taskService.getTasksForDate(displayDate));
+        LocalDate today = dateTimeService.getCurrentDate();
 
         if (tasks.isEmpty()) {
             // No tasks for this day — offer "Create Task" shortcut
@@ -330,9 +331,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
             emptyBox.getChildren().addAll(emptyLabel, createTaskBtn);
             tasksContainer.getChildren().add(emptyBox);
-            return;
-        }
-
+            // Do NOT return — unlinked goals and re-plan section must still render
+        } else {
         // Apply user-selected sort order
         tasks.sort(taskSortComparator());
 
@@ -360,7 +360,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         }
 
         // Missed recurring-task occurrences (carry-forward to today)
-        LocalDate today = dateTimeService.getCurrentDate();
         if (displayDate.equals(today)) {
             List<MissedOccurrence> missed = taskService.getMissedRecurringOccurrences(today);
             // Group by task — exclude tasks already shown above (scheduled for today)
@@ -389,6 +388,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 tasksContainer.getChildren().add(missedSection);
             }
         }
+        } // end else (tasks not empty)
 
         // Unlinked goals section (goals with no task)
         List<StudyGoal> allUnlinked = StudyGoal.findUnlinkedForDate(displayDate);
