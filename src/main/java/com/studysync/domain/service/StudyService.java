@@ -50,6 +50,7 @@ public class StudyService {
      * re-runs against the newly loaded database.
      * Must be called after a live database reload (e.g. Google Drive download).
      */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public void resetAfterReload() {
         synchronized (this) {
             lastDelayProcessingDate = null;

@@ -62,6 +62,7 @@ public class TaskService {
      * once-per-day operations re-run against the newly loaded database.
      * Must be called after a live database reload (e.g. Google Drive download).
      */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public void resetAfterReload() {
         synchronized (this) {
             lastDelayedTasksProcessedDate = null;

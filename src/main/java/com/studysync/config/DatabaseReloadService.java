@@ -151,9 +151,12 @@ public class DatabaseReloadService {
                 throw new RuntimeException("SELECT 1 returned unexpected result: " + result);
             }
         } catch (Exception e) {
+            if (lastException != null && lastException != e) {
+                e.addSuppressed(lastException);
+            }
             String msg = "Database reconnect failed after " + RECONNECT_RETRIES
                     + " attempts — application may need a restart";
-            logger.error(msg, lastException != null ? lastException : e);
+            logger.error(msg, e);
             throw new RuntimeException(msg, e);
         }
 
