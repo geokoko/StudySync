@@ -338,10 +338,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         }
 
         // Unlinked goals section (goals with no task)
-        List<StudyGoal> unlinkedGoals = StudyGoal.findUnlinkedForDate(displayDate).stream()
-                .filter(g -> !g.isAchieved())
-                .toList();
-        if (!unlinkedGoals.isEmpty()) {
+        List<StudyGoal> allUnlinked = StudyGoal.findUnlinkedForDate(displayDate);
+        List<StudyGoal> unlinkedGoals = allUnlinked.stream()
+                .filter(g -> !g.isAchieved()).toList();
+        List<StudyGoal> completedUnlinked = allUnlinked.stream()
+                .filter(StudyGoal::isAchieved).toList();
+        if (!unlinkedGoals.isEmpty() || !completedUnlinked.isEmpty()) {
             VBox unlinkedSection = new VBox(6);
             unlinkedSection.setPadding(new Insets(10, 0, 0, 0));
             Label unlinkedTitle = new Label("Goals without a task:");
@@ -350,6 +352,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             unlinkedSection.getChildren().add(unlinkedTitle);
             for (StudyGoal goal : unlinkedGoals) {
                 unlinkedSection.getChildren().add(buildGoalRow(goal, null));
+            }
+            if (!completedUnlinked.isEmpty()) {
+                unlinkedSection.getChildren().add(
+                        buildCompletedGoalsSection(completedUnlinked, null, unlinkedSection));
             }
             tasksContainer.getChildren().add(unlinkedSection);
         }
@@ -565,11 +571,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private void populateGoalsPanel(VBox goalsPanel, Task task) {
         goalsPanel.getChildren().clear();
 
-        List<StudyGoal> goals = StudyGoal.findByTaskIdForDate(task.getId(), displayDate).stream()
-                .filter(g -> !g.isAchieved())
-                .toList();
+        List<StudyGoal> allGoals = StudyGoal.findByTaskIdForDate(task.getId(), displayDate);
+        List<StudyGoal> activeGoals = allGoals.stream().filter(g -> !g.isAchieved()).toList();
+        List<StudyGoal> completedGoals = allGoals.stream().filter(StudyGoal::isAchieved).toList();
 
-        if (goals.isEmpty()) {
+        if (activeGoals.isEmpty() && completedGoals.isEmpty()) {
             Label noGoals = new Label("No goals linked to this task yet.");
             TaskStyleUtils.fontNormal(noGoals, 12);
             noGoals.setTextFill(Color.web("#7f8c8d"));
@@ -583,7 +589,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
             goalsPanel.getChildren().addAll(noGoals, addGoalBtn);
         } else {
-            for (StudyGoal goal : goals) {
+            for (StudyGoal goal : activeGoals) {
                 goalsPanel.getChildren().add(buildGoalRow(goal, task));
             }
             Button addMoreBtn = new Button("+ Add Goal");
@@ -593,6 +599,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 populateGoalsPanel(goalsPanel, task);
             });
             goalsPanel.getChildren().add(addMoreBtn);
+        }
+
+        // Completed goals — collapsible section
+        if (!completedGoals.isEmpty()) {
+            goalsPanel.getChildren().add(
+                    buildCompletedGoalsSection(completedGoals, task, goalsPanel));
         }
     }
 
@@ -633,6 +645,56 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         row.getChildren().addAll(check, textBox);
         return row;
+    }
+
+    /**
+     * Builds a collapsible "Completed" section for achieved goals.
+     * Clicking the header toggles visibility of the completed goal rows.
+     */
+    private VBox buildCompletedGoalsSection(List<StudyGoal> completedGoals,
+                                            Task linkedTask, VBox parentPanel) {
+        VBox section = new VBox(4);
+        section.setPadding(new Insets(6, 0, 0, 0));
+
+        VBox itemsBox = new VBox(4);
+        itemsBox.setVisible(false);
+        itemsBox.setManaged(false);
+
+        Label toggle = new Label("▶ Completed (" + completedGoals.size() + ")");
+        TaskStyleUtils.fontBold(toggle, 11);
+        toggle.setTextFill(Color.web("#27ae60"));
+        toggle.setStyle("-fx-cursor: hand;");
+        toggle.setOnMouseClicked(e -> {
+            boolean show = !itemsBox.isVisible();
+            itemsBox.setVisible(show);
+            itemsBox.setManaged(show);
+            toggle.setText((show ? "▼" : "▶") + " Completed (" + completedGoals.size() + ")");
+        });
+
+        for (StudyGoal goal : completedGoals) {
+            HBox row = new HBox(10);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.setPadding(new Insets(4, 8, 4, 8));
+            row.setStyle("-fx-background-color: #eafaf1; -fx-background-radius: 5;");
+
+            CheckBox check = new CheckBox();
+            check.setSelected(true);
+            check.setOnAction(e -> {
+                studyService.updateStudyGoalAchievement(goal.getId(), false, null);
+                updateProgress();
+                updateTasksDisplay();
+            });
+
+            Label label = new Label(goal.getDescription());
+            label.setStyle("-fx-strikethrough: true; -fx-text-fill: #7f8c8d;");
+            TaskStyleUtils.fontNormal(label, 12);
+
+            row.getChildren().addAll(check, label);
+            itemsBox.getChildren().add(row);
+        }
+
+        section.getChildren().addAll(toggle, itemsBox);
+        return section;
     }
 
     // ──────────────────────────────────────────────
