@@ -34,13 +34,15 @@ public class StudyService {
     private static final Logger logger = LoggerFactory.getLogger(StudyService.class);
     
     private final GoogleDriveService googleDriveService;
+    private final DateTimeService dateTimeService;
 
     /** Guards processAllDelayedGoals() so the full scan runs at most once per calendar day. */
     private LocalDate lastDelayProcessingDate;
 
     @Autowired
-    public StudyService(GoogleDriveService googleDriveService) {
+    public StudyService(GoogleDriveService googleDriveService, DateTimeService dateTimeService) {
         this.googleDriveService = googleDriveService;
+        this.dateTimeService = dateTimeService;
     }
 
     private void markDirty() {
@@ -84,7 +86,7 @@ public class StudyService {
         if (date == null) {
             throw ValidationException.requiredFieldMissing("date");
         }
-        if (!date.isAfter(LocalDate.now())) {
+        if (!date.isAfter(dateTimeService.getCurrentDate())) {
             throw ValidationException.invalidDateRange(
                 date.toString(), "a future date (use getStudyGoalsForDate for past/present)");
         }
@@ -98,7 +100,7 @@ public class StudyService {
 
     public List<StudyGoal> getTodayGoals() {
         ensureDelayedGoalsProcessedToday();
-        return StudyGoal.findByDate(LocalDate.now());
+        return StudyGoal.findByDate(dateTimeService.getCurrentDate());
     }
 
     /**
@@ -106,7 +108,7 @@ public class StudyService {
      * Subsequent calls on the same day are no-ops.
      */
     private void ensureDelayedGoalsProcessedToday() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = dateTimeService.getCurrentDate();
         if (!today.equals(lastDelayProcessingDate)) {
             processAllDelayedGoals();
             lastDelayProcessingDate = today;
@@ -115,7 +117,7 @@ public class StudyService {
 
     @Transactional(readOnly = true)
     public List<StudySession> getTodaySessions() {
-        return StudySession.findByDate(LocalDate.now());
+        return StudySession.findByDate(dateTimeService.getCurrentDate());
     }
 
     public void addStudyGoal(String description, LocalDate date) {
@@ -177,10 +179,10 @@ public class StudyService {
             if (goal.isAchieved() || goal.getReplannedForDate() != null) {
                 return; // Already done or already rescheduled
             }
-            goal.setReplannedForDate(LocalDate.now());
+            goal.setReplannedForDate(dateTimeService.getCurrentDate());
             goal.save();
             markDirty();
-            logger.info("Rescheduled goal '{}' to appear today ({})", goal.getDescription(), LocalDate.now());
+            logger.info("Rescheduled goal '{}' to appear today ({})", goal.getDescription(), dateTimeService.getCurrentDate());
         });
     }
 
@@ -236,7 +238,7 @@ public class StudyService {
 
     @Transactional(readOnly = true)
     public Optional<DailyReflection> getTodayReflection() {
-        return DailyReflection.findByDate(LocalDate.now());
+        return DailyReflection.findByDate(dateTimeService.getCurrentDate());
     }
 
     @Transactional(readOnly = true)
@@ -313,7 +315,7 @@ public class StudyService {
      * @return summary of how many goals were updated or auto-removed
      */
     public GoalDelayProcessingResult processAllDelayedGoals() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = dateTimeService.getCurrentDate();
         List<StudyGoal> allGoals = StudyGoal.findAll();
         int updatedGoals = 0;
         int removedGoals = 0;
@@ -402,7 +404,7 @@ public class StudyService {
      */
     @Transactional(readOnly = true)
     public List<StudyGoal> getTodayDelayedGoals() {
-        return StudyGoal.findDelayedByDate(LocalDate.now());
+        return StudyGoal.findDelayedByDate(dateTimeService.getCurrentDate());
     }
     
     /**
