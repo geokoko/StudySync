@@ -27,7 +27,10 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -63,6 +66,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     // Tracks which task cards are currently expanded so they survive UI rebuilds
     private final Set<String> expandedTaskIds = new HashSet<>();
+
+    // Sort / group state for the tasks section
+    private String currentSort = "Status";
+    private String currentGroup = "None";
 
     // UI containers that get rebuilt on navigation
     private VBox tasksContainer;
@@ -186,8 +193,28 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         sectionHeader.getChildren().addAll(sectionTitle, spacer, addGoalBtn);
 
+        // Sort / group toolbar
+        HBox toolbar = new HBox(10);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+
+        Label sortLabel = new Label("Sort:");
+        TaskStyleUtils.fontBold(sortLabel, 12);
+        ComboBox<String> sortCombo = new ComboBox<>();
+        sortCombo.getItems().addAll("Status", "Priority", "Deadline", "Title");
+        sortCombo.setValue(currentSort);
+        sortCombo.setOnAction(e -> { currentSort = sortCombo.getValue(); updateTasksDisplay(); });
+
+        Label groupLabel = new Label("Group:");
+        TaskStyleUtils.fontBold(groupLabel, 12);
+        ComboBox<String> groupCombo = new ComboBox<>();
+        groupCombo.getItems().addAll("None", "Status", "Category");
+        groupCombo.setValue(currentGroup);
+        groupCombo.setOnAction(e -> { currentGroup = groupCombo.getValue(); updateTasksDisplay(); });
+
+        toolbar.getChildren().addAll(sortLabel, sortCombo, groupLabel, groupCombo);
+
         tasksContainer = new VBox(10);
-        section.getChildren().addAll(sectionHeader, tasksContainer);
+        section.getChildren().addAll(sectionHeader, toolbar, tasksContainer);
         mainContent.getChildren().add(section);
     }
 
@@ -287,7 +314,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private void updateTasksDisplay() {
         tasksContainer.getChildren().clear();
 
-        List<Task> tasks = taskService.getTasksForDate(displayDate);
+        List<Task> tasks = new ArrayList<>(taskService.getTasksForDate(displayDate));
 
         if (tasks.isEmpty()) {
             // No tasks for this day — offer "Create Task" shortcut
@@ -306,8 +333,30 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             return;
         }
 
-        for (Task task : tasks) {
-            tasksContainer.getChildren().add(buildTaskRow(task));
+        // Apply user-selected sort order
+        tasks.sort(taskSortComparator());
+
+        // Apply grouping (or flat list)
+        if ("None".equals(currentGroup)) {
+            for (Task task : tasks) {
+                tasksContainer.getChildren().add(buildTaskRow(task));
+            }
+        } else {
+            LinkedHashMap<String, List<Task>> groups = new LinkedHashMap<>();
+            for (Task task : tasks) {
+                String key = groupKeyFor(task);
+                groups.computeIfAbsent(key, k -> new ArrayList<>()).add(task);
+            }
+            for (Map.Entry<String, List<Task>> entry : groups.entrySet()) {
+                Label groupHeader = new Label(entry.getKey());
+                TaskStyleUtils.fontBold(groupHeader, 13);
+                groupHeader.setTextFill(Color.web("#6c757d"));
+                groupHeader.setPadding(new Insets(6, 0, 2, 0));
+                tasksContainer.getChildren().add(groupHeader);
+                for (Task task : entry.getValue()) {
+                    tasksContainer.getChildren().add(buildTaskRow(task));
+                }
+            }
         }
 
         // Missed recurring-task occurrences (carry-forward to today)
@@ -368,6 +417,43 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (displayDate.equals(today)) {
             tasksContainer.getChildren().add(buildReplanSection());
         }
+    }
+
+    /** Returns a comparator based on the user's current sort choice. */
+    private Comparator<Task> taskSortComparator() {
+        return switch (currentSort) {
+            case "Priority" -> Comparator.comparingInt(
+                    (Task t) -> t.getPriority() != null ? t.getPriority().stars() : 0).reversed()
+                    .thenComparing(Task::getTitle, String.CASE_INSENSITIVE_ORDER);
+            case "Deadline" -> Comparator.comparing(
+                    (Task t) -> t.getDeadline() != null ? t.getDeadline() : LocalDate.MAX)
+                    .thenComparing(Task::getTitle, String.CASE_INSENSITIVE_ORDER);
+            case "Title" -> Comparator.comparing(Task::getTitle, String.CASE_INSENSITIVE_ORDER);
+            default -> Comparator.comparingInt((Task t) -> statusOrder(t.getStatus()))
+                    .thenComparing(Task::getTitle, String.CASE_INSENSITIVE_ORDER);
+        };
+    }
+
+    /** Defines a display-friendly ordering for task statuses. */
+    private static int statusOrder(TaskStatus s) {
+        return switch (s) {
+            case IN_PROGRESS -> 0;
+            case OPEN -> 1;
+            case DELAYED -> 2;
+            case POSTPONED -> 3;
+            case COMPLETED -> 4;
+            case CANCELLED -> 5;
+        };
+    }
+
+    /** Returns the grouping key for a task based on the current group choice. */
+    private String groupKeyFor(Task task) {
+        return switch (currentGroup) {
+            case "Status" -> task.getStatus().name();
+            case "Category" -> task.getCategory() != null && !task.getCategory().isBlank()
+                    ? task.getCategory() : "Uncategorized";
+            default -> "";
+        };
     }
 
     /**
