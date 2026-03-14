@@ -686,7 +686,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             addGoalBtn.setOnAction(e -> {
                 showAddGoalDialog(date);
                 // Refresh the goals tab content after the dialog closes
-                parentTab.setContent(createGoalsTab(date, parentTab));
+                parentTab.setContent(scrollWrap(createGoalsTab(date, parentTab)));
             });
             
             Label hintLabel = new Label(isFutureDate ? "» Plan ahead for this day" : "» Set goals for today");
