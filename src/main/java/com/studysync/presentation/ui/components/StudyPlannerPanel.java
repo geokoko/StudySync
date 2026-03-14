@@ -480,6 +480,16 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             return section;
         }
 
+        // Preload task titles once to avoid DB lookups during ComboBox cell rendering.
+        Map<String, String> taskTitles = new LinkedHashMap<>();
+        for (StudyGoal goal : candidates) {
+            String taskId = goal.getTaskId();
+            if (taskId == null || taskId.isBlank() || taskTitles.containsKey(taskId)) {
+                continue;
+            }
+            Task.findById(taskId).ifPresent(t -> taskTitles.put(taskId, t.getTitle()));
+        }
+
         ComboBox<StudyGoal> combo = new ComboBox<>();
         combo.getItems().addAll(candidates);
         combo.setMaxWidth(Double.MAX_VALUE);
@@ -487,14 +497,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             @Override
             protected void updateItem(StudyGoal goal, boolean empty) {
                 super.updateItem(goal, empty);
-                setText(empty || goal == null ? "" : formatDelayedGoal(goal));
+                setText(empty || goal == null ? "" : formatDelayedGoal(goal, taskTitles));
             }
         });
         combo.setButtonCell(new ListCell<>() {
             @Override
             protected void updateItem(StudyGoal goal, boolean empty) {
                 super.updateItem(goal, empty);
-                setText(empty || goal == null ? "" : formatDelayedGoal(goal));
+                setText(empty || goal == null ? "" : formatDelayedGoal(goal, taskTitles));
             }
         });
         combo.setPromptText("Select a delayed goal to re-plan...");
@@ -522,12 +532,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
 
     /** Formats a delayed goal for display in the re-plan ComboBox. */
-    private String formatDelayedGoal(StudyGoal goal) {
+    private String formatDelayedGoal(StudyGoal goal, Map<String, String> taskTitles) {
         String taskLabel = "";
-        if (goal.getTaskId() != null) {
-            taskLabel = Task.findById(goal.getTaskId())
-                    .map(t -> t.getTitle() + ": ")
-                    .orElse("");
+        String taskId = goal.getTaskId();
+        if (taskId != null && !taskId.isBlank()) {
+            String title = taskTitles.get(taskId);
+            if (title != null && !title.isBlank()) {
+                taskLabel = title + ": ";
+            }
         }
         String desc = goal.getDescription();
         if (desc != null && desc.length() > 60) {
