@@ -24,9 +24,11 @@ import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -342,7 +344,14 @@ public class TaskService {
 
         LocalDate today = dateTimeService.getCurrentDate();
 
-        List<Task> result = Task.findAll().stream()
+        // Fetch all tasks once and index by ID so the goal-linking pass below
+        // can look up tasks without extra DB round-trips.
+        List<Task> allTasks = Task.findAll();
+        Map<String, Task> tasksById = allTasks.stream()
+                .collect(Collectors.toMap(Task::getId, Function.identity(),
+                        (existing, replacement) -> existing));
+
+        List<Task> result = allTasks.stream()
             .filter(task -> {
                 TaskStatus s = task.getStatus();
                 boolean isActive = s == TaskStatus.OPEN || s == TaskStatus.IN_PROGRESS;
@@ -395,13 +404,16 @@ public class TaskService {
                 .filter(tid -> tid != null && !tid.isBlank())
                 .filter(tid -> !resultIds.contains(tid))
                 .distinct()
-                .forEach(tid -> Task.findById(tid).ifPresent(task -> {
-                    TaskStatus s = task.getStatus();
-                    if (s == TaskStatus.IN_PROGRESS || s == TaskStatus.DELAYED) {
-                        result.add(task);
-                        resultIds.add(task.getId());
+                .forEach(tid -> {
+                    Task task = tasksById.get(tid);
+                    if (task != null) {
+                        TaskStatus s = task.getStatus();
+                        if (s == TaskStatus.IN_PROGRESS || s == TaskStatus.DELAYED) {
+                            result.add(task);
+                            resultIds.add(task.getId());
+                        }
                     }
-                }));
+                });
 
         return result;
     }
