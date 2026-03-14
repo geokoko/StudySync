@@ -109,9 +109,11 @@ public class StudyService {
      */
     private void ensureDelayedGoalsProcessedToday() {
         LocalDate today = dateTimeService.getCurrentDate();
-        if (!today.equals(lastDelayProcessingDate)) {
-            processAllDelayedGoals();
-            lastDelayProcessingDate = today;
+        synchronized (this) {
+            if (!today.equals(lastDelayProcessingDate)) {
+                processAllDelayedGoals();
+                lastDelayProcessingDate = today;
+            }
         }
     }
 

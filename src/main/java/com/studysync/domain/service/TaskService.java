@@ -187,9 +187,13 @@ public class TaskService {
     public int markDelayedTasks() {
         LocalDate today = dateTimeService.getCurrentDate();
 
-        // Run at most once per calendar day to avoid redundant DB scans.
-        if (today.equals(lastDelayedTasksProcessedDate)) {
-            return 0;
+        // The check-and-set must be atomic so concurrent callers cannot both
+        // pass the guard and run the DB scan.
+        synchronized (this) {
+            if (today.equals(lastDelayedTasksProcessedDate)) {
+                return 0;
+            }
+            lastDelayedTasksProcessedDate = today;
         }
 
         List<Task> delayedTasks = Task.findAll().stream()
@@ -206,10 +210,6 @@ public class TaskService {
             task.save();
             updatedCount++;
         }
-
-        // Only record the processed date after successful completion so that
-        // any exception during the DB scan or save allows a retry on the next call.
-        lastDelayedTasksProcessedDate = today;
 
         if (updatedCount > 0) {
             logger.info("Marked {} tasks as DELAYED", updatedCount);
