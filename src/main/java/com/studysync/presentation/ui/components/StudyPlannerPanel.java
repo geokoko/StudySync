@@ -333,28 +333,29 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             tasksContainer.getChildren().add(emptyBox);
             // Do NOT return — unlinked goals and re-plan section must still render
         } else {
-        // Apply user-selected sort order
-        tasks.sort(taskSortComparator());
+            // Apply user-selected sort order
+            tasks.sort(taskSortComparator());
 
-        // Apply grouping (or flat list)
-        if ("None".equals(currentGroup)) {
-            for (Task task : tasks) {
-                tasksContainer.getChildren().add(buildTaskRow(task));
-            }
-        } else {
-            LinkedHashMap<String, List<Task>> groups = new LinkedHashMap<>();
-            for (Task task : tasks) {
-                String key = groupKeyFor(task);
-                groups.computeIfAbsent(key, k -> new ArrayList<>()).add(task);
-            }
-            for (Map.Entry<String, List<Task>> entry : groups.entrySet()) {
-                Label groupHeader = new Label(entry.getKey());
-                TaskStyleUtils.fontBold(groupHeader, 13);
-                groupHeader.setTextFill(Color.web("#6c757d"));
-                groupHeader.setPadding(new Insets(6, 0, 2, 0));
-                tasksContainer.getChildren().add(groupHeader);
-                for (Task task : entry.getValue()) {
+            // Apply grouping (or flat list)
+            if ("None".equals(currentGroup)) {
+                for (Task task : tasks) {
                     tasksContainer.getChildren().add(buildTaskRow(task));
+                }
+            } else {
+                LinkedHashMap<String, List<Task>> groups = new LinkedHashMap<>();
+                for (Task task : tasks) {
+                    String key = groupKeyFor(task);
+                    groups.computeIfAbsent(key, k -> new ArrayList<>()).add(task);
+                }
+                for (Map.Entry<String, List<Task>> entry : groups.entrySet()) {
+                    Label groupHeader = new Label(entry.getKey());
+                    TaskStyleUtils.fontBold(groupHeader, 13);
+                    groupHeader.setTextFill(Color.web("#6c757d"));
+                    groupHeader.setPadding(new Insets(6, 0, 2, 0));
+                    tasksContainer.getChildren().add(groupHeader);
+                    for (Task task : entry.getValue()) {
+                        tasksContainer.getChildren().add(buildTaskRow(task));
+                    }
                 }
             }
         }
@@ -362,10 +363,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         // Missed recurring-task occurrences (carry-forward to today)
         if (displayDate.equals(today)) {
             List<MissedOccurrence> missed = taskService.getMissedRecurringOccurrences(today);
-            // Group by task — exclude tasks already shown above (scheduled for today)
             Set<String> shownTaskIds = tasks.stream().map(Task::getId).collect(Collectors.toSet());
-            // Build per-task missed-date lists, preserving insertion order
-            java.util.LinkedHashMap<String, List<MissedOccurrence>> byTask = new java.util.LinkedHashMap<>();
+            LinkedHashMap<String, List<MissedOccurrence>> byTask = new LinkedHashMap<>();
             for (MissedOccurrence mo : missed) {
                 byTask.computeIfAbsent(mo.task().getId(), k -> new ArrayList<>()).add(mo);
             }
@@ -388,7 +387,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 tasksContainer.getChildren().add(missedSection);
             }
         }
-        } // end else (tasks not empty)
 
         // Unlinked goals section (goals with no task)
         List<StudyGoal> allUnlinked = StudyGoal.findUnlinkedForDate(displayDate);
