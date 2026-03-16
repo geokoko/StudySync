@@ -67,14 +67,32 @@ public class GoogleDriveGateway {
             }
 
             Path localPath = settings.localDatabasePath();
-            if (localPath.getParent() != null) {
-                Files.createDirectories(localPath.getParent());
+            // Resolve to absolute so getParent() is never null (bare filename
+            // like "studysync.mv.db" would otherwise have a null parent).
+            Path absLocalPath = localPath.toAbsolutePath();
+            if (absLocalPath.getParent() != null) {
+                Files.createDirectories(absLocalPath.getParent());
             }
-            Path tempFile = Files.createTempFile("studysync-drive", ".tmp");
-            try (OutputStream outputStream = Files.newOutputStream(tempFile)) {
-                drive.files().get(databaseFile.get().getId()).executeMediaAndDownloadTo(outputStream);
+            // Create temp file in the SAME directory as the destination so that
+            // Files.move is an atomic rename (same filesystem).  Using the system
+            // temp dir (/tmp, often tmpfs) would force a cross-filesystem copy
+            // which is non-atomic and can leave a partially-written file.
+            Path tempFile = Files.createTempFile(absLocalPath.getParent(), "studysync-drive-", ".tmp");
+            try {
+                try (OutputStream outputStream = Files.newOutputStream(tempFile)) {
+                    drive.files().get(databaseFile.get().getId()).executeMediaAndDownloadTo(outputStream);
+                }
+                Files.move(tempFile, absLocalPath, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                // Clean up the partial temp file on failure to avoid leaking
+                // disk space and partial DB snapshots.
+                try {
+                    Files.deleteIfExists(tempFile);
+                } catch (IOException suppressed) {
+                    e.addSuppressed(suppressed);
+                }
+                throw e;
             }
-            Files.move(tempFile, localPath, StandardCopyOption.REPLACE_EXISTING);
             logger.info("Downloaded latest StudySync database from Google Drive to {}", localPath);
             return true;
         } catch (IOException e) {
@@ -91,6 +109,13 @@ public class GoogleDriveGateway {
         if (!Files.exists(localPath)) {
             logger.info("Local StudySync database not found at {}. Nothing to upload.", localPath);
             return false;
+        }
+        try {
+            long fileSize = Files.size(localPath);
+            logger.info("Uploading database file: {} ({} bytes, lastModified={})",
+                    localPath.toAbsolutePath(), fileSize, Files.getLastModifiedTime(localPath));
+        } catch (IOException ignored) {
+            // Non-fatal — just diagnostic logging
         }
         try {
             Drive drive = buildDriveClient(credential);

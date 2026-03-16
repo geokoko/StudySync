@@ -29,7 +29,11 @@ public class GoogleDriveService {
     private final JdbcTemplate jdbcTemplate;
     private Credential activeCredential;
     private String cachedAccountEmail;
-    private boolean shutdownSaveEnabled = true;
+    private volatile boolean shutdownSaveEnabled = false;
+
+    /** True when the user explicitly chose "Exit without Saving" or "Save Locally & Exit".
+     *  Distinguishes an explicit opt-out from the default state (never asked). */
+    private volatile boolean shutdownSaveExplicitlyDisabled = false;
 
     /** Tracks whether the local DB has been modified since the last upload to Drive. */
     private volatile boolean localDbDirty = false;
@@ -63,6 +67,9 @@ public class GoogleDriveService {
 
     public void setShutdownSaveEnabled(boolean enabled) {
         this.shutdownSaveEnabled = enabled;
+        // Track whether the user made an explicit choice via the exit dialog.
+        // Reset when re-enabled so the latch doesn't stick after "Push to Drive".
+        this.shutdownSaveExplicitlyDisabled = !enabled;
     }
 
     public boolean isIntegrationEnabled() {
@@ -129,11 +136,14 @@ public class GoogleDriveService {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
         }
-        // Flush H2 in-memory cache to the .mv.db file before uploading
+        // Flush H2 in-memory cache to the .mv.db file before uploading.
+        // If the checkpoint fails, abort the upload to avoid overwriting
+        // Drive with a stale database file that is missing recent writes.
         try {
             jdbcTemplate.execute("CHECKPOINT SYNC");
         } catch (Exception e) {
-            logger.warn("H2 CHECKPOINT SYNC failed before upload: {}", e.getMessage());
+            logger.error("H2 CHECKPOINT SYNC failed before upload — aborting upload to prevent stale data on Drive", e);
+            return false;
         }
         boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
         if (uploaded) {
@@ -306,29 +316,60 @@ public class GoogleDriveService {
         }
 
         if (downloaded) {
+            // Clear the dirty flag BEFORE notifying reload listeners.
+            // Listeners (e.g. delayed-goal/task processing) may mutate the
+            // freshly downloaded DB and call markLocalDbDirty(), which will
+            // re-set this flag to true.  Clearing first ensures those
+            // mutations are correctly tracked as local changes.
             localDbDirty = false;
-            notifyReloadListeners();
+
+            // Force H2 to flush the freshly-opened database to disk immediately.
+            // Without this, DB_CLOSE_DELAY=-1 keeps changes in memory, and if the
+            // JVM exits before H2's shutdown hook completes (race with class
+            // unloading), all downloaded data is silently lost — the file on disk
+            // reverts to its pre-download state on the next restart.
+            try {
+                jdbcTemplate.execute("CHECKPOINT SYNC");
+                logger.info("Post-download CHECKPOINT SYNC completed — downloaded data persisted to disk");
+            } catch (Exception e) {
+                logger.warn("Post-download CHECKPOINT SYNC failed: {}", e.getMessage());
+            }
+
             logger.info("Database reloaded from Google Drive successfully");
         }
+
+        // Always notify reload listeners so the UI overlay is dismissed and
+        // panels are refreshed — even on failure (the old DB was reconnected).
+        notifyReloadListeners();
         return downloaded;
     }
 
     @PreDestroy
     public void onShutdown() {
-        if (isIntegrationEnabled() && activeCredential != null && shutdownSaveEnabled) {
-            // Force H2 to flush all committed data from its in-memory cache to the
-            // .mv.db file on disk BEFORE we upload.  Without this, DB_CLOSE_DELAY=-1
-            // keeps the engine alive and pending MVStore pages may not yet be written,
-            // causing the uploaded file to be stale.
+        // Upload to Drive if explicitly requested (dialog "Push to Drive & Exit")
+        // OR if the user never went through the exit dialog at all (SIGTERM, OS
+        // logout, etc.) and there are unsaved local changes.  This prevents
+        // silent data loss on non-dialog shutdowns while still respecting the
+        // user's explicit choice of "Exit without Saving" (which sets
+        // shutdownSaveEnabled=false).
+        boolean shouldUpload = shutdownSaveEnabled || (localDbDirty && !shutdownSaveExplicitlyDisabled);
+        if (isIntegrationEnabled() && activeCredential != null && shouldUpload) {
+            boolean checkpointOk = false;
             try {
                 jdbcTemplate.execute("CHECKPOINT SYNC");
+                checkpointOk = true;
                 logger.info("H2 checkpoint completed — database file is up to date on disk");
             } catch (Exception e) {
-                logger.warn("H2 CHECKPOINT SYNC failed (database may already be closed): {}", e.getMessage());
+                logger.error("H2 CHECKPOINT SYNC failed during shutdown — upload may contain stale data", e);
             }
 
-            logger.info("Uploading StudySync database to Google Drive before shutdown");
-            gateway.uploadDatabaseToDrive(activeCredential);
+            if (checkpointOk) {
+                logger.info("Uploading StudySync database to Google Drive before shutdown");
+                gateway.uploadDatabaseToDrive(activeCredential);
+            } else {
+                logger.warn("Skipping shutdown upload to Google Drive — checkpoint failed, "
+                        + "uploading could overwrite newer data on Drive");
+            }
         }
     }
 

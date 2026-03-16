@@ -239,7 +239,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         startSessionBtn.setOnAction(e -> {
             currentSession = studyService.startStudySession();
-            currentSession.startSession();
             startSessionTimer(sessionStatus);
             startSessionBtn.setDisable(true);
             endSessionBtn.setDisable(false);
@@ -1241,12 +1240,19 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         cancelBtn.setOnAction(e -> closeModal.run());
 
         okBtn.setOnAction(e -> {
-            StudySessionEnd sessionEnd = new StudySessionEnd((int) focusSlider.getValue(), notesArea.getText());
-            studyService.endStudySession(currentSession, sessionEnd);
-            currentSession = null;
-            closeModal.run();
-            updateSessionsDisplay();
-            updateProgress();
+            try {
+                StudySessionEnd sessionEnd = new StudySessionEnd((int) focusSlider.getValue(), notesArea.getText());
+                studyService.endStudySession(currentSession, sessionEnd);
+                currentSession = null;
+                closeModal.run();
+                updateSessionsDisplay();
+                updateProgress();
+            } catch (Exception ex) {
+                Label err = new Label("Failed to save session: " + ex.getMessage());
+                err.setTextFill(Color.web("#e74c3c"));
+                err.setWrapText(true);
+                content.getChildren().add(err);
+            }
         });
 
         HBox btnRow = new HBox(10, cancelBtn, okBtn);
