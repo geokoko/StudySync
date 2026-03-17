@@ -301,7 +301,10 @@ public class StudySyncUI {
      */
     private void showReloadOverlay() {
         if (overlayLayer != null) {
-            Label reloadLabel = new Label("⚙ Reloading database from Google Drive…");
+            Label reloadLabel = new Label("Reloading database from Google Drive\u2026");
+            Label gearIcon = TaskStyleUtils.iconLabel("\u2699", 18);
+            gearIcon.setTextFill(Color.WHITE);
+            reloadLabel.setGraphic(gearIcon);
             reloadLabel.setTextFill(Color.WHITE);
             reloadLabel.setStyle("-fx-background-color: rgba(0,0,0,0.7); -fx-padding: 30 50; -fx-background-radius: 10;");
             TaskStyleUtils.fontBold(reloadLabel, 18);

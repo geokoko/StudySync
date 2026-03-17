@@ -110,7 +110,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         VBox section = new VBox(12);
         section.getStyleClass().add("section-card-light");
         
-        Label title = new Label("☁️ Google Drive Sync");
+        Label title = new Label("Google Drive Sync");
+        title.setGraphic(TaskStyleUtils.iconLabel("\u2601", 18));
         TaskStyleUtils.fontBold(title, 18);
         
         driveStatusLabel = new Label();
@@ -127,7 +128,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(driveActionStatusLabel, 12);
         driveActionStatusLabel.setTextFill(Color.web("#16a085"));
         
-        driveSignInButton = new Button("🔐 Sign in with Google");
+        driveSignInButton = new Button("Sign in with Google");
+        driveSignInButton.setGraphic(TaskStyleUtils.iconLabel("\uD83D\uDD10", 14));
         driveSignInButton.getStyleClass().add("btn-google");
         driveSignInButton.setOnAction(e -> runDriveAction(
             "Opening Google sign-in…",
@@ -136,7 +138,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Unable to sign in with Google. Please try again."
         ));
         
-        driveSignOutButton = new Button("\uD83D\uDD12 Sign out");
+        driveSignOutButton = new Button("Sign out");
+        driveSignOutButton.setGraphic(TaskStyleUtils.iconLabel("\uD83D\uDD12", 14));
         driveSignOutButton.getStyleClass().add("btn-gray");
         driveSignOutButton.setOnAction(e -> runDriveAction(
             "Signing out…",
@@ -148,7 +151,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Failed to sign out from Google."
         ));
         
-        driveSyncButton = new Button("⬆️ Sync to Drive now");
+        driveSyncButton = new Button("Sync to Drive now");
+        driveSyncButton.setGraphic(TaskStyleUtils.iconLabel("\u2B06", 14));
         driveSyncButton.getStyleClass().add("btn-success");
         driveSyncButton.setOnAction(e -> runDriveAction(
             "Uploading database to Google Drive…",
@@ -157,7 +161,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Upload failed. Check your connection and credentials."
         ));
 
-        driveDownloadButton = new Button("⬇️ Download from Drive");
+        driveDownloadButton = new Button("Download from Drive");
+        driveDownloadButton.setGraphic(TaskStyleUtils.iconLabel("\u2B07", 14));
         driveDownloadButton.getStyleClass().add("btn-orange-download");
         driveDownloadButton.setOnAction(e -> runDriveAction(
             "Downloading database from Google Drive…",
@@ -189,7 +194,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             String email = googleDriveService.getSignedInAccountEmail().orElse("Google Account");
             String statusText = "Connected as " + email + ".";
             if (googleDriveService.isLocalDbDirty()) {
-                statusText += " ⚠ Local changes not yet uploaded to Drive.";
+                statusText += " \u26A0 Local changes not yet uploaded to Drive.";
                 driveHintLabel.setText("Upload your database to keep Drive up to date.");
             } else {
                 driveHintLabel.setText("Your database uploads to Drive when you close the app.");
@@ -286,7 +291,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         HBox header = new HBox(15);
         header.setAlignment(Pos.CENTER_LEFT);
         
-        Label sectionTitle = new Label("♦ Achieved Goals");
+        Label sectionTitle = new Label("Achieved Goals");
+        sectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u2666", 18));
         TaskStyleUtils.fontBold(sectionTitle, 18);
         
         // Get recent achieved goals count
@@ -372,7 +378,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         Dialog<Void> dialog = new Dialog<>();
         dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         dialog.setTitle("All Achieved Goals");
-        dialog.setHeaderText("♦ Your Achievement History");
+        dialog.setHeaderText("\u2666 Your Achievement History");
         
         VBox content = new VBox(10);
         content.setPadding(new Insets(20));

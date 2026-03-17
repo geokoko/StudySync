@@ -92,7 +92,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         HBox titleBox = new HBox(20);
         titleBox.setAlignment(Pos.CENTER);
         
-        Button prevMonthBtn = new Button("◀ Previous");
+        Button prevMonthBtn = new Button("Previous");
+        prevMonthBtn.setGraphic(TaskStyleUtils.iconLabel("\u25C0", 14));
         prevMonthBtn.getStyleClass().add("btn-primary");
         prevMonthBtn.setOnAction(e -> {
             currentMonth = currentMonth.minusMonths(1);
@@ -102,14 +103,18 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         monthYearLabel = new Label();
         TaskStyleUtils.fontBold(monthYearLabel, 24);
         
-        Button nextMonthBtn = new Button("Next ▶");
+        Button nextMonthBtn = new Button("Next");
+        Label nextIcon = TaskStyleUtils.iconLabel("\u25B6", 14);
+        nextMonthBtn.setGraphic(nextIcon);
+        nextMonthBtn.setContentDisplay(javafx.scene.control.ContentDisplay.RIGHT);
         nextMonthBtn.getStyleClass().add("btn-primary");
         nextMonthBtn.setOnAction(e -> {
             currentMonth = currentMonth.plusMonths(1);
             updateCalendarDisplay();
         });
         
-        Button todayBtn = new Button("» Today");
+        Button todayBtn = new Button("Today");
+        todayBtn.setGraphic(TaskStyleUtils.iconLabel("\u00BB", 14));
         todayBtn.getStyleClass().add("btn-success");
         todayBtn.setOnAction(e -> {
             currentMonth = YearMonth.now();
@@ -369,8 +374,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             if (dueTodayCount > 0) {
                 HBox dueTodayBox = new HBox(3);
                 dueTodayBox.setAlignment(Pos.CENTER_LEFT);
-                Label dueIcon = new Label("☑");
-                TaskStyleUtils.fontNormal(dueIcon, 10);
+                Label dueIcon = new Label("\u2611");
+                TaskStyleUtils.fontEmoji(dueIcon, 10);
                 dueIcon.setTextFill(Color.web(TaskStyleUtils.DUE_TODAY_COLOR));
                 Label dueLabel = new Label(dueTodayCount + " due");
                 TaskStyleUtils.fontNormal(dueLabel, 9);
@@ -383,8 +388,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             if (normalCount > 0) {
                 HBox tasksBox = new HBox(3);
                 tasksBox.setAlignment(Pos.CENTER_LEFT);
-                Label taskIcon = new Label("☑");
-                TaskStyleUtils.fontNormal(taskIcon, 11);
+                Label taskIcon = new Label("\u2611");
+                TaskStyleUtils.fontEmoji(taskIcon, 11);
                 taskIcon.setTextFill(Color.web("#9b59b6"));
                 Label taskLabel = new Label(normalCount + " task" + (normalCount > 1 ? "s" : ""));
                 TaskStyleUtils.fontNormal(taskLabel, 9);
@@ -538,17 +543,21 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         Tab overviewTab = new Tab("▪ Overview", scrollWrap(createOverviewTab(date, dayData)));
         
         // Goals Tab  
-        Tab goalsTab = new Tab("◎ Goals");
+        Tab goalsTab = new Tab("Goals");
+        goalsTab.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 12));
         goalsTab.setContent(scrollWrap(createGoalsTab(date, goalsTab)));
         
         // Sessions Tab
-        Tab sessionsTab = new Tab("» Sessions", scrollWrap(createSessionsTab(date)));
+        Tab sessionsTab = new Tab("Sessions", scrollWrap(createSessionsTab(date)));
+        sessionsTab.setGraphic(TaskStyleUtils.iconLabel("\u00BB", 12));
         
         // Tasks Tab
-        Tab tasksTab = new Tab("☑ Tasks", scrollWrap(createTasksTab(date, dayData)));
+        Tab tasksTab = new Tab("Tasks", scrollWrap(createTasksTab(date, dayData)));
+        tasksTab.setGraphic(TaskStyleUtils.iconLabel("\u2611", 12));
         
         // Performance Tab
-        Tab performanceTab = new Tab("↑ Performance", scrollWrap(createPerformanceTab(date, dayData)));
+        Tab performanceTab = new Tab("Performance", scrollWrap(createPerformanceTab(date, dayData)));
+        performanceTab.setGraphic(TaskStyleUtils.iconLabel("\u2191", 12));
         
         tabPane.getTabs().addAll(overviewTab, goalsTab, sessionsTab, tasksTab, performanceTab);
         
@@ -776,7 +785,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         content.setPadding(new Insets(20));
 
         if (dayData.tasks.isEmpty()) {
-            Label noTasksLabel = new Label("☑ No tasks scheduled for this day.");
+            Label noTasksLabel = new Label("No tasks scheduled for this day.");
+            noTasksLabel.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
             TaskStyleUtils.fontNormal(noTasksLabel, 14);
             noTasksLabel.setTextFill(Color.web("#7f8c8d"));
             noTasksLabel.setPadding(new Insets(30));
@@ -784,7 +794,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             return content;
         }
 
-        Label title = new Label("☑ Tasks (" + dayData.tasks.size() + ")");
+        Label title = new Label("Tasks (" + dayData.tasks.size() + ")");
+        title.setGraphic(TaskStyleUtils.iconLabel("\u2611", 18));
         TaskStyleUtils.fontBold(title, 18);
         title.setTextFill(Color.web("#9b59b6"));
         content.getChildren().add(title);
@@ -1031,7 +1042,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
         
-        Button deleteBtn = new Button("✕ Delete");
+        Button deleteBtn = new Button("Delete");
+        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("\u2715", 12));
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
@@ -1066,15 +1078,18 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         String endTime = session.getEndTime() != null ? 
             session.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "Unknown";
         
-        Label timeLabel = new Label("⏰ " + startTime + " - " + endTime + " (" + session.getDurationMinutes() + " min)");
+        Label timeLabel = new Label(startTime + " - " + endTime + " (" + session.getDurationMinutes() + " min)");
+        timeLabel.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 12));
         TaskStyleUtils.fontBold(timeLabel, 12);
-        
+
         // Focus and points
-        Label focusLabel = new Label("◎ Focus: " + "★".repeat(session.getFocusLevel()) + "☆".repeat(5 - session.getFocusLevel()) + " (" + session.getFocusLevel() + "/5)");
+        Label focusLabel = new Label("Focus: " + "\u2605".repeat(session.getFocusLevel()) + "\u2606".repeat(5 - session.getFocusLevel()) + " (" + session.getFocusLevel() + "/5)");
+        focusLabel.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 11));
         TaskStyleUtils.fontNormal(focusLabel, 11);
         focusLabel.setTextFill(Color.web("#f39c12"));
-        
-        Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " points earned");
+
+        Label pointsLabel = new Label(session.getPointsEarned() + " points earned");
+        pointsLabel.setGraphic(TaskStyleUtils.iconLabel("\u2666", 11));
         TaskStyleUtils.fontNormal(pointsLabel, 11);
         pointsLabel.setTextFill(Color.web("#27ae60"));
         
@@ -1091,7 +1106,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
         
-        Button deleteBtn = new Button("✕ Delete");
+        Button deleteBtn = new Button("Delete");
+        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("\u2715", 12));
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
@@ -1123,17 +1139,20 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         Project project = projectService.getProjectById(session.getProjectId()).orElse(null);
         String projectTitle = project != null ? project.getTitle() : "Unknown Project";
         
-        Label projectLabel = new Label("📁 " + projectTitle);
+        Label projectLabel = new Label(projectTitle);
+        projectLabel.setGraphic(TaskStyleUtils.iconLabel("\uD83D\uDCC1", 12));
         TaskStyleUtils.fontBold(projectLabel, 12);
-        
+
         // Time and duration
-        String startTime = session.getStartTime() != null ? 
+        String startTime = session.getStartTime() != null ?
             session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "Unknown";
-        
-        Label timeLabel = new Label("⏰ " + startTime + " (" + session.getDurationMinutes() + " min)");
+
+        Label timeLabel = new Label(startTime + " (" + session.getDurationMinutes() + " min)");
+        timeLabel.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 11));
         TaskStyleUtils.fontNormal(timeLabel, 11);
-        
-        Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " points earned");
+
+        Label pointsLabel = new Label(session.getPointsEarned() + " points earned");
+        pointsLabel.setGraphic(TaskStyleUtils.iconLabel("\u2666", 11));
         TaskStyleUtils.fontNormal(pointsLabel, 11);
         pointsLabel.setTextFill(Color.web("#27ae60"));
         
@@ -1143,7 +1162,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
         
-        Button deleteBtn = new Button("✕ Delete");
+        Button deleteBtn = new Button("Delete");
+        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("\u2715", 12));
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);

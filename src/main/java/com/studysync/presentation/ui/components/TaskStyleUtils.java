@@ -65,6 +65,17 @@ public final class TaskStyleUtils {
     }
 
     /**
+     * Creates a small Label with the Noto Emoji font, suitable for use
+     * as a {@link Labeled#setGraphic(javafx.scene.Node) graphic} on
+     * buttons or labels that mix icon characters with regular text.
+     */
+    public static Label iconLabel(String icon, int size) {
+        Label lbl = new Label(icon);
+        fontEmoji(lbl, size);
+        return lbl;
+    }
+
+    /**
      * Appends CSS properties to a node's existing inline style.
      * If the node already has an inline style, the new properties are
      * appended (separated by a space).
@@ -206,7 +217,8 @@ public final class TaskStyleUtils {
      * {@code setStyle()}.
      */
     public static Label createOverdueBadge() {
-        Label badge = new Label("\u26A0 Overdue");
+        Label badge = new Label("Overdue");
+        badge.setGraphic(iconLabel("\u26A0", 10));
         badge.setPadding(new Insets(2, 6, 2, 6));
         badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 10;");
         fontBold(badge, 10);
@@ -238,7 +250,8 @@ public final class TaskStyleUtils {
      * a recurring task was scheduled but had no achieved linked goal.
      */
     public static Label createMissedBadge() {
-        Label badge = new Label("\u26A0 Missed");
+        Label badge = new Label("Missed");
+        badge.setGraphic(iconLabel("\u26A0", 10));
         badge.setPadding(new Insets(2, 6, 2, 6));
         badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 10;");
         fontBold(badge, 10);
@@ -255,7 +268,8 @@ public final class TaskStyleUtils {
     public static Label createMissedDayBadge(LocalDate missedDate) {
         String dayName = missedDate.getDayOfWeek()
                 .getDisplayName(TextStyle.SHORT, Locale.getDefault());
-        Label badge = new Label("\u26A0 Missed " + dayName);
+        Label badge = new Label("Missed " + dayName);
+        badge.setGraphic(iconLabel("\u26A0", 10));
         badge.setPadding(new Insets(2, 6, 2, 6));
         badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 10;");
         fontBold(badge, 10);
