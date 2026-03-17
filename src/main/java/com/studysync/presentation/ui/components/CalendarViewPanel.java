@@ -228,13 +228,19 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         int daysInMonth = currentMonth.lengthOfMonth();
         int row = 0;
         int col = startCol;
-        
+
+        // Batch-query all achieved (task, date) pairs for the visible month
+        // to avoid an N+1 SQL query per recurring task per day cell.
+        LocalDate monthStart = currentMonth.atDay(1);
+        LocalDate monthEnd = currentMonth.atEndOfMonth();
+        java.util.Set<String> achievedPairs = StudyGoal.findAchievedTaskDatePairs(monthStart, monthEnd);
+
         for (int day = 1; day <= daysInMonth; day++) {
             LocalDate date = currentMonth.atDay(day);
-            VBox dayCell = createDayCell(date);
-            
+            VBox dayCell = createDayCell(date, achievedPairs);
+
             calendarGrid.add(dayCell, col, row);
-            
+
             col++;
             if (col >= DAYS_IN_WEEK) {
                 col = 0;
@@ -242,8 +248,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             }
         }
     }
-    
-    private VBox createDayCell(LocalDate date) {
+
+    private VBox createDayCell(LocalDate date, java.util.Set<String> achievedPairs) {
         VBox dayCell = new VBox(5);
         dayCell.setPrefSize(CELL_WIDTH, CELL_HEIGHT);
         dayCell.setPadding(new Insets(8));
@@ -335,7 +341,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             if (date.isBefore(today)) {
                 missedCount = dayData.tasks.stream()
                         .filter(Task::isRecurring)
-                        .filter(t -> !StudyGoal.hasAchievedGoalForTask(t.getId(), date))
+                        .filter(t -> !achievedPairs.contains(t.getId() + "|" + date))
                         .count();
             }
             long handledRecurring = dayData.tasks.stream().filter(Task::isRecurring).count() - missedCount;
