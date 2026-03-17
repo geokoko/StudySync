@@ -1253,6 +1253,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         notesArea.setPromptText("What did you accomplish?");
         notesArea.setPrefRowCount(3);
 
+        Label errorLabel = new Label();
+        errorLabel.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
+        errorLabel.setTextFill(Color.web("#e74c3c"));
+        errorLabel.setWrapText(true);
+        errorLabel.setVisible(false);
+        errorLabel.setManaged(false);
+
         Button okBtn = new Button("OK");
         okBtn.getStyleClass().add("btn-primary");
         Button cancelBtn = new Button("Cancel");
@@ -1268,10 +1275,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 updateSessionsDisplay();
                 updateProgress();
             } catch (Exception ex) {
-                Label err = new Label("Failed to save session: " + ex.getMessage());
-                err.setTextFill(Color.web("#e74c3c"));
-                err.setWrapText(true);
-                content.getChildren().add(err);
+                errorLabel.setText("Failed to save session: " + ex.getMessage());
+                errorLabel.setVisible(true);
+                errorLabel.setManaged(true);
             }
         });
 
@@ -1279,7 +1285,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         btnRow.setAlignment(Pos.CENTER_RIGHT);
 
         content.getChildren().addAll(headerLabel, focusLabel, focusSlider, focusWarning,
-                new Label("Notes:"), notesArea, btnRow);
+                new Label("Notes:"), notesArea, errorLabel, btnRow);
         showModal.accept(content);
     }
 

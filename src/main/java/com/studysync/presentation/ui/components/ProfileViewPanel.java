@@ -194,9 +194,11 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             String email = googleDriveService.getSignedInAccountEmail().orElse("Google Account");
             String statusText = "Connected as " + email + ".";
             if (googleDriveService.isLocalDbDirty()) {
-                statusText += " \u26A0 Local changes not yet uploaded to Drive.";
+                statusText += " Local changes not yet uploaded to Drive.";
+                driveStatusLabel.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 13));
                 driveHintLabel.setText("Upload your database to keep Drive up to date.");
             } else {
+                driveStatusLabel.setGraphic(null);
                 driveHintLabel.setText("Your database uploads to Drive when you close the app.");
             }
             driveStatusLabel.setText(statusText);
