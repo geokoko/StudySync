@@ -593,8 +593,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         statusBadge.setTextFill(TaskStyleUtils.statusTextColor(task.getStatus()));
 
         if (task.isRecurring()) {
-            Label recurBadge = new Label("\uD83D\uDD01");
-            TaskStyleUtils.fontEmoji(recurBadge, 12);
+            Label recurBadge = TaskStyleUtils.iconLabel("\u21BA", 12);
             recurBadge.setTooltip(new Tooltip(task.getRecurringSummary()));
             headerRow.getChildren().add(recurBadge);
         }
@@ -856,7 +855,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         String endStr = session.getEndTime() != null
                 ? session.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "?";
 
-        Label timeLabel = new Label("⏰ " + startStr + "–" + endStr);
+        Label timeLabel = new Label(startStr + "\u2013" + endStr);
+        timeLabel.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 12));
         TaskStyleUtils.fontBold(timeLabel, 12);
 
         Label durationLabel = new Label(session.getDurationMinutes() + " min");
@@ -865,12 +865,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         // Focus stars (compact)
         StringBuilder stars = new StringBuilder();
-        for (int i = 1; i <= 5; i++) stars.append(i <= session.getFocusLevel() ? "★" : "☆");
+        for (int i = 1; i <= 5; i++) stars.append(i <= session.getFocusLevel() ? "\u2605" : "\u2606");
         Label focusLabel = new Label(stars.toString());
-        TaskStyleUtils.fontNormal(focusLabel, 12);
+        TaskStyleUtils.fontEmoji(focusLabel, 12);
         focusLabel.setTextFill(Color.web("#f39c12"));
 
-        Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " pts");
+        Label pointsLabel = new Label(session.getPointsEarned() + " pts");
+        pointsLabel.setGraphic(TaskStyleUtils.iconLabel("\u2666", 11));
         TaskStyleUtils.fontSemiBold(pointsLabel, 11);
         pointsLabel.setTextFill(Color.web("#27ae60"));
 
@@ -883,7 +884,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         detailsBtn.setStyle("-fx-padding: 3 7;");
         detailsBtn.setOnAction(e -> showSessionDetails(session));
 
-        Button deleteBtn = new Button("✕");
+        Button deleteBtn = new Button("\u2715");
+        TaskStyleUtils.fontEmoji(deleteBtn, 11);
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setStyle("-fx-padding: 3 7;");
         deleteBtn.setOnAction(e -> {
@@ -1230,7 +1232,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         focusSlider.setMajorTickUnit(1);
         focusSlider.setSnapToTicks(true);
 
-        Label focusWarning = new Label("• Average focus.");
+        Label focusWarning = new Label("Average focus.");
         TaskStyleUtils.fontNormal(focusWarning, 11);
         focusWarning.setWrapText(true);
         focusWarning.setTextFill(Color.web("#f39c12"));
@@ -1238,13 +1240,16 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         focusSlider.valueProperty().addListener((obs, o, nv) -> {
             int lv = nv.intValue();
             if (lv <= 2) {
-                focusWarning.setText("[!] Low focus — point penalties will apply.");
+                focusWarning.setText("Low focus \u2014 point penalties will apply.");
+                focusWarning.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 11));
                 focusWarning.setTextFill(Color.web("#e74c3c"));
             } else if (lv == 3) {
-                focusWarning.setText("• Average focus.");
+                focusWarning.setText("Average focus.");
+                focusWarning.setGraphic(null);
                 focusWarning.setTextFill(Color.web("#f39c12"));
             } else {
-                focusWarning.setText("[✓] Great focus! Bonus points incoming.");
+                focusWarning.setText("Great focus! Bonus points incoming.");
+                focusWarning.setGraphic(TaskStyleUtils.iconLabel("\u2713", 11));
                 focusWarning.setTextFill(Color.web("#27ae60"));
             }
         });
@@ -1301,11 +1306,15 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         TabPane detailsTabs = new TabPane();
         detailsTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        detailsTabs.getTabs().addAll(
-                new Tab("◎ Overview", createOverviewTab(session)),
-                new Tab("◎ Progress", createProgressTab(session)),
-                new Tab("▪ Notes", createNotesTab(session)),
-                new Tab("↯ Performance", createPerformanceTab(session))
+        Tab overviewTab = new Tab("Overview", createOverviewTab(session));
+        overviewTab.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 12));
+        Tab progressTab = new Tab("Progress", createProgressTab(session));
+        progressTab.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 12));
+        Tab notesTab = new Tab("Notes", createNotesTab(session));
+        notesTab.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 12));
+        Tab perfTab = new Tab("Performance", createPerformanceTab(session));
+        perfTab.setGraphic(TaskStyleUtils.iconLabel("\u21AF", 12));
+        detailsTabs.getTabs().addAll(overviewTab, progressTab, notesTab, perfTab
         );
         mainContent.getChildren().add(detailsTabs);
 
@@ -1350,11 +1359,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox metrics = new HBox(30);
         metrics.setAlignment(Pos.CENTER_LEFT);
         metrics.getChildren().addAll(
-                createMetricBox("⌚", session.getDurationMinutes() + " min", "Duration"),
-                createMetricBox("◎",
-                        "★".repeat(session.getFocusLevel()) + "☆".repeat(5 - session.getFocusLevel()),
+                createMetricBox("\u231A", session.getDurationMinutes() + " min", "Duration"),
+                createMetricBox("\u25CE",
+                        "\u2605".repeat(session.getFocusLevel()) + "\u2606".repeat(5 - session.getFocusLevel()),
                         "Focus"),
-                createMetricBox("♦", session.getPointsEarned() + " pts", "Points")
+                createMetricBox("\u2666", session.getPointsEarned() + " pts", "Points")
         );
 
         header.getChildren().addAll(sessionTitle, dateTime, metrics);
@@ -1365,7 +1374,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox box = new VBox(5);
         box.setAlignment(Pos.CENTER);
         Label iconL = new Label(icon);
-        TaskStyleUtils.fontNormal(iconL, 20);
+        TaskStyleUtils.fontEmoji(iconL, 20);
         Label valueL = new Label(value);
         TaskStyleUtils.fontBold(valueL, 18);
         valueL.setTextFill(Color.WHITE);
@@ -1382,7 +1391,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox timeSection = new VBox(10);
         timeSection.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 10; -fx-padding: 15;");
-        Label timeTitle = new Label("⏰ Time Breakdown");
+        Label timeTitle = new Label("Time Breakdown");
+        timeTitle.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 16));
         TaskStyleUtils.fontBold(timeTitle, 16);
 
         GridPane grid = new GridPane();
@@ -1408,13 +1418,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox focusSection = new VBox(15);
         focusSection.setStyle("-fx-background-color: #fff3cd; -fx-background-radius: 10; -fx-padding: 15;");
-        Label focusTitle = new Label("◎ Focus & Productivity");
+        Label focusTitle = new Label("Focus & Productivity");
+        focusTitle.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 16));
         TaskStyleUtils.fontBold(focusTitle, 16);
 
         HBox starsBox = new HBox(2);
         for (int i = 1; i <= 5; i++) {
-            Label star = new Label(i <= session.getFocusLevel() ? "★" : "☆");
-            TaskStyleUtils.fontNormal(star, 20);
+            Label star = new Label(i <= session.getFocusLevel() ? "\u2605" : "\u2606");
+            TaskStyleUtils.fontEmoji(star, 20);
             star.setTextFill(i <= session.getFocusLevel() ? Color.web("#f39c12") : Color.web("#bdc3c7"));
             starsBox.getChildren().add(star);
         }
@@ -1431,7 +1442,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private VBox createNotesTab(StudySession session) {
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
-        Label notesTitle = new Label("▪ Session Notes");
+        Label notesTitle = new Label("Session Notes");
+        notesTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 18));
         TaskStyleUtils.fontBold(notesTitle, 18);
 
         String text = session.getSessionText();
@@ -1451,7 +1463,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox compSection = new VBox(15);
         compSection.setStyle("-fx-background-color: #f0f8ff; -fx-background-radius: 10; -fx-padding: 15;");
-        Label compTitle = new Label("▪ Performance Analysis");
+        Label compTitle = new Label("Performance Analysis");
+        compTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 16));
         TaskStyleUtils.fontBold(compTitle, 16);
 
         List<StudySession> recent = studyService.getRecentStudySessions(7);

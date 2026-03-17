@@ -74,13 +74,23 @@ public class StudySyncUI {
         this.databaseReloadService = Objects.requireNonNull(databaseReloadService, "databaseReloadService");
 
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
-        panels.put(new Tab("▦ Calendar View"), new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
-        panels.put(new Tab("✎ Study Planner"), new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService,
+        Tab calendarTab = new Tab("Calendar View");
+        calendarTab.setGraphic(TaskStyleUtils.iconLabel("\u25A6", 14));
+        panels.put(calendarTab, new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
+        Tab plannerTab = new Tab("Study Planner");
+        plannerTab.setGraphic(TaskStyleUtils.iconLabel("\u270E", 14));
+        panels.put(plannerTab, new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService,
                 this.categoryService, this::showModal, this::closeModal));
-        panels.put(new Tab("★ Reflection Diary"), new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
-        panels.put(new Tab("≡ Projects"), new ProjectManagementPanel(this.projectService, this.categoryService,
+        Tab reflectionTab = new Tab("Reflection Diary");
+        reflectionTab.setGraphic(TaskStyleUtils.iconLabel("\u2605", 14));
+        panels.put(reflectionTab, new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
+        Tab projectsTab = new Tab("Projects");
+        projectsTab.setGraphic(TaskStyleUtils.iconLabel("\u2261", 14));
+        panels.put(projectsTab, new ProjectManagementPanel(this.projectService, this.categoryService,
                 this::showModal, this::closeModal));
-        panels.put(new Tab("☑ Tasks"), new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService,
+        Tab tasksTab = new Tab("Tasks");
+        tasksTab.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
+        panels.put(tasksTab, new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService,
                 this::showModal, this::closeModal));
         panelMap = Collections.unmodifiableMap(panels);
     }
@@ -240,7 +250,8 @@ public class StudySyncUI {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         
         // Profile button
-        Button profileButton = new Button("☻ Profile");
+        Button profileButton = new Button("Profile");
+        profileButton.setGraphic(TaskStyleUtils.iconLabel("\u263B", 14));
         profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;");
         profileButton.setOnMouseEntered(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.3); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.7); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;"));
         profileButton.setOnMouseExited(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;"));

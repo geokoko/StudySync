@@ -168,14 +168,15 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         legendSection.getStyleClass().add("section-card");
         legendSection.setPadding(new Insets(15));
         
-        Label legendTitle = new Label("» Calendar Legend");
+        Label legendTitle = new Label("Calendar Legend");
+        legendTitle.setGraphic(TaskStyleUtils.iconLabel("\u00BB", 16));
         TaskStyleUtils.fontBold(legendTitle, 16);
         
         HBox legendItems = new HBox(30);
         legendItems.setAlignment(Pos.CENTER_LEFT);
         
         // Today indicator
-        VBox todayItem = createLegendItem("\uD83D\uDCC5", "Today", "#3498db");
+        VBox todayItem = createLegendItem("\u25C6", "Today", "#3498db");
         
         // High productivity indicator
         VBox highProdItem = createLegendItem("\u2605\u2605", "High Productivity", "#27ae60");
@@ -184,7 +185,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         VBox medProdItem = createLegendItem("\u2B50", "Medium Productivity", "#f39c12");
         
         // Low/No productivity indicator
-        VBox lowProdItem = createLegendItem("\uD83D\uDCC8", "Low/No Activity", "#95a5a6");
+        VBox lowProdItem = createLegendItem("\u25CB", "Low/No Activity", "#95a5a6");
         
         // Goals indicator
         VBox goalsItem = createLegendItem("\u25CE", "Goals Achieved", "#9b59b6");
@@ -293,7 +294,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             HBox sessionsBox = new HBox(3);
             sessionsBox.setAlignment(Pos.CENTER_LEFT);
             
-            Label sessionIcon = new Label("\uD83D\uDCDA");
+            Label sessionIcon = new Label("\u25B8");
             TaskStyleUtils.fontEmoji(sessionIcon, 12);
             
             Label sessionText = new Label(dayData.totalSessions + "s");
@@ -508,7 +509,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
     private String getProductivityIcon(double score) {
         if (score >= 70) return "\u2605\u2605"; // High productivity
         else if (score >= 40) return "\u2B50"; // Medium productivity  
-        else if (score >= 10) return "\uD83D\uDCC8"; // Low productivity
+        else if (score >= 10) return "\u25CB"; // Low productivity
         else return ""; // No activity
     }
     
@@ -546,7 +547,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         tabPane.setPrefSize(800, 600);
         
         // Overview Tab
-        Tab overviewTab = new Tab("▪ Overview", scrollWrap(createOverviewTab(date, dayData)));
+        Tab overviewTab = new Tab("Overview", scrollWrap(createOverviewTab(date, dayData)));
+        overviewTab.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 12));
         
         // Goals Tab  
         Tab goalsTab = new Tab("Goals");
@@ -655,7 +657,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         VBox section = new VBox(10);
         section.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 10; -fx-padding: 20;");
         
-        Label reflectionTitle = new Label("\uD83D\uDCAD Daily Reflection");
+        Label reflectionTitle = new Label("Daily Reflection");
+        reflectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u270E", 16));
         TaskStyleUtils.fontBold(reflectionTitle, 16);
         
         try {
@@ -715,10 +718,11 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         List<StudyGoal> studyGoals = getFilteredStudyGoalsForDate(date);
         
         if (studyGoals.isEmpty()) {
-            String emptyMessage = isFutureDate 
-                ? "\uD83D\uDCC5 No goals planned yet. Click the button above to plan ahead!"
-                : "\uD83D\uDCED No goals recorded for this date";
+            String emptyMessage = isFutureDate
+                ? "No goals planned yet. Click the button above to plan ahead!"
+                : "No goals recorded for this date";
             Label noGoalsLabel = new Label(emptyMessage);
+            noGoalsLabel.setGraphic(TaskStyleUtils.iconLabel(isFutureDate ? "\u25C6" : "\u25CB", 14));
             TaskStyleUtils.fontNormal(noGoalsLabel, 14);
             noGoalsLabel.setTextFill(Color.GRAY);
             noGoalsLabel.setPadding(new Insets(30));
@@ -748,7 +752,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         List<ProjectSession> projectSessions = projectService.getProjectSessionsForDate(date);
         
         if (studySessions.isEmpty() && projectSessions.isEmpty()) {
-            Label noSessionsLabel = new Label("\uD83D\uDCED No sessions recorded for this date");
+            Label noSessionsLabel = new Label("No sessions recorded for this date");
+            noSessionsLabel.setGraphic(TaskStyleUtils.iconLabel("\u25CB", 16));
             TaskStyleUtils.fontNormal(noSessionsLabel, 16);
             noSessionsLabel.setTextFill(Color.GRAY);
             noSessionsLabel.setPadding(new Insets(50));
@@ -771,7 +776,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         
         // Project Sessions
         if (!projectSessions.isEmpty()) {
-            Label projectTitle = new Label("\uD83D\uDE80 Project Sessions (" + projectSessions.size() + ")");
+            Label projectTitle = new Label("Project Sessions (" + projectSessions.size() + ")");
+            projectTitle.setGraphic(TaskStyleUtils.iconLabel("\u2261", 16));
             TaskStyleUtils.fontBold(projectTitle, 16);
             projectTitle.setTextFill(Color.web("#e74c3c"));
             projectTitle.setPadding(new Insets(15, 0, 5, 0));
@@ -829,7 +835,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             statusBadge.setTextFill(TaskStyleUtils.statusTextColor(task.getStatus()));
 
             if (task.isRecurring()) {
-                Label recurBadge = new Label("\uD83D\uDD01");
+                Label recurBadge = new Label("\u21BA");
                 TaskStyleUtils.fontNormal(recurBadge, 12);
                 recurBadge.setTooltip(new Tooltip(task.getRecurringSummary()));
                 headerRow.getChildren().add(recurBadge);
@@ -897,7 +903,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         VBox performanceSection = new VBox(15);
         performanceSection.setStyle("-fx-background-color: #f0f8ff; -fx-background-radius: 10; -fx-padding: 20;");
         
-        Label performanceTitle = new Label("↑ Performance Analysis");
+        Label performanceTitle = new Label("Performance Analysis");
+        performanceTitle.setGraphic(TaskStyleUtils.iconLabel("\u2191", 18));
         TaskStyleUtils.fontBold(performanceTitle, 18);
         
         // Performance breakdown
@@ -1146,7 +1153,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         String projectTitle = project != null ? project.getTitle() : "Unknown Project";
         
         Label projectLabel = new Label(projectTitle);
-        projectLabel.setGraphic(TaskStyleUtils.iconLabel("\uD83D\uDCC1", 12));
+        projectLabel.setGraphic(TaskStyleUtils.iconLabel("\u2261", 12));
         TaskStyleUtils.fontBold(projectLabel, 12);
 
         // Time and duration

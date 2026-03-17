@@ -86,7 +86,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
 
     private void initializeComponents(VBox mainContent) {
         // Header
-        Label headerLabel = new Label("👤 Study Profile & Analytics");
+        Label headerLabel = new Label("Study Profile & Analytics");
+        headerLabel.setGraphic(TaskStyleUtils.iconLabel("\u2606", 24));
         TaskStyleUtils.fontBold(headerLabel, 24);
         
         VBox driveSyncSection = createDriveSyncSection();
@@ -246,7 +247,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         VBox section = new VBox(15);
         section.getStyleClass().add("section-card");
         
-        Label sectionTitle = new Label("▪ Overall Performance");
+        Label sectionTitle = new Label("Overall Performance");
+        sectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 18));
         TaskStyleUtils.fontBold(sectionTitle, 18);
         
         // Profile summary with dynamic content
@@ -357,8 +359,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         item.setPadding(new Insets(8, 12, 8, 12));
         item.setStyle("-fx-background-color: #e8f5e8; -fx-background-radius: 5; -fx-border-color: #27ae60; -fx-border-radius: 5;");
         
-        Label checkLabel = new Label("✅");
-        TaskStyleUtils.fontNormal(checkLabel, 14);
+        Label checkLabel = new Label("\u2713");
+        TaskStyleUtils.fontEmoji(checkLabel, 14);
         
         VBox textContainer = new VBox(2);
         
@@ -449,8 +451,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         item.setPadding(new Insets(10, 15, 10, 15));
         item.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 8; -fx-border-color: #27ae60; -fx-border-radius: 8; -fx-border-width: 1;");
         
-        Label checkLabel = new Label("✅");
-        TaskStyleUtils.fontNormal(checkLabel, 16);
+        Label checkLabel = new Label("\u2713");
+        TaskStyleUtils.fontEmoji(checkLabel, 16);
         
         VBox textContainer = new VBox(4);
         HBox.setHgrow(textContainer, Priority.ALWAYS);
@@ -585,7 +587,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             VBox focusChartBox = new VBox(10);
             focusChartBox.getStyleClass().add("section-card");
             focusChartBox.setPadding(new Insets(15));
-            Label focusChartTitle = new Label("↑ Focus Level Trend (Last 14 Days)");
+            Label focusChartTitle = new Label("Focus Level Trend (Last 14 Days)");
+            focusChartTitle.setGraphic(TaskStyleUtils.iconLabel("\u2191", 16));
             TaskStyleUtils.fontBold(focusChartTitle, 16);
             focusChartBox.getChildren().addAll(focusChartTitle, focusChart);
             
@@ -594,7 +597,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             VBox productivityChartBox = new VBox(10);
             productivityChartBox.getStyleClass().add("section-card");
             productivityChartBox.setPadding(new Insets(15));
-            Label productivityChartTitle = new Label("▪ Daily Study Time (Last 7 Days)");
+            Label productivityChartTitle = new Label("Daily Study Time (Last 7 Days)");
+            productivityChartTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 16));
             TaskStyleUtils.fontBold(productivityChartTitle, 16);
             productivityChartBox.getChildren().addAll(productivityChartTitle, productivityChart);
             
