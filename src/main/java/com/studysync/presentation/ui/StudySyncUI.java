@@ -178,6 +178,12 @@ public class StudySyncUI {
             taskService.resetAfterReload();
             studyService.resetAfterReload();
 
+            // Re-run the startup-only processing steps against the new DB.
+            // Without this, overdue tasks won't be marked DELAYED and
+            // delayed goals won't be processed until the next app restart.
+            markDelayedTasksOnStartup();
+            processDelayedGoalsOnStartup();
+
             hideReloadOverlay();
             refreshAllPanels();
         }));
