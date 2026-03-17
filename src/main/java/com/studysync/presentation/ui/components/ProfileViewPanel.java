@@ -129,7 +129,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         driveActionStatusLabel.setTextFill(Color.web("#16a085"));
         
         driveSignInButton = new Button("Sign in with Google");
-        driveSignInButton.setGraphic(TaskStyleUtils.iconLabel("\uD83D\uDD10", 14));
+        driveSignInButton.setGraphic(TaskStyleUtils.iconLabel("\u2192", 14));
         driveSignInButton.getStyleClass().add("btn-google");
         driveSignInButton.setOnAction(e -> runDriveAction(
             "Opening Google sign-in…",
@@ -139,7 +139,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         ));
         
         driveSignOutButton = new Button("Sign out");
-        driveSignOutButton.setGraphic(TaskStyleUtils.iconLabel("\uD83D\uDD12", 14));
+        driveSignOutButton.setGraphic(TaskStyleUtils.iconLabel("\u2716", 14));
         driveSignOutButton.getStyleClass().add("btn-gray");
         driveSignOutButton.setOnAction(e -> runDriveAction(
             "Signing out…",
@@ -152,7 +152,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         ));
         
         driveSyncButton = new Button("Sync to Drive now");
-        driveSyncButton.setGraphic(TaskStyleUtils.iconLabel("\u2B06", 14));
+        driveSyncButton.setGraphic(TaskStyleUtils.iconLabel("\u2191", 14));
         driveSyncButton.getStyleClass().add("btn-success");
         driveSyncButton.setOnAction(e -> runDriveAction(
             "Uploading database to Google Drive…",
@@ -162,7 +162,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         ));
 
         driveDownloadButton = new Button("Download from Drive");
-        driveDownloadButton.setGraphic(TaskStyleUtils.iconLabel("\u2B07", 14));
+        driveDownloadButton.setGraphic(TaskStyleUtils.iconLabel("\u2193", 14));
         driveDownloadButton.getStyleClass().add("btn-orange-download");
         driveDownloadButton.setOnAction(e -> runDriveAction(
             "Downloading database from Google Drive…",
