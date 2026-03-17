@@ -338,7 +338,8 @@ public class Task {
                     anchorMonday,
                     date.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)));
             return weeksBetween >= 0 && weeksBetween % intervalWeeks == 0;
-        } catch (Exception e) {
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            logger.warn("Invalid recurring pattern '{}' on task {}", recurringPattern, id);
             return false;
         }
     }

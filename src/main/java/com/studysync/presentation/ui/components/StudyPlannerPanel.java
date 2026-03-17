@@ -14,6 +14,7 @@ import com.studysync.domain.entity.Task;
 import com.studysync.domain.valueobject.TaskCategory;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
+import javafx.util.Callback;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -75,6 +76,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private ProgressBar dailyProgressBar;
     private Label progressLabel;
     private Label dateNavLabel;
+    private final Label dateNavIcon = TaskStyleUtils.iconLabel("\u25A6", 22);
     private TextArea sessionTextArea;
 
     // ──────────────────────────────────────────────
@@ -497,7 +499,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         combo.getItems().addAll(candidates);
         combo.setVisibleRowCount(Math.min(candidates.size(), 15));
         combo.setMaxWidth(Double.MAX_VALUE);
-        combo.setCellFactory(lv -> new ListCell<>() {
+        Callback<ListView<StudyGoal>, ListCell<StudyGoal>> cellFactory = lv -> new ListCell<>() {
             @Override
             protected void updateItem(StudyGoal goal, boolean empty) {
                 super.updateItem(goal, empty);
@@ -509,20 +511,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                     setGraphic(null);
                 }
             }
-        });
-        combo.setButtonCell(new ListCell<>() {
-            @Override
-            protected void updateItem(StudyGoal goal, boolean empty) {
-                super.updateItem(goal, empty);
-                if (empty || goal == null) {
-                    setText(null);
-                    setGraphic(null);
-                } else {
-                    setText(formatDelayedGoal(goal, taskTitles));
-                    setGraphic(null);
-                }
-            }
-        });
+        };
+        combo.setCellFactory(cellFactory);
+        combo.setButtonCell(cellFactory.call(null));
         combo.setPromptText("Select a delayed goal to re-plan...");
 
         Button replanBtn = new Button("Re-plan for Today");
@@ -1566,7 +1557,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     public void updateDisplay() {
         boolean isToday = displayDate.equals(dateTimeService.getCurrentDate());
         String prefix = isToday ? "Today \u2014 " : "";
-        dateNavLabel.setGraphic(TaskStyleUtils.iconLabel("\u25A6", 22));
+        dateNavLabel.setGraphic(dateNavIcon);
         dateNavLabel.setText(prefix + displayDate.format(
                 DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")));
 
