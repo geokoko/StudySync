@@ -584,7 +584,7 @@ public class Task {
             throw new IllegalStateException("JdbcTemplate not initialized");
         }
 
-        String sql = "SELECT * FROM tasks WHERE recurring_pattern IS NOT NULL AND status NOT IN ('COMPLETED', 'CANCELLED') ORDER BY created_at DESC";
+        String sql = "SELECT * FROM tasks WHERE recurring_pattern IS NOT NULL AND status NOT IN ('COMPLETED', 'CANCELLED', 'POSTPONED') ORDER BY created_at DESC";
         return jdbcTemplate.query(sql, getRowMapper());
     }
     
