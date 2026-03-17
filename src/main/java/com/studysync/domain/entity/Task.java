@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -306,42 +305,6 @@ public class Task {
      */
     public boolean isRecurring() {
         return recurringPattern != null && !recurringPattern.isBlank();
-    }
-
-    /**
-     * Checks whether this recurring task is scheduled on the given date
-     * according to its recurrence pattern and anchor.
-     *
-     * @param date the date to test
-     * @return true if the task recurs on {@code date}; always false for non-recurring tasks
-     */
-    public boolean appliesToDate(LocalDate date) {
-        if (!isRecurring()) return false;
-        try {
-            String[] parts = recurringPattern.split(":");
-            int intervalWeeks = Integer.parseInt(parts[0]);
-            String[] dayNums = parts[1].split(",");
-
-            int dateDow = date.getDayOfWeek().getValue(); // 1=MON..7=SUN
-            boolean dayMatches = false;
-            for (String d : dayNums) {
-                if (Integer.parseInt(d.trim()) == dateDow) {
-                    dayMatches = true;
-                    break;
-                }
-            }
-            if (!dayMatches) return false;
-
-            LocalDate anchorMonday = getRecurrenceAnchor()
-                    .with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-            long weeksBetween = java.time.temporal.ChronoUnit.WEEKS.between(
-                    anchorMonday,
-                    date.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)));
-            return weeksBetween >= 0 && weeksBetween % intervalWeeks == 0;
-        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
-            logger.warn("Invalid recurring pattern '{}' on task {}", recurringPattern, id);
-            return false;
-        }
     }
 
     /**

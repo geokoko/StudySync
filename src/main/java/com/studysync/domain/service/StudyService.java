@@ -22,6 +22,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -168,33 +169,27 @@ public class StudyService {
 
     /**
      * Returns delayed, unachieved goals that are eligible for manual rescheduling
-     * to today. Goals linked to CANCELLED or POSTPONED tasks are excluded.
-     * Goals from recurring tasks are excluded when the task already applies to
-     * today (the task will naturally re-occur, making manual re-planning redundant).
+     * to today. A goal is excluded when its parent task already appears in today's
+     * task list (the goal is already accessible directly), or when the task is
+     * CANCELLED or POSTPONED.
      *
+     * @param todayTaskIds IDs of tasks visible in today's planner
      * @return list of goals the user can choose to re-plan for today
      */
     @Transactional(readOnly = true)
-    public List<StudyGoal> getDelayedGoalsForReplanning() {
-        LocalDate today = dateTimeService.getCurrentDate();
+    public List<StudyGoal> getDelayedGoalsForReplanning(Set<String> todayTaskIds) {
         return StudyGoal.findDelayedAndNotReplanned().stream()
                 .filter(goal -> {
                     if (goal.getTaskId() == null || goal.getTaskId().isBlank()) {
-                        return false; // Only show goals tied to a task
+                        return false;
+                    }
+                    // Task already visible today — goal is accessible directly.
+                    if (todayTaskIds.contains(goal.getTaskId())) {
+                        return false;
                     }
                     return Task.findById(goal.getTaskId())
-                            .map(task -> {
-                                if (task.getStatus() == TaskStatus.CANCELLED
-                                        || task.getStatus() == TaskStatus.POSTPONED) {
-                                    return false;
-                                }
-                                // For recurring tasks, hide the goal when the task
-                                // already applies today (it will surface naturally).
-                                if (task.isRecurring() && task.appliesToDate(today)) {
-                                    return false;
-                                }
-                                return true;
-                            })
+                            .map(task -> task.getStatus() != TaskStatus.CANCELLED
+                                      && task.getStatus() != TaskStatus.POSTPONED)
                             .orElse(false);
                 })
                 .collect(Collectors.toList());

@@ -419,7 +419,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         // Re-plan section — only available when viewing today
         if (displayDate.equals(today)) {
-            tasksContainer.getChildren().add(buildReplanSection());
+            Set<String> todayTaskIds = tasks.stream()
+                    .map(Task::getId)
+                    .collect(Collectors.toSet());
+            tasksContainer.getChildren().add(buildReplanSection(todayTaskIds));
         }
     }
 
@@ -465,8 +468,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
      * Shows a ComboBox of delayed goals (from non-cancelled/non-postponed tasks)
      * and a button to reschedule the selected goal to appear today exactly once.
      */
-    private VBox buildReplanSection() {
-        List<StudyGoal> candidates = studyService.getDelayedGoalsForReplanning();
+    private VBox buildReplanSection(Set<String> todayTaskIds) {
+        List<StudyGoal> candidates = studyService.getDelayedGoalsForReplanning(todayTaskIds);
 
         VBox section = new VBox(8);
         section.setPadding(new Insets(14, 0, 0, 0));
