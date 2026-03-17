@@ -495,19 +495,32 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         ComboBox<StudyGoal> combo = new ComboBox<>();
         combo.getItems().addAll(candidates);
+        combo.setVisibleRowCount(Math.min(candidates.size(), 15));
         combo.setMaxWidth(Double.MAX_VALUE);
         combo.setCellFactory(lv -> new ListCell<>() {
             @Override
             protected void updateItem(StudyGoal goal, boolean empty) {
                 super.updateItem(goal, empty);
-                setText(empty || goal == null ? "" : formatDelayedGoal(goal, taskTitles));
+                if (empty || goal == null) {
+                    setText(null);
+                    setGraphic(null);
+                } else {
+                    setText(formatDelayedGoal(goal, taskTitles));
+                    setGraphic(null);
+                }
             }
         });
         combo.setButtonCell(new ListCell<>() {
             @Override
             protected void updateItem(StudyGoal goal, boolean empty) {
                 super.updateItem(goal, empty);
-                setText(empty || goal == null ? "" : formatDelayedGoal(goal, taskTitles));
+                if (empty || goal == null) {
+                    setText(null);
+                    setGraphic(null);
+                } else {
+                    setText(formatDelayedGoal(goal, taskTitles));
+                    setGraphic(null);
+                }
             }
         });
         combo.setPromptText("Select a delayed goal to re-plan...");

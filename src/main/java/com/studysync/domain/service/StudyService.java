@@ -169,19 +169,32 @@ public class StudyService {
     /**
      * Returns delayed, unachieved goals that are eligible for manual rescheduling
      * to today. Goals linked to CANCELLED or POSTPONED tasks are excluded.
+     * Goals from recurring tasks are excluded when the task already applies to
+     * today (the task will naturally re-occur, making manual re-planning redundant).
      *
      * @return list of goals the user can choose to re-plan for today
      */
     @Transactional(readOnly = true)
     public List<StudyGoal> getDelayedGoalsForReplanning() {
+        LocalDate today = dateTimeService.getCurrentDate();
         return StudyGoal.findDelayedAndNotReplanned().stream()
                 .filter(goal -> {
                     if (goal.getTaskId() == null || goal.getTaskId().isBlank()) {
                         return false; // Only show goals tied to a task
                     }
                     return Task.findById(goal.getTaskId())
-                            .map(task -> task.getStatus() != TaskStatus.CANCELLED
-                                      && task.getStatus() != TaskStatus.POSTPONED)
+                            .map(task -> {
+                                if (task.getStatus() == TaskStatus.CANCELLED
+                                        || task.getStatus() == TaskStatus.POSTPONED) {
+                                    return false;
+                                }
+                                // For recurring tasks, hide the goal when the task
+                                // already applies today (it will surface naturally).
+                                if (task.isRecurring() && task.appliesToDate(today)) {
+                                    return false;
+                                }
+                                return true;
+                            })
                             .orElse(false);
                 })
                 .collect(Collectors.toList());
