@@ -190,7 +190,7 @@ public class TaskService {
         
         return Task.findAll().stream()
             .filter(task -> titleFilter.map(f -> f.test(task.getTitle())).orElse(true))
-            .filter(task -> categoryFilter.map(c -> c.equalsIgnoreCase(task.getCategory())).orElse(true))
+            .filter(task -> categoryFilter.map(c -> task.getCategory() != null && c.equalsIgnoreCase(task.getCategory())).orElse(true))
             .filter(task -> statusFilter.map(s -> s.equals(task.getStatus())).orElse(true))
             .filter(task -> priorityFilter.map(p -> task.getPriority() != null && task.getPriority().stars() == p).orElse(true))
             .collect(Collectors.toList());
@@ -447,8 +447,8 @@ public class TaskService {
     }
     
     private boolean matchesCategory(Task task, String category) {
-        return category == null || category.isBlank() || 
-               task.getCategory().equalsIgnoreCase(category);
+        return category == null || category.isBlank() ||
+               category.equalsIgnoreCase(task.getCategory());
     }
     
     private boolean matchesPriority(Task task, Integer priorityStars) {

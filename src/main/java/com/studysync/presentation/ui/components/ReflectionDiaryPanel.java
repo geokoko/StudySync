@@ -310,8 +310,9 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
     }
     
     private void onDateChanged(LocalDate newDate) {
-        // Auto-navigate to the new date if currently viewing today
-        if (datePicker.getValue().equals(dateTimeService.getCurrentDate().minusDays(1))) {
+        // Auto-navigate to the new date if currently viewing yesterday
+        LocalDate pickerValue = datePicker.getValue();
+        if (pickerValue != null && pickerValue.equals(dateTimeService.getCurrentDate().minusDays(1))) {
             navigateToDate(newDate);
         }
     }

@@ -217,8 +217,11 @@ public class TaskReminder {
     @Override
     public String toString() {
         String taskTitle = (task != null) ? task.getTitle() : "[No Task]";
-        return String.format("Reminder for %s (%s) on %s", 
-            taskTitle, type, computeReminderDate().format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, yyyy")));
+        LocalDate reminderDate = computeReminderDate();
+        String dateStr = reminderDate != null
+                ? reminderDate.format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+                : "[No Date]";
+        return String.format("Reminder for %s (%s) on %s", taskTitle, type, dateStr);
     }
 
     public LocalDate getReminderDate() {
