@@ -92,7 +92,7 @@ public class ProjectService {
     public List<Project> searchProjects(String title, String category, ProjectStatus status) {
         return Project.findAll().stream()
                 .filter(p -> title == null || title.isEmpty() || p.getTitle().toLowerCase().contains(title.toLowerCase()))
-                .filter(p -> category == null || category.isEmpty() || p.getCategory().equalsIgnoreCase(category))
+                .filter(p -> category == null || category.isEmpty() || category.equalsIgnoreCase(p.getCategory()))
                 .filter(p -> status == null || p.getStatus() == status)
                 .collect(Collectors.toList());
     }

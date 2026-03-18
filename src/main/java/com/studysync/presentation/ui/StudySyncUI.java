@@ -148,8 +148,7 @@ public class StudySyncUI {
         
         primaryStage.setTitle("StudySync");
         
-        try {
-            var iconStream = getClass().getResourceAsStream("/icon.png");
+        try (var iconStream = getClass().getResourceAsStream("/icon.png")) {
             if (iconStream != null) {
                 primaryStage.getIcons().add(new Image(iconStream));
             } else {
