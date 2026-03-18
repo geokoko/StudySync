@@ -106,7 +106,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         Button nextMonthBtn = new Button("Next");
         Label nextIcon = TaskStyleUtils.iconLabel("\u25B6", 14);
         nextMonthBtn.setGraphic(nextIcon);
-        nextMonthBtn.setContentDisplay(javafx.scene.control.ContentDisplay.RIGHT);
+        nextMonthBtn.setStyle("-fx-content-display: right;");
         nextMonthBtn.getStyleClass().add("btn-primary");
         nextMonthBtn.setOnAction(e -> {
             currentMonth = currentMonth.plusMonths(1);

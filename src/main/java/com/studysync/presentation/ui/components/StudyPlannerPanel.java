@@ -131,8 +131,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox navRow = new HBox(12);
         navRow.setAlignment(Pos.CENTER);
 
-        Button prevBtn = new Button("\u25C0");
-        TaskStyleUtils.fontEmoji(prevBtn, 14);
+        Button prevBtn = new Button();
+        prevBtn.setGraphic(TaskStyleUtils.iconLabel("\u25C0", 14));
         prevBtn.getStyleClass().add("btn-primary");
         prevBtn.setOnAction(e -> {
             displayDate = displayDate.minusDays(1);
@@ -144,8 +144,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         dateNavLabel.setMinWidth(300);
         dateNavLabel.setAlignment(Pos.CENTER);
 
-        Button nextBtn = new Button("\u25B6");
-        TaskStyleUtils.fontEmoji(nextBtn, 14);
+        Button nextBtn = new Button();
+        nextBtn.setGraphic(TaskStyleUtils.iconLabel("\u25B6", 14));
         nextBtn.getStyleClass().add("btn-primary");
         nextBtn.setOnAction(e -> {
             displayDate = displayDate.plusDays(1);
