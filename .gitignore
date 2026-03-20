@@ -24,6 +24,9 @@ bin/
 .classpath
 .project
 
+# Claude
+CLAUDE.md
+
 # OS
 .DS_Store
 Thumbs.db
