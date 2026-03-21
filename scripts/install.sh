@@ -179,11 +179,17 @@ create_launcher() {
         JAVA_EXEC="java" # Fallback if which fails
     fi
 
+    # JVM flags for desktop integration:
+    #   glass.appClassName  — sets the X11 WM_CLASS so GNOME can match the
+    #                         running window to the .desktop entry (prevents
+    #                         the app from opening as a separate dock icon).
+    local jvm_flags="-Dglass.appClassName=StudySync"
+
     local launch_command
     if [[ "$launch_mode" == "jar" ]]; then
-        launch_command="exec \"$JAVA_EXEC\" -jar \"$main_jar\" \"\$@\""
+        launch_command="exec \"$JAVA_EXEC\" $jvm_flags -jar \"$main_jar\" \"\$@\""
     else
-        launch_command="exec \"$JAVA_EXEC\" -cp \"\$INSTALL_DIR/lib/*\" com.studysync.StudySyncApplication \"\$@\""
+        launch_command="exec \"$JAVA_EXEC\" $jvm_flags -cp \"\$INSTALL_DIR/lib/*\" com.studysync.StudySyncApplication \"\$@\""
     fi
     
     # Create launcher script
@@ -240,7 +246,7 @@ Icon=studysync
 Terminal=false
 Categories=Education;Office;ProjectManagement;
 Keywords=study;task;project;calendar;academic;planner;
-StartupWMClass=com-studysync-StudySyncApplication
+StartupWMClass=StudySync
 EOF
     else
         print_info "Using desktop file from: $desktop_source"
