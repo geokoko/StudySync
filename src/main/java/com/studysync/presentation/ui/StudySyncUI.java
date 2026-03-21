@@ -167,6 +167,9 @@ public class StudySyncUI {
 
         primaryStage.show();
         
+        // Diagnostic: log DB state at startup for comparison with post-reload
+        logDbSnapshot("Startup");
+
         // Mark overdue non-recurring tasks as DELAYED
         markDelayedTasksOnStartup();
 
@@ -182,6 +185,9 @@ public class StudySyncUI {
         // Register reload listener to reset service caches and refresh all panels
         // when the DB is reloaded from Drive.
         googleDriveService.addReloadListener(() -> Platform.runLater(() -> {
+            // Diagnostic: log data counts right after reload to verify new DB is active
+            logDbSnapshot("Post-reload");
+
             // Clear once-per-day processing guards so delay logic re-runs
             // against the freshly loaded database.
             taskService.resetAfterReload();
@@ -344,11 +350,14 @@ public class StudySyncUI {
      * Refreshes every panel after a database reload (e.g. Drive download).
      */
     private void refreshAllPanels() {
+        logger.info("Refreshing all {} panels after DB reload", panelMap.size());
         for (RefreshablePanel panel : panelMap.values()) {
             try {
                 panel.updateDisplay();
+                logger.info("Refreshed panel: {}", panel.getClass().getSimpleName());
             } catch (Exception e) {
-                logger.warn("Failed to refresh panel after DB reload", e);
+                logger.warn("Failed to refresh panel {} after DB reload",
+                        panel.getClass().getSimpleName(), e);
             }
         }
     }
@@ -366,6 +375,10 @@ public class StudySyncUI {
         profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
         
         profileStage.setScene(profileScene);
+        profileStage.setMinWidth(900);
+        profileStage.setMinHeight(600);
+        profileStage.setWidth(1000);
+        profileStage.setHeight(700);
         profileStage.show();
         
         // Update the profile display
@@ -386,6 +399,34 @@ public class StudySyncUI {
         if (overlayLayer != null) {
             overlayLayer.setVisible(false);
             overlayLayer.getChildren().clear();
+        }
+    }
+
+    /**
+     * Logs a snapshot of the database contents for debugging reload issues.
+     * Checks today, yesterday, and total counts across all dates.
+     */
+    private void logDbSnapshot(String label) {
+        try {
+            java.time.LocalDate today = java.time.LocalDate.now();
+            java.time.LocalDate yesterday = today.minusDays(1);
+
+            int todayGoals = studyService.getStudyGoalsForDate(today).size();
+            int todaySessions = studyService.getSessionsForDate(today).size();
+            int todayTasks = taskService.getTasksForDate(today).size();
+
+            int yesterdayGoals = studyService.getStudyGoalsForDate(yesterday).size();
+            int yesterdaySessions = studyService.getSessionsForDate(yesterday).size();
+
+            // Sessions across the last 7 days (broader check)
+            int weekSessions = studyService.getSessionsInDateRange(
+                    today.minusDays(7), today).size();
+
+            logger.info("{} DB snapshot: today({})=[{}g,{}s,{}t] yesterday({})=[{}g,{}s] last7daysSessions={}",
+                    label, today, todayGoals, todaySessions, todayTasks,
+                    yesterday, yesterdayGoals, yesterdaySessions, weekSessions);
+        } catch (Exception e) {
+            logger.warn("{} diagnostic query failed: {}", label, e.getMessage());
         }
     }
 }
