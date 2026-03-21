@@ -7,6 +7,13 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 /**
  * Main entry point for the StudySync desktop application.
  * 
@@ -31,41 +38,79 @@ public class StudySyncApplication {
     
     /** The Spring application context instance shared across the application. */
     private static ConfigurableApplicationContext springContext;
-    
+
+    /** File lock held for the lifetime of the process to enforce single-instance. */
+    @SuppressWarnings("unused") // must stay referenced to prevent GC releasing the lock
+    private static FileLock instanceLock;
+    @SuppressWarnings("unused")
+    private static RandomAccessFile lockRaf;
+
     /**
      * Main method that starts the StudySync application.
-     * 
-     * <p>This method performs the following initialization sequence:
-     * <ol>
-     *   <li>Configures system properties for JavaFX compatibility</li>
-     *   <li>Initializes the Spring Boot application context</li>
-     *   <li>Launches the JavaFX application with Spring integration</li>
-     * </ol></p>
-     * 
+     *
      * @param args command line arguments passed to both Spring Boot and JavaFX
      */
     public static void main(final String[] args) {
+        // Enforce single instance — exit immediately if another process holds the lock
+        if (!acquireInstanceLock()) {
+            System.err.println("StudySync is already running. Exiting.");
+            System.exit(1);
+        }
+
         // Disable Spring Boot's automatic shutdown when main method ends
         System.setProperty("java.awt.headless", "false");
-        
+
         // Attempt to sync Google Drive hosted data (if configured) before Spring initializes the database
         GoogleDriveBootstrap.initialize();
-        
+
         // Configure Spring Boot for faster startup
         SpringApplication app = new SpringApplication(StudySyncApplication.class);
-        
+
         // Enable lazy initialization for faster startup
         app.setLazyInitialization(true);
-        
+
         // Reduce startup output
         app.setLogStartupInfo(false);
         app.setBannerMode(org.springframework.boot.Banner.Mode.OFF);
-        
+
         // Start Spring Boot application context
         springContext = app.run(args);
-        
+
         // Launch JavaFX application
         Application.launch(StudySyncJavaFXApp.class, args);
+    }
+
+    /**
+     * Attempts to acquire an exclusive file lock to prevent multiple instances.
+     * The lock file is created in the user's data directory and held for the
+     * lifetime of the JVM process (released automatically on exit).
+     *
+     * @return true if the lock was acquired (no other instance running)
+     */
+    private static boolean acquireInstanceLock() {
+        try {
+            Path lockDir = Path.of(System.getProperty("user.home"), ".local", "share", "studysync");
+            Files.createDirectories(lockDir);
+            Path lockFile = lockDir.resolve(".studysync.lock");
+
+            // RandomAccessFile + FileLock held in static fields so GC cannot release them
+            lockRaf = new RandomAccessFile(lockFile.toFile(), "rw");
+            FileChannel channel = lockRaf.getChannel();
+            instanceLock = channel.tryLock();
+
+            if (instanceLock == null) {
+                // Another instance holds the lock — close the file before exiting
+                try { lockRaf.close(); } catch (IOException ignored) { }
+                lockRaf = null;
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            // Catches IOException AND OverlappingFileLockException (from same-JVM
+            // re-entry, e.g. test harnesses calling main() twice).
+            System.err.println("Warning: could not check instance lock: " + e.getMessage());
+            return true; // allow startup if lock mechanism fails
+        }
     }
     
     /**
