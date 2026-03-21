@@ -17,6 +17,9 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.Node;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
@@ -32,6 +35,8 @@ import java.util.stream.Collectors;
  * with a more comprehensive calendar-based interface similar to Google Calendar.
  */
 public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
+    private static final Logger logger = LoggerFactory.getLogger(CalendarViewPanel.class);
+
     private final StudyService studyService;
     private final TaskService taskService;
     private final ProjectService projectService;
@@ -575,7 +580,14 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         dialogPane.setMinSize(820, 640);
         dialogPane.setPrefSize(820, 640);
         dialog.setResizable(true);
-        
+
+        // Force the dialog window size explicitly — on GNOME, pref/min sizes
+        // on the DialogPane alone can be ignored due to platform scaling.
+        dialog.setOnShown(e -> {
+            dialog.setWidth(850);
+            dialog.setHeight(680);
+        });
+
         dialog.showAndWait();
     }
     
@@ -1274,6 +1286,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
     
     @Override
     public void updateDisplay() {
+        logger.debug("CalendarViewPanel.updateDisplay() called for month {}", currentMonth);
         updateCalendarDisplay();
     }
     

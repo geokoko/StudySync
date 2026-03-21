@@ -452,8 +452,14 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         
         dialog.getDialogPane().setContent(content);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        dialog.getDialogPane().setMinSize(620, 540);
         dialog.setResizable(true);
-        
+
+        dialog.setOnShown(e -> {
+            dialog.setWidth(640);
+            dialog.setHeight(560);
+        });
+
         dialog.showAndWait();
     }
     
