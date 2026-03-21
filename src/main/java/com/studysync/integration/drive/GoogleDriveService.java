@@ -132,6 +132,23 @@ public class GoogleDriveService {
         logger.info("Cleared Google Drive credentials for StudySync");
     }
 
+    /**
+     * Flushes all in-memory H2 data to the .mv.db file on disk.
+     * This is the "Save Locally" operation — no network involved.
+     *
+     * @return true if the checkpoint succeeded
+     */
+    public boolean saveLocally() {
+        try {
+            jdbcTemplate.execute("CHECKPOINT SYNC");
+            logger.info("Local save completed — database flushed to disk");
+            return true;
+        } catch (Exception e) {
+            logger.error("Local save failed (CHECKPOINT SYNC): {}", e.getMessage());
+            return false;
+        }
+    }
+
     public synchronized boolean uploadDatabaseSnapshot() {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
@@ -358,19 +375,32 @@ public class GoogleDriveService {
             try {
                 jdbcTemplate.execute("CHECKPOINT SYNC");
                 checkpointOk = true;
-                logger.info("H2 checkpoint completed — database file is up to date on disk");
+                logger.info("H2 checkpoint completed before Drive upload");
             } catch (Exception e) {
-                logger.error("H2 CHECKPOINT SYNC failed during shutdown — upload may contain stale data", e);
+                logger.warn("H2 CHECKPOINT SYNC failed before upload: {}", e.getMessage());
             }
-
             if (checkpointOk) {
                 logger.info("Uploading StudySync database to Google Drive before shutdown");
                 gateway.uploadDatabaseToDrive(activeCredential);
             } else {
-                logger.warn("Skipping shutdown upload to Google Drive — checkpoint failed, "
-                        + "uploading could overwrite newer data on Drive");
+                logger.warn("Skipping shutdown upload — checkpoint failed");
             }
         }
+
+        // Explicitly SHUTDOWN the H2 engine.  This flushes ALL committed data
+        // to the .mv.db file and destroys the engine, preventing H2's JVM
+        // shutdown hook from later overwriting the file with stale MVStore
+        // page data.  Without this, DB_CLOSE_DELAY=-1 keeps the engine alive
+        // after HikariPool closes, and the shutdown hook's engine close can
+        // write an older MVStore version — silently reverting changes made
+        // since the last auto-save (including downloaded Drive data).
+        try {
+            jdbcTemplate.execute("SHUTDOWN");
+        } catch (Exception e) {
+            // Expected: H2 kills the executing connection during SHUTDOWN
+            logger.debug("H2 SHUTDOWN completed (exception expected): {}", e.getMessage());
+        }
+        logger.info("H2 engine shut down — all data flushed to disk");
     }
 
     private Credential loadStoredCredential() {

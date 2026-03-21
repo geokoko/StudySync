@@ -143,25 +143,31 @@ public class StudySyncJavaFXApp extends Application {
                         event.consume(); // Prevent immediate close
 
                         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-                        alert.setTitle("Sync to Google Drive");
-                        alert.setHeaderText("Save changes to Google Drive?");
-                        alert.setContentText("Do you want to upload your latest data to Google Drive before exiting?");
+                        alert.setTitle("Exit StudySync");
+                        alert.setHeaderText("How would you like to exit?");
+                        alert.setContentText("Choose how to save your data before closing.");
 
-                        ButtonType buttonSave = new ButtonType("Save & Exit");
-                        ButtonType buttonExit = new ButtonType("Exit Only");
+                        ButtonType buttonDrive = new ButtonType("Push to Drive & Exit");
+                        ButtonType buttonLocal = new ButtonType("Save Locally & Exit");
+                        ButtonType buttonNoSave = new ButtonType("Exit without Saving");
                         ButtonType buttonCancel = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
 
-                        alert.getButtonTypes().setAll(buttonSave, buttonExit, buttonCancel);
+                        alert.getButtonTypes().setAll(buttonDrive, buttonLocal, buttonNoSave, buttonCancel);
 
                         Optional<ButtonType> result = alert.showAndWait();
 
                         if (result.isPresent()) {
-                            if (result.get() == buttonSave) {
-                                logger.info("User chose to save and exit");
+                            if (result.get() == buttonDrive) {
+                                logger.info("User chose to push to Drive and exit");
                                 driveService.setShutdownSaveEnabled(true);
                                 Platform.exit();
-                            } else if (result.get() == buttonExit) {
-                                logger.info("User chose to exit without saving to Drive");
+                            } else if (result.get() == buttonLocal) {
+                                logger.info("User chose to save locally and exit");
+                                driveService.saveLocally();
+                                driveService.setShutdownSaveEnabled(false);
+                                Platform.exit();
+                            } else if (result.get() == buttonNoSave) {
+                                logger.info("User chose to exit without saving");
                                 driveService.setShutdownSaveEnabled(false);
                                 Platform.exit();
                             } else {
@@ -169,6 +175,8 @@ public class StudySyncJavaFXApp extends Application {
                             }
                         }
                     } else {
+                        // Not signed in — flush H2 to disk and exit
+                        driveService.saveLocally();
                         Platform.exit();
                     }
                 } catch (Exception e) {
