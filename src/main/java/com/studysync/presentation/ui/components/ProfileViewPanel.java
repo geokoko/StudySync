@@ -55,6 +55,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private Button driveSignOutButton;
     private Button driveSyncButton;
     private Button driveDownloadButton;
+    private Button saveLocallyButton;
     
     public ProfileViewPanel(StudyService studyService, ProjectService projectService, 
                            TaskService taskService, DateTimeService dateTimeService,
@@ -171,8 +172,18 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Download complete! Database reloaded.",
             "Download failed. Check your connection and credentials."
         ));
-        
-        HBox buttonRow = new HBox(12, driveSignInButton, driveSignOutButton, driveSyncButton, driveDownloadButton);
+
+        saveLocallyButton = new Button("Save Locally");
+        saveLocallyButton.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
+        saveLocallyButton.getStyleClass().add("btn-primary");
+        saveLocallyButton.setOnAction(e -> runDriveAction(
+            "Saving database to disk…",
+            () -> googleDriveService.saveLocally(),
+            "Saved! Database flushed to disk.",
+            "Save failed. Check logs for details."
+        ));
+
+        HBox buttonRow = new HBox(12, driveSignInButton, driveSignOutButton, driveSyncButton, driveDownloadButton, saveLocallyButton);
         buttonRow.setAlignment(Pos.CENTER_LEFT);
         
         section.getChildren().addAll(title, driveStatusLabel, driveHintLabel, buttonRow, driveActionStatusLabel);
@@ -241,6 +252,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         driveSignOutButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
         driveSyncButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
         driveDownloadButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
+        saveLocallyButton.setDisable(disabled);
     }
     
     private VBox createProfileSummarySection() {

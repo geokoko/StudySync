@@ -29,7 +29,7 @@ public class GoogleDriveService {
     private final JdbcTemplate jdbcTemplate;
     private Credential activeCredential;
     private String cachedAccountEmail;
-    private boolean shutdownSaveEnabled = true;
+    private volatile boolean shutdownSaveEnabled = false;
 
     /** Tracks whether the local DB has been modified since the last upload to Drive. */
     private volatile boolean localDbDirty = false;
@@ -123,6 +123,23 @@ public class GoogleDriveService {
         this.activeCredential = null;
         this.cachedAccountEmail = null;
         logger.info("Cleared Google Drive credentials for StudySync");
+    }
+
+    /**
+     * Flushes all in-memory H2 data to the .mv.db file on disk.
+     * This is the "Save Locally" operation — no network involved.
+     *
+     * @return true if the checkpoint succeeded
+     */
+    public boolean saveLocally() {
+        try {
+            jdbcTemplate.execute("CHECKPOINT SYNC");
+            logger.info("Local save completed — database flushed to disk");
+            return true;
+        } catch (Exception e) {
+            logger.error("Local save failed (CHECKPOINT SYNC): {}", e.getMessage());
+            return false;
+        }
     }
 
     public synchronized boolean uploadDatabaseSnapshot() {
