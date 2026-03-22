@@ -22,7 +22,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -169,24 +168,26 @@ public class StudyService {
 
     /**
      * Returns delayed, unachieved goals that are eligible for manual rescheduling
-     * to today. A goal is excluded when its parent task already appears in today's
-     * task list (the goal is already accessible directly), or when the task is
-     * CANCELLED or POSTPONED.
+     * to today. Goals linked to CANCELLED or POSTPONED tasks are excluded.
+     * Orphan goals (no task) are included so they remain visible and don't
+     * silently age into auto-deletion.
      *
-     * @param todayTaskIds IDs of tasks visible in today's planner
      * @return list of goals the user can choose to re-plan for today
      */
     @Transactional(readOnly = true)
-    public List<StudyGoal> getDelayedGoalsForReplanning(Set<String> todayTaskIds) {
+    public List<StudyGoal> getDelayedGoalsForReplanning() {
         return StudyGoal.findDelayedAndNotReplanned().stream()
                 .filter(goal -> {
+                    // Orphan goals (no task) are eligible for rescheduling.
+                    // Without this, they become invisible in the planner and
+                    // silently auto-delete after 14 days.
                     if (goal.getTaskId() == null || goal.getTaskId().isBlank()) {
-                        return false;
+                        return true;
                     }
-                    // Task already visible today — goal is accessible directly.
-                    if (todayTaskIds.contains(goal.getTaskId())) {
-                        return false;
-                    }
+                    // NOTE: Do NOT filter out goals whose task is already visible
+                    // today. findByTaskIdForDate() no longer auto-carries forward
+                    // delayed goals, so if we also exclude them here, they become
+                    // unreachable and silently age into auto-deletion.
                     return Task.findById(goal.getTaskId())
                             .map(task -> task.getStatus() != TaskStatus.CANCELLED
                                       && task.getStatus() != TaskStatus.POSTPONED)
@@ -396,10 +397,15 @@ public class StudyService {
                     goal.setDaysDelayed(0);
                     goal.setPointsDeducted(0);
                     goal.save();
+                    updatedGoals++;
                 }
             }
         }
         
+        if (updatedGoals > 0 || removedGoals > 0) {
+            markDirty();
+        }
+
         return new GoalDelayProcessingResult(updatedGoals, removedGoals);
     }
 

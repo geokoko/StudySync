@@ -626,18 +626,54 @@ public class StudyGoal {
         if (jdbcTemplate == null || taskId == null || taskId.isBlank() || date == null) {
             return List.of();
         }
-        
+
+        // Only return goals explicitly scheduled for this date or explicitly
+        // re-planned to it.  Do NOT auto-carry-forward delayed goals — those
+        // stay in the re-plan section until the user explicitly reschedules them.
+        // The old auto-carry-forward clause (is_delayed AND achieved = FALSE AND
+        // replanned_for_date IS NULL) caused two bugs:
+        //   1. Re-planning one goal made ALL delayed goals for the task appear
+        //   2. Achieved delayed goals vanished (achieved = TRUE no longer matched)
         String sql = """
             SELECT * FROM study_goals
             WHERE task_id = ?
-              AND (date = ?
-                   OR (is_delayed = TRUE AND achieved = FALSE AND date <= ? AND replanned_for_date IS NULL)
-                   OR replanned_for_date = ?)
+              AND (date = ? OR replanned_for_date = ?)
             ORDER BY is_delayed ASC, date ASC, created_at ASC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), taskId, date, date, date);
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), taskId, date, date);
         logger.debug("Retrieved {} goals for task {} on date {}", goals.size(), taskId, date);
         return goals;
+    }
+
+    /**
+     * Batch-queries all (task_id, date) pairs that have at least one achieved
+     * goal within the given date range.  Returns a set of "taskId|date"
+     * strings for O(1) lookup.
+     *
+     * <p>This replaces per-cell calls to {@link #hasAchievedGoalForTask} in the
+     * calendar month view, eliminating an N+1 query storm.
+     *
+     * @param rangeStart inclusive start of the date range
+     * @param rangeEnd   inclusive end of the date range
+     * @return set of "taskId|date" keys where an achieved goal exists
+     */
+    public static java.util.Set<String> findAchievedTaskDatePairs(LocalDate rangeStart, LocalDate rangeEnd) {
+        if (jdbcTemplate == null || rangeStart == null || rangeEnd == null) {
+            return java.util.Set.of();
+        }
+        String sql = """
+            SELECT DISTINCT task_id, date FROM study_goals
+            WHERE achieved = TRUE
+              AND task_id IS NOT NULL
+              AND date IS NOT NULL
+              AND date >= ? AND date <= ?
+            """;
+        java.util.Set<String> result = new java.util.HashSet<>();
+        jdbcTemplate.query(sql, (rs, rowNum) -> {
+            result.add(rs.getString("task_id") + "|" + rs.getDate("date").toLocalDate());
+            return null;
+        }, rangeStart, rangeEnd);
+        return result;
     }
 
     /**
@@ -671,16 +707,14 @@ public class StudyGoal {
         if (jdbcTemplate == null || date == null) {
             return List.of();
         }
-        
+
         String sql = """
             SELECT * FROM study_goals
             WHERE task_id IS NULL
-              AND (date = ?
-                   OR (is_delayed = TRUE AND achieved = FALSE AND date <= ? AND replanned_for_date IS NULL)
-                   OR replanned_for_date = ?)
+              AND (date = ? OR replanned_for_date = ?)
             ORDER BY is_delayed ASC, date ASC, created_at ASC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date, date);
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
         logger.debug("Retrieved {} unlinked goals for date {}", goals.size(), date);
         return goals;
     }
