@@ -162,6 +162,18 @@ public class DatabaseReloadService {
             }
         }
 
+        // Evict the validation connections so that subsequent queries from
+        // panels/services go through brand-new connections.  Without this,
+        // the connections used during the retry loop above might still be
+        // in the pool and could serve cached data from the old H2 engine.
+        if (dataSource instanceof HikariDataSource hikari) {
+            HikariPoolMXBean pool = hikari.getHikariPoolMXBean();
+            if (pool != null) {
+                pool.softEvictConnections();
+                logger.debug("Post-reconnect: evicted validation connections from pool");
+            }
+        }
+
         // Run idempotent schema.sql to apply any missing migrations
         runMigrations();
 
