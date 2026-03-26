@@ -238,6 +238,7 @@ public class StudyService {
         if (goalOpt.isPresent()) {
             StudyGoal goal = goalOpt.get();
             goal.setFailed(true);
+            goal.setAchieved(false);
             goal.save();
             markDirty();
             logger.info("Soft-deleted study goal '{}' (marked as failed)", goalId);

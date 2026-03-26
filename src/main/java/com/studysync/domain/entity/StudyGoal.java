@@ -566,7 +566,7 @@ public class StudyGoal {
             throw new IllegalStateException("JdbcTemplate not initialized");
         }
         
-        String sql = "SELECT * FROM study_goals WHERE achieved = TRUE ORDER BY date DESC";
+        String sql = "SELECT * FROM study_goals WHERE achieved = TRUE AND (failed = FALSE OR failed IS NULL) ORDER BY date DESC";
         List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper());
         logger.debug("Retrieved {} achieved study goals", goals.size());
         return goals;
@@ -601,7 +601,7 @@ public class StudyGoal {
             return 0L;
         }
         
-        String sql = "SELECT COUNT(*) FROM study_goals WHERE achieved = ?";
+        String sql = "SELECT COUNT(*) FROM study_goals WHERE achieved = ? AND (failed = FALSE OR failed IS NULL)";
         Integer count = jdbcTemplate.queryForObject(sql, Integer.class, achieved);
         return count != null ? count : 0L;
     }
@@ -721,6 +721,7 @@ public class StudyGoal {
         String sql = """
             SELECT DISTINCT task_id, date FROM study_goals
             WHERE achieved = TRUE
+              AND (failed = FALSE OR failed IS NULL)
               AND task_id IS NOT NULL
               AND date IS NOT NULL
               AND date >= ? AND date <= ?
@@ -749,6 +750,7 @@ public class StudyGoal {
         String sql = """
             SELECT COUNT(*) FROM study_goals
             WHERE task_id = ? AND date = ? AND achieved = TRUE
+              AND (failed = FALSE OR failed IS NULL)
             """;
         Integer count = jdbcTemplate.queryForObject(sql, Integer.class, taskId, date);
         return count != null && count > 0;
