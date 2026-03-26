@@ -179,3 +179,7 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_date DATE;
 -- Add replanned_for_date to study_goals to support one-shot manual rescheduling.
 -- When set, the goal appears on that date only and is excluded from automatic delay carry-forward.
 ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS replanned_for_date DATE;
+
+-- Add failed flag to study_goals. Failed goals are kept for historical logging
+-- but excluded from active planner views.
+ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS failed BOOLEAN DEFAULT FALSE;

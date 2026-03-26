@@ -1,6 +1,7 @@
 
 package com.studysync.presentation.ui.components;
 
+import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.Task;
 import com.studysync.domain.entity.TaskReminder;
 import com.studysync.domain.valueobject.TaskCategory;
@@ -198,7 +199,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         return sp;
     }
 
-    private HBox buildTaskCard(Task task) {
+    private VBox buildTaskCard(Task task) {
+        VBox wrapper = new VBox(0);
+        wrapper.setMaxWidth(Double.MAX_VALUE);
+
         HBox card = new HBox(15);
         card.setPadding(new Insets(14));
         card.setAlignment(Pos.CENTER_LEFT);
@@ -206,8 +210,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         String bgColor = TaskStyleUtils.statusBackground(task.getStatus());
         String borderColor = TaskStyleUtils.taskBorderColor(task.getStatus());
-        card.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 8;" +
-                      " -fx-border-color: " + borderColor + "; -fx-border-radius: 8;" +
+        card.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 8 8 0 0;" +
+                      " -fx-border-color: " + borderColor + "; -fx-border-radius: 8 8 0 0;" +
                       " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
 
         // Left: Status indicator bar
@@ -348,8 +352,145 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             info.getChildren().addAll(titleRow, metaRow, desc);
         }
 
+        // Goal History toggle button
+        VBox goalHistoryPane = new VBox(6);
+        goalHistoryPane.setPadding(new Insets(10, 14, 14, 14));
+        goalHistoryPane.setStyle("-fx-background-color: #f8f9fa; -fx-border-color: " + borderColor +
+                                 "; -fx-border-width: 0 1 1 1; -fx-background-radius: 0 0 8 8;" +
+                                 " -fx-border-radius: 0 0 8 8;");
+        goalHistoryPane.setVisible(false);
+        goalHistoryPane.setManaged(false);
+
+        Button goalHistoryBtn = new Button("Goal History");
+        goalHistoryBtn.getStyleClass().addAll("btn-small");
+        goalHistoryBtn.setStyle("-fx-font-size: 11px; -fx-padding: 3 10; -fx-background-color: #e8eaf6;" +
+                                " -fx-background-radius: 4; -fx-text-fill: #3949ab; -fx-cursor: hand;");
+        goalHistoryBtn.setOnAction(e -> {
+            boolean showing = goalHistoryPane.isVisible();
+            if (!showing) {
+                populateGoalHistory(goalHistoryPane, task);
+                card.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 8 8 0 0;" +
+                              " -fx-border-color: " + borderColor + "; -fx-border-radius: 8 8 0 0;" +
+                              " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
+            } else {
+                card.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 8;" +
+                              " -fx-border-color: " + borderColor + "; -fx-border-radius: 8;" +
+                              " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
+            }
+            goalHistoryPane.setVisible(!showing);
+            goalHistoryPane.setManaged(!showing);
+            goalHistoryBtn.setText(showing ? "Goal History" : "Hide Goals");
+        });
+        info.getChildren().add(goalHistoryBtn);
+
         card.getChildren().addAll(colorBar, info);
-        return card;
+        wrapper.getChildren().addAll(card, goalHistoryPane);
+        return wrapper;
+    }
+
+    private void populateGoalHistory(VBox pane, Task task) {
+        pane.getChildren().clear();
+
+        List<StudyGoal> goals = StudyGoal.findByTaskId(task.getId());
+
+        if (goals.isEmpty()) {
+            Label empty = new Label("No goals have been planned for this task yet.");
+            TaskStyleUtils.fontNormal(empty, 12);
+            empty.setTextFill(Color.web("#7f8c8d"));
+            pane.getChildren().add(empty);
+            return;
+        }
+
+        // Summary stats
+        long achieved = goals.stream().filter(StudyGoal::isAchieved).count();
+        long failed = goals.stream().filter(StudyGoal::isFailed).count();
+        long active = goals.stream().filter(g -> !g.isAchieved() && !g.isFailed()).count();
+
+        Label statsLabel = new Label("Total: " + goals.size()
+                + "  |  Achieved: " + achieved
+                + "  |  Failed: " + failed
+                + "  |  Active: " + active);
+        TaskStyleUtils.fontSemiBold(statsLabel, 11);
+        statsLabel.setTextFill(Color.web("#495057"));
+        statsLabel.setPadding(new Insets(0, 0, 4, 0));
+        pane.getChildren().add(statsLabel);
+
+        // Goal list
+        for (StudyGoal goal : goals) {
+            HBox row = new HBox(8);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.setPadding(new Insets(4, 8, 4, 8));
+
+            // Status indicator
+            String statusIcon;
+            String statusColor;
+            if (goal.isAchieved()) {
+                statusIcon = "\u2713"; // checkmark
+                statusColor = "#27ae60";
+            } else if (goal.isFailed()) {
+                statusIcon = "\u2715"; // X
+                statusColor = "#e74c3c";
+            } else if (goal.isDelayed()) {
+                statusIcon = "\u231B"; // hourglass
+                statusColor = "#f39c12";
+            } else {
+                statusIcon = "\u25CB"; // circle
+                statusColor = "#3498db";
+            }
+
+            Label icon = TaskStyleUtils.iconLabel(statusIcon, 11);
+            icon.setTextFill(Color.web(statusColor));
+
+            // Date
+            Label dateLabel = new Label(goal.getDate().toString());
+            TaskStyleUtils.fontNormal(dateLabel, 11);
+            dateLabel.setTextFill(Color.web("#6c757d"));
+            dateLabel.setMinWidth(80);
+
+            // Description
+            String descText = goal.getDescription() != null ? goal.getDescription() : "";
+            if (descText.length() > 80) descText = descText.substring(0, 80) + "...";
+            Label descLabel = new Label(descText);
+            TaskStyleUtils.fontNormal(descLabel, 11);
+            descLabel.setWrapText(true);
+            HBox.setHgrow(descLabel, Priority.ALWAYS);
+            if (goal.isFailed()) {
+                descLabel.setTextFill(Color.web("#999"));
+            } else if (goal.isAchieved()) {
+                descLabel.setTextFill(Color.web("#2d6a4f"));
+            } else {
+                descLabel.setTextFill(Color.web("#333"));
+            }
+
+            // Status badge
+            Label badge;
+            if (goal.isAchieved()) {
+                badge = new Label("Achieved");
+                badge.setStyle("-fx-background-color: #e8f5e9; -fx-background-radius: 8; -fx-padding: 1 6;");
+                badge.setTextFill(Color.web("#1b5e20"));
+            } else if (goal.isFailed()) {
+                badge = new Label("Failed");
+                badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 8; -fx-padding: 1 6;");
+                badge.setTextFill(Color.web("#b71c1c"));
+            } else if (goal.isDelayed()) {
+                badge = new Label("Delayed (" + goal.getDaysDelayed() + "d)");
+                badge.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 8; -fx-padding: 1 6;");
+                badge.setTextFill(Color.web("#e65100"));
+            } else {
+                badge = new Label("Active");
+                badge.setStyle("-fx-background-color: #e3f2fd; -fx-background-radius: 8; -fx-padding: 1 6;");
+                badge.setTextFill(Color.web("#0d47a1"));
+            }
+            TaskStyleUtils.fontBold(badge, 10);
+
+            row.getChildren().addAll(icon, dateLabel, descLabel, badge);
+
+            // Alternate row background
+            row.setStyle("-fx-background-color: " + (pane.getChildren().size() % 2 == 0 ? "#f0f0f0" : "transparent") +
+                         "; -fx-background-radius: 4;");
+
+            pane.getChildren().add(row);
+        }
     }
 
     // ──────────────────────────────────────────────
