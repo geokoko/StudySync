@@ -87,6 +87,30 @@ public class StudyService {
     }
 
     /**
+     * Get all study goals for a date including failed ones.
+     * Used by calendar view which shows the complete history for each day.
+     */
+    public List<StudyGoal> getAllGoalsForDate(LocalDate date) {
+        ensureDelayedGoalsProcessedToday();
+        return StudyGoal.findAllByDateIncludingDelayed(date);
+    }
+
+    /**
+     * Get all study goals planned for a future date including failed ones.
+     */
+    @Transactional(readOnly = true)
+    public List<StudyGoal> getAllGoalsForFutureDate(LocalDate date) {
+        if (date == null) {
+            throw ValidationException.requiredFieldMissing("date");
+        }
+        if (!date.isAfter(dateTimeService.getCurrentDate())) {
+            throw ValidationException.invalidDateRange(
+                date.toString(), "a future date");
+        }
+        return StudyGoal.findAllByDate(date);
+    }
+
+    /**
      * Get study goals planned for a future date.
      * Skips delay processing since future dates cannot have delayed goals.
      * 
@@ -228,9 +252,9 @@ public class StudyService {
 
     /**
      * Soft-deletes a study goal by marking it as failed.
-     * Goals are never physically deleted — they are kept for historical logging.
+     * The goal is preserved for historical display on its planned date.
      */
-    public boolean deleteStudyGoal(String goalId) {
+    public boolean markGoalAsFailed(String goalId) {
         if (goalId == null || goalId.isBlank()) {
             throw ValidationException.requiredFieldMissing("goalId");
         }
@@ -241,12 +265,29 @@ public class StudyService {
             goal.setAchieved(false);
             goal.save();
             markDirty();
-            logger.info("Soft-deleted study goal '{}' (marked as failed)", goalId);
+            logger.info("Marked study goal '{}' as failed", goalId);
             return true;
         } else {
-            logger.warn("Requested deletion for study goal '{}' but it did not exist", goalId);
+            logger.warn("Requested mark-as-failed for study goal '{}' but it did not exist", goalId);
             return false;
         }
+    }
+
+    /**
+     * Permanently deletes a study goal from the database.
+     */
+    public boolean deleteStudyGoal(String goalId) {
+        if (goalId == null || goalId.isBlank()) {
+            throw ValidationException.requiredFieldMissing("goalId");
+        }
+        boolean deleted = StudyGoal.deleteById(goalId);
+        if (deleted) {
+            markDirty();
+            logger.info("Permanently deleted study goal '{}'", goalId);
+        } else {
+            logger.warn("Requested deletion for study goal '{}' but it did not exist", goalId);
+        }
+        return deleted;
     }
 
     public StudySession startStudySession() {

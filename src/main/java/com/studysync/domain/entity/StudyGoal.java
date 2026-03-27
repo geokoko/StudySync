@@ -505,6 +505,8 @@ public class StudyGoal {
     
     /**
      * Get study goals for a specific date.
+     * Failed goals are excluded — use {@link #findAllByDate(LocalDate)} for views
+     * that need the complete history (e.g. calendar).
      */
     public static List<StudyGoal> findByDate(LocalDate date) {
         if (jdbcTemplate == null || date == null) {
@@ -524,6 +526,25 @@ public class StudyGoal {
         logger.debug("Retrieved {} study goals for date: {}", goals.size(), date);
         return goals;
     }
+
+    /**
+     * Get all study goals for a specific date, including failed ones.
+     * Used by calendar view which shows the full history for each day.
+     */
+    public static List<StudyGoal> findAllByDate(LocalDate date) {
+        if (jdbcTemplate == null || date == null) {
+            return List.of();
+        }
+
+        String sql = """
+            SELECT * FROM study_goals
+            WHERE (date = ? OR replanned_for_date = ?)
+            ORDER BY failed ASC, achieved DESC, created_at ASC
+            """;
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
+        logger.debug("Retrieved {} study goals (all statuses) for date: {}", goals.size(), date);
+        return goals;
+    }
     
     /**
      * Get study goals for a specific date including delayed goals that should appear on this date.
@@ -532,7 +553,7 @@ public class StudyGoal {
      *   <li>Goals originally created for the specified date</li>
      *   <li>Unachieved goals from previous dates that are now delayed</li>
      * </ul>
-     * 
+     *
      * @param date the date to retrieve goals for
      * @return list of study goals including delayed ones, ordered by delay status and creation time
      */
@@ -540,7 +561,7 @@ public class StudyGoal {
         if (jdbcTemplate == null || date == null) {
             return List.of();
         }
-        
+
         // Delayed goals that were manually replanned are excluded from the automatic
         // carry-forward path — they only surface via their replanned_for_date.
         // Failed goals are excluded from active planner views.
@@ -555,6 +576,28 @@ public class StudyGoal {
 
         List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date, date);
         logger.debug("Retrieved {} study goals (including delayed) for date: {}", goals.size(), date);
+        return goals;
+    }
+
+    /**
+     * Like {@link #findByDateIncludingDelayed(LocalDate)} but includes failed goals.
+     * Used by calendar view which shows all goals for each day.
+     */
+    public static List<StudyGoal> findAllByDateIncludingDelayed(LocalDate date) {
+        if (jdbcTemplate == null || date == null) {
+            return List.of();
+        }
+
+        String sql = """
+            SELECT * FROM study_goals
+            WHERE (date = ?
+               OR (is_delayed = TRUE AND achieved = FALSE AND failed = FALSE AND date < ? AND replanned_for_date IS NULL)
+               OR replanned_for_date = ?)
+            ORDER BY failed ASC, is_delayed ASC, days_delayed DESC, created_at ASC
+            """;
+
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date, date);
+        logger.debug("Retrieved {} study goals (all statuses, including delayed) for date: {}", goals.size(), date);
         return goals;
     }
     
