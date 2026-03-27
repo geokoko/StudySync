@@ -365,11 +365,27 @@ public class StudyService {
                 continue;
             }
 
-            // Protect replanned goals only while the replan date
-            // hasn't passed yet (user still has a chance to complete it today).
-            // Once the replan date is in the past and the goal is still unachieved,
-            // fall through to the normal 14-day failure logic.
-            if (goal.getReplannedForDate() != null && !goal.getReplannedForDate().isBefore(today)) {
+            // Re-planned goals whose replan date has passed without being achieved
+            // must be marked as failed immediately — otherwise they vanish from all
+            // views (queries only match date or replanned_for_date equal to display date).
+            if (goal.getReplannedForDate() != null && goal.getReplannedForDate().isBefore(today)) {
+                String goalLabel = (goal.getDescription() != null && !goal.getDescription().isBlank())
+                        ? goal.getDescription()
+                        : goal.getId();
+                goal.setFailed(true);
+                goal.setDelayed(true);
+                int daysFromReplan = (int) ChronoUnit.DAYS.between(goal.getReplannedForDate(), today);
+                goal.setDaysDelayed(daysFromReplan);
+                goal.setPointsDeducted(calculateAccumulatedPenalty(daysFromReplan));
+                goal.save();
+                failedGoals++;
+                logger.info("Marked re-planned study goal '{}' as FAILED (replan date {} has passed)",
+                        goalLabel, goal.getReplannedForDate());
+                continue;
+            }
+
+            // Protect replanned goals on their replan date (user still has a chance today).
+            if (goal.getReplannedForDate() != null) {
                 continue;
             }
 
