@@ -87,6 +87,30 @@ public class StudyService {
     }
 
     /**
+     * Get all study goals for a date including failed ones.
+     * Used by calendar view which shows the complete history for each day.
+     */
+    public List<StudyGoal> getAllGoalsForDate(LocalDate date) {
+        ensureDelayedGoalsProcessedToday();
+        return StudyGoal.findAllByDateIncludingDelayed(date);
+    }
+
+    /**
+     * Get all study goals planned for a future date including failed ones.
+     */
+    @Transactional(readOnly = true)
+    public List<StudyGoal> getAllGoalsForFutureDate(LocalDate date) {
+        if (date == null) {
+            throw ValidationException.requiredFieldMissing("date");
+        }
+        if (!date.isAfter(dateTimeService.getCurrentDate())) {
+            throw ValidationException.invalidDateRange(
+                date.toString(), "a future date");
+        }
+        return StudyGoal.findAllByDate(date);
+    }
+
+    /**
      * Get study goals planned for a future date.
      * Skips delay processing since future dates cannot have delayed goals.
      * 
@@ -226,6 +250,32 @@ public class StudyService {
         }
     }
 
+    /**
+     * Soft-deletes a study goal by marking it as failed.
+     * The goal is preserved for historical display on its planned date.
+     */
+    public boolean markGoalAsFailed(String goalId) {
+        if (goalId == null || goalId.isBlank()) {
+            throw ValidationException.requiredFieldMissing("goalId");
+        }
+        Optional<StudyGoal> goalOpt = StudyGoal.findById(goalId);
+        if (goalOpt.isPresent()) {
+            StudyGoal goal = goalOpt.get();
+            goal.setFailed(true);
+            goal.setAchieved(false);
+            goal.save();
+            markDirty();
+            logger.info("Marked study goal '{}' as failed", goalId);
+            return true;
+        } else {
+            logger.warn("Requested mark-as-failed for study goal '{}' but it did not exist", goalId);
+            return false;
+        }
+    }
+
+    /**
+     * Permanently deletes a study goal from the database.
+     */
     public boolean deleteStudyGoal(String goalId) {
         if (goalId == null || goalId.isBlank()) {
             throw ValidationException.requiredFieldMissing("goalId");
@@ -233,6 +283,7 @@ public class StudyService {
         boolean deleted = StudyGoal.deleteById(goalId);
         if (deleted) {
             markDirty();
+            logger.info("Permanently deleted study goal '{}'", goalId);
         } else {
             logger.warn("Requested deletion for study goal '{}' but it did not exist", goalId);
         }
@@ -338,31 +389,47 @@ public class StudyService {
     /**
      * Process all goals and update delay penalties for overdue goals.
      * Only unachieved goals with dates in the past are considered delayed.
-     * Goals overdue by two weeks or more are automatically deleted.
+     * Goals overdue by two weeks or more are marked as FAILED (never deleted).
      * This should be called daily (e.g., via scheduled task or on app startup).
      *
-     * @return summary of how many goals were updated or auto-removed
+     * @return summary of how many goals were updated or marked failed
      */
     public GoalDelayProcessingResult processAllDelayedGoals() {
         LocalDate today = dateTimeService.getCurrentDate();
         List<StudyGoal> allGoals = StudyGoal.findAll();
         int updatedGoals = 0;
-        int removedGoals = 0;
-        
+        int failedGoals = 0;
+
         for (StudyGoal goal : allGoals) {
-            // Skip if goal is achieved
-            if (goal.isAchieved()) {
+            // Skip if goal is achieved or already marked failed
+            if (goal.isAchieved() || goal.isFailed()) {
                 continue;
             }
 
-            // Protect replanned goals from deletion only while the replan date
-            // hasn't passed yet (user still has a chance to complete it today).
-            // Once the replan date is in the past and the goal is still unachieved,
-            // fall through to the normal 14-day cleanup logic.
-            if (goal.getReplannedForDate() != null && !goal.getReplannedForDate().isBefore(today)) {
+            // Re-planned goals whose replan date has passed without being achieved
+            // must be marked as failed immediately — otherwise they vanish from all
+            // views (queries only match date or replanned_for_date equal to display date).
+            if (goal.getReplannedForDate() != null && goal.getReplannedForDate().isBefore(today)) {
+                String goalLabel = (goal.getDescription() != null && !goal.getDescription().isBlank())
+                        ? goal.getDescription()
+                        : goal.getId();
+                goal.setFailed(true);
+                goal.setDelayed(true);
+                int daysFromReplan = (int) ChronoUnit.DAYS.between(goal.getReplannedForDate(), today);
+                goal.setDaysDelayed(daysFromReplan);
+                goal.setPointsDeducted(calculateAccumulatedPenalty(daysFromReplan));
+                goal.save();
+                failedGoals++;
+                logger.info("Marked re-planned study goal '{}' as FAILED (replan date {} has passed)",
+                        goalLabel, goal.getReplannedForDate());
                 continue;
             }
-            
+
+            // Protect replanned goals on their replan date (user still has a chance today).
+            if (goal.getReplannedForDate() != null) {
+                continue;
+            }
+
             // Check if goal date is in the past (delayed)
             if (goal.getDate().isBefore(today)) {
                 int daysDelayed = (int) ChronoUnit.DAYS.between(goal.getDate(), today);
@@ -370,14 +437,15 @@ public class StudyService {
                     String goalLabel = (goal.getDescription() != null && !goal.getDescription().isBlank())
                         ? goal.getDescription()
                         : goal.getId();
-                    boolean deleted = StudyGoal.deleteById(goal.getId());
-                    if (deleted) {
-                        removedGoals++;
-                        logger.info("Removed study goal '{}' after {} days overdue",
-                                goalLabel, daysDelayed);
-                    } else {
-                        logger.warn("Failed to auto-remove overdue goal '{}'", goal.getId());
-                    }
+                    // Mark as failed instead of deleting — keeps history for logging
+                    goal.setFailed(true);
+                    goal.setDelayed(true);
+                    goal.setDaysDelayed(daysDelayed);
+                    goal.setPointsDeducted(calculateAccumulatedPenalty(daysDelayed));
+                    goal.save();
+                    failedGoals++;
+                    logger.info("Marked study goal '{}' as FAILED after {} days overdue",
+                            goalLabel, daysDelayed);
                     continue;
                 }
 
@@ -401,22 +469,22 @@ public class StudyService {
                 }
             }
         }
-        
-        if (updatedGoals > 0 || removedGoals > 0) {
+
+        if (updatedGoals > 0 || failedGoals > 0) {
             markDirty();
         }
 
-        return new GoalDelayProcessingResult(updatedGoals, removedGoals);
+        return new GoalDelayProcessingResult(updatedGoals, failedGoals);
     }
 
     /**
      * Summary of delayed-goal processing.
      * @param updatedGoals number of existing goals updated with delay metadata
-     * @param removedGoals number of goals deleted because they exceeded the delay threshold
+     * @param failedGoals number of goals marked as failed because they exceeded the delay threshold
      */
-    public record GoalDelayProcessingResult(int updatedGoals, int removedGoals) {
+    public record GoalDelayProcessingResult(int updatedGoals, int failedGoals) {
         public boolean hasChanges() {
-            return updatedGoals > 0 || removedGoals > 0;
+            return updatedGoals > 0 || failedGoals > 0;
         }
     }
     
