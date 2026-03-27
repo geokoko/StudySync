@@ -545,15 +545,15 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
                     .filter(g -> g.getDate().isAfter(dateTimeService.getCurrentDate().minusDays(30)))
                     .collect(Collectors.toList());
             List<Task> allTasks = taskService.getTasks();
-            
+
             // Calculate statistics
             int totalSessions = recentSessions.size();
             int totalMinutes = recentSessions.stream().mapToInt(StudySession::getDurationMinutes).sum();
             int totalPoints = recentSessions.stream().mapToInt(StudySession::getPointsEarned).sum();
-            
-            double avgFocus = recentSessions.isEmpty() ? 0 : 
+
+            double avgFocus = recentSessions.isEmpty() ? 0 :
                 recentSessions.stream().mapToInt(StudySession::getFocusLevel).average().orElse(0);
-            
+
             int achievedGoals = (int) recentGoals.stream().filter(StudyGoal::isAchieved).count();
             int totalGoals = recentGoals.size();
             double goalCompletionRate = totalGoals > 0 ? (double) achievedGoals / totalGoals * 100 : 0;
@@ -765,7 +765,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         double avgMinutesPerDay = totalMinutes / 30.0;
         double volumeScore = Math.min(1.0, avgMinutesPerDay / 120.0) * 20; // 2 hours per day = max score
         
-        // Goal achievement score (10% weight)
+        // Goal achievement score (10% weight) — failed/delayed goals count against the rate
         List<StudyGoal> goals = studyService.getStudyGoals().stream()
             .filter(g -> g.getDate().isAfter(dateTimeService.getCurrentDate().minusDays(30)))
             .collect(Collectors.toList());

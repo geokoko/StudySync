@@ -479,18 +479,16 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
     
     private List<StudyGoal> getFilteredStudyGoalsForDate(LocalDate date) {
         LocalDate today = LocalDate.now();
-        
+
         if (date.equals(today)) {
-            // For today, show all goals including delayed ones
-            return studyService.getStudyGoalsForDate(date);
+            return studyService.getAllGoalsForDate(date);
         } else if (date.isAfter(today)) {
-            // For future dates, show all goals planned for that date (no delay processing needed)
-            return studyService.getStudyGoalsForFutureDate(date);
+            return studyService.getAllGoalsForFutureDate(date);
         } else {
-            // For previous days, show only goals achieved that day OR goals originally set for that day
-            List<StudyGoal> allGoalsForDate = studyService.getStudyGoalsForDate(date);
+            // For previous days, show goals originally set for that day (all statuses)
+            List<StudyGoal> allGoalsForDate = studyService.getAllGoalsForDate(date);
             return allGoalsForDate.stream()
-                    .filter(goal -> goal.isAchieved() || goal.getDate().equals(date))
+                    .filter(goal -> goal.isAchieved() || goal.isFailed() || goal.getDate().equals(date))
                     .collect(Collectors.toList());
         }
     }
@@ -1015,11 +1013,14 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
     private VBox createStudyGoalBox(StudyGoal goal) {
         VBox goalBox = new VBox(8);
         goalBox.setPadding(new Insets(12));
-        
+
         String backgroundColor;
         String borderColor;
-        
-        if (goal.isAchieved()) {
+
+        if (goal.isFailed()) {
+            backgroundColor = "#fdecea";
+            borderColor = "#c0392b";
+        } else if (goal.isAchieved()) {
             backgroundColor = "#e8f5e8";
             borderColor = "#27ae60";
         } else if (goal.isDelayed()) {
@@ -1038,35 +1039,74 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             backgroundColor = "#fff5f5";
             borderColor = "#e74c3c";
         }
-        
+
         goalBox.setStyle("-fx-background-color: " + backgroundColor + "; -fx-background-radius: 8; -fx-border-color: " + borderColor + "; -fx-border-radius: 8;");
-        
+
         // Status and description
-        String statusIcon = goal.isAchieved() ? "\u2705" : (goal.isDelayed() ? "[!] " : "\u25CB");
-        String statusText = goal.isAchieved() ? "Achieved" : (goal.isDelayed() ? "Delayed" : "Pending");
-        
+        String statusIcon;
+        String statusText;
+        if (goal.isFailed()) {
+            statusIcon = "\u2715";
+            statusText = "Failed";
+        } else if (goal.isAchieved()) {
+            statusIcon = "\u2705";
+            statusText = "Achieved";
+        } else if (goal.isDelayed()) {
+            statusIcon = "[!] ";
+            statusText = "Delayed";
+        } else {
+            statusIcon = "\u25CB";
+            statusText = "Pending";
+        }
+
         Label statusLabel = new Label(statusIcon + " " + statusText);
         TaskStyleUtils.fontBold(statusLabel, 12);
-        
+        if (goal.isFailed()) {
+            statusLabel.setTextFill(Color.web("#c0392b"));
+        }
+
         Label descriptionLabel = new Label("\u25CE " + goal.getDescription());
         TaskStyleUtils.fontNormal(descriptionLabel, 13);
         descriptionLabel.setWrapText(true);
-        
+
         goalBox.getChildren().addAll(statusLabel, descriptionLabel);
-        
+
         // Add delay info if applicable
         if (goal.isDelayed()) {
-            Label delayLabel = new Label(String.format("» Originally from: %s • ♨ %d days delayed", 
+            Label delayLabel = new Label(String.format("» Originally from: %s • \u2668 %d days delayed",
                 goal.getDate().toString(), goal.getDaysDelayed()));
             TaskStyleUtils.fontNormal(delayLabel, 11);
             delayLabel.setTextFill(Color.web("#ff5722"));
             goalBox.getChildren().add(delayLabel);
         }
-        
+
         // Action buttons
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
-        
+
+        // "Mark as Failed" button — soft-delete (only for active goals)
+        if (!goal.isAchieved() && !goal.isFailed()) {
+            Button failBtn = new Button("Mark as Failed");
+            failBtn.setGraphic(TaskStyleUtils.iconLabel("\u2716", 12));
+            failBtn.getStyleClass().addAll("btn-warning", "btn-small");
+            failBtn.setOnAction(e -> {
+                Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
+                confirmation.initOwner(goalBox.getScene() != null ? goalBox.getScene().getWindow() : null);
+                confirmation.setTitle("Mark Goal as Failed");
+                confirmation.setHeaderText("Mark this goal as failed?");
+                confirmation.setContentText("The goal will be kept in history as failed.\nGoal: " + goal.getDescription());
+
+                confirmation.showAndWait().ifPresent(response -> {
+                    if (response == ButtonType.OK) {
+                        studyService.markGoalAsFailed(goal.getId());
+                        updateCalendarDisplay();
+                    }
+                });
+            });
+            actionBox.getChildren().add(failBtn);
+        }
+
+        // Delete button — permanent removal
         Button deleteBtn = new Button("Delete");
         deleteBtn.setGraphic(TaskStyleUtils.iconLabel("\u2715", 12));
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
@@ -1074,9 +1114,9 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
             confirmation.initOwner(goalBox.getScene() != null ? goalBox.getScene().getWindow() : null);
             confirmation.setTitle("Delete Study Goal");
-            confirmation.setHeaderText("Are you sure you want to delete this study goal?");
-            confirmation.setContentText("Goal: " + goal.getDescription());
-            
+            confirmation.setHeaderText("Permanently delete this study goal?");
+            confirmation.setContentText("This cannot be undone.\nGoal: " + goal.getDescription());
+
             confirmation.showAndWait().ifPresent(response -> {
                 if (response == ButtonType.OK) {
                     studyService.deleteStudyGoal(goal.getId());
@@ -1085,10 +1125,10 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                 }
             });
         });
-        
+
         actionBox.getChildren().add(deleteBtn);
         goalBox.getChildren().add(actionBox);
-        
+
         return goalBox;
     }
     
