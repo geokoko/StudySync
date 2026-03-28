@@ -1,6 +1,7 @@
 package com.studysync.integration.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
+import com.studysync.config.DatabaseReloadService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ public class GoogleDriveService {
     private final GoogleCredentialManager credentialManager;
     private final GoogleDriveGateway gateway;
     private final JdbcTemplate jdbcTemplate;
+    private final DatabaseReloadService databaseReloadService;
     private Credential activeCredential;
     private String cachedAccountEmail;
     private volatile boolean shutdownSaveEnabled = false;
@@ -44,11 +46,14 @@ public class GoogleDriveService {
     /** Listeners notified just before the database is shut down for a reload. */
     private final java.util.List<Runnable> preReloadListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-    public GoogleDriveService(GoogleDriveSettings settings, GoogleCredentialManager credentialManager, GoogleDriveGateway gateway, JdbcTemplate jdbcTemplate) {
+    public GoogleDriveService(GoogleDriveSettings settings, GoogleCredentialManager credentialManager,
+                              GoogleDriveGateway gateway, JdbcTemplate jdbcTemplate,
+                              DatabaseReloadService databaseReloadService) {
         this.settings = settings;
         this.credentialManager = credentialManager;
         this.gateway = gateway;
         this.jdbcTemplate = jdbcTemplate;
+        this.databaseReloadService = databaseReloadService;
 
         if (settings != null && settings.isReady()) {
             this.activeCredential = loadStoredCredential();
@@ -363,6 +368,8 @@ public class GoogleDriveService {
 
     @PreDestroy
     public void onShutdown() {
+        boolean shutdownOk = shutdownDatabaseEngine();
+
         // Upload to Drive if explicitly requested (dialog "Push to Drive & Exit")
         // OR if the user never went through the exit dialog at all (SIGTERM, OS
         // logout, etc.) and there are unsaved local changes.  This prevents
@@ -371,36 +378,24 @@ public class GoogleDriveService {
         // shutdownSaveEnabled=false).
         boolean shouldUpload = shutdownSaveEnabled || (localDbDirty && !shutdownSaveExplicitlyDisabled);
         if (isIntegrationEnabled() && activeCredential != null && shouldUpload) {
-            boolean checkpointOk = false;
-            try {
-                jdbcTemplate.execute("CHECKPOINT SYNC");
-                checkpointOk = true;
-                logger.info("H2 checkpoint completed before Drive upload");
-            } catch (Exception e) {
-                logger.warn("H2 CHECKPOINT SYNC failed before upload: {}", e.getMessage());
-            }
-            if (checkpointOk) {
-                logger.info("Uploading StudySync database to Google Drive before shutdown");
+            if (shutdownOk) {
+                logger.info("Uploading StudySync database to Google Drive after H2 shutdown");
                 gateway.uploadDatabaseToDrive(activeCredential);
             } else {
-                logger.warn("Skipping shutdown upload — checkpoint failed");
+                logger.warn("Skipping shutdown upload — database shutdown failed");
             }
         }
+    }
 
-        // Explicitly SHUTDOWN the H2 engine.  This flushes ALL committed data
-        // to the .mv.db file and destroys the engine, preventing H2's JVM
-        // shutdown hook from later overwriting the file with stale MVStore
-        // page data.  Without this, DB_CLOSE_DELAY=-1 keeps the engine alive
-        // after HikariPool closes, and the shutdown hook's engine close can
-        // write an older MVStore version — silently reverting changes made
-        // since the last auto-save (including downloaded Drive data).
+    private boolean shutdownDatabaseEngine() {
         try {
-            jdbcTemplate.execute("SHUTDOWN");
+            databaseReloadService.shutdown();
+            logger.info("H2 engine shut down — all data flushed to disk");
+            return true;
         } catch (Exception e) {
-            // Expected: H2 kills the executing connection during SHUTDOWN
-            logger.debug("H2 SHUTDOWN completed (exception expected): {}", e.getMessage());
+            logger.warn("H2 shutdown failed during application shutdown", e);
+            return false;
         }
-        logger.info("H2 engine shut down — all data flushed to disk");
     }
 
     private Credential loadStoredCredential() {

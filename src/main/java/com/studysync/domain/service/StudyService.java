@@ -71,6 +71,25 @@ public class StudyService {
         }
     }
 
+    private void markDirtyAndSaveLocally(String operation) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    googleDriveService.markLocalDbDirty();
+                    if (!googleDriveService.saveLocally()) {
+                        logger.warn("Local checkpoint failed after {}", operation);
+                    }
+                }
+            });
+        } else {
+            googleDriveService.markLocalDbDirty();
+            if (!googleDriveService.saveLocally()) {
+                logger.warn("Local checkpoint failed after {}", operation);
+            }
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<StudySession> getStudySessions() {
         return StudySession.findAll();
@@ -246,7 +265,7 @@ public class StudyService {
             goal.setAchieved(achieved);
             goal.setReasonIfNotAchieved(reasonIfNot);
             goal.save();
-            markDirty();
+            markDirtyAndSaveLocally("study goal achievement update");
         }
     }
 
@@ -293,8 +312,9 @@ public class StudyService {
     public StudySession startStudySession() {
         StudySession session = new StudySession();
         session.startSession();
-        session.save();  // Model handles its own persistence
-        markDirty();
+        session.save();
+        markDirtyAndSaveLocally("study session start");
+        logger.info("Started study session {} at {}", session.getId(), session.getStartTime());
         return session;
     }
 
@@ -308,7 +328,9 @@ public class StudyService {
         
         // Save to database
         session.save();
-        markDirty();
+        markDirtyAndSaveLocally("study session completion");
+        logger.info("Completed study session {} on {} for {} minutes (focus={})",
+                session.getId(), session.getDate(), session.getDurationMinutes(), session.getFocusLevel());
     }
 
     public void addDailyReflection(DailyReflection reflection) {
@@ -357,7 +379,7 @@ public class StudyService {
     public void deleteStudySession(String sessionId) {
         boolean deleted = StudySession.deleteById(sessionId);
         if (deleted) {
-            markDirty();
+            markDirtyAndSaveLocally("study session deletion");
         }
     }
 
