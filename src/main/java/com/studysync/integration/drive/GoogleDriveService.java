@@ -1,6 +1,7 @@
 package com.studysync.integration.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
+import com.studysync.config.DatabaseReloadService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,9 +28,14 @@ public class GoogleDriveService {
     private final GoogleCredentialManager credentialManager;
     private final GoogleDriveGateway gateway;
     private final JdbcTemplate jdbcTemplate;
+    private final DatabaseReloadService databaseReloadService;
     private Credential activeCredential;
     private String cachedAccountEmail;
     private volatile boolean shutdownSaveEnabled = false;
+
+    /** True when the user explicitly chose "Exit without Saving" or "Save Locally & Exit".
+     *  Distinguishes an explicit opt-out from the default state (never asked). */
+    private volatile boolean shutdownSaveExplicitlyDisabled = false;
 
     /** Tracks whether the local DB has been modified since the last upload to Drive. */
     private volatile boolean localDbDirty = false;
@@ -40,11 +46,14 @@ public class GoogleDriveService {
     /** Listeners notified just before the database is shut down for a reload. */
     private final java.util.List<Runnable> preReloadListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-    public GoogleDriveService(GoogleDriveSettings settings, GoogleCredentialManager credentialManager, GoogleDriveGateway gateway, JdbcTemplate jdbcTemplate) {
+    public GoogleDriveService(GoogleDriveSettings settings, GoogleCredentialManager credentialManager,
+                              GoogleDriveGateway gateway, JdbcTemplate jdbcTemplate,
+                              DatabaseReloadService databaseReloadService) {
         this.settings = settings;
         this.credentialManager = credentialManager;
         this.gateway = gateway;
         this.jdbcTemplate = jdbcTemplate;
+        this.databaseReloadService = databaseReloadService;
 
         if (settings != null && settings.isReady()) {
             this.activeCredential = loadStoredCredential();
@@ -63,6 +72,9 @@ public class GoogleDriveService {
 
     public void setShutdownSaveEnabled(boolean enabled) {
         this.shutdownSaveEnabled = enabled;
+        // Track whether the user made an explicit choice via the exit dialog.
+        // Reset when re-enabled so the latch doesn't stick after "Push to Drive".
+        this.shutdownSaveExplicitlyDisabled = !enabled;
     }
 
     public boolean isIntegrationEnabled() {
@@ -332,20 +344,33 @@ public class GoogleDriveService {
 
     @PreDestroy
     public void onShutdown() {
-        if (isIntegrationEnabled() && activeCredential != null && shutdownSaveEnabled) {
-            // Force H2 to flush all committed data from its in-memory cache to the
-            // .mv.db file on disk BEFORE we upload.  Without this, DB_CLOSE_DELAY=-1
-            // keeps the engine alive and pending MVStore pages may not yet be written,
-            // causing the uploaded file to be stale.
-            try {
-                jdbcTemplate.execute("CHECKPOINT SYNC");
-                logger.info("H2 checkpoint completed — database file is up to date on disk");
-            } catch (Exception e) {
-                logger.warn("H2 CHECKPOINT SYNC failed (database may already be closed): {}", e.getMessage());
-            }
+        boolean shutdownOk = shutdownDatabaseEngine();
 
-            logger.info("Uploading StudySync database to Google Drive before shutdown");
-            gateway.uploadDatabaseToDrive(activeCredential);
+        // Upload to Drive if explicitly requested (dialog "Push to Drive & Exit")
+        // OR if the user never went through the exit dialog at all (SIGTERM, OS
+        // logout, etc.) and there are unsaved local changes.  This prevents
+        // silent data loss on non-dialog shutdowns while still respecting the
+        // user's explicit choice of "Exit without Saving" (which sets
+        // shutdownSaveEnabled=false).
+        boolean shouldUpload = shutdownSaveEnabled || (localDbDirty && !shutdownSaveExplicitlyDisabled);
+        if (isIntegrationEnabled() && activeCredential != null && shouldUpload) {
+            if (shutdownOk) {
+                logger.info("Uploading StudySync database to Google Drive after H2 shutdown");
+                gateway.uploadDatabaseToDrive(activeCredential);
+            } else {
+                logger.warn("Skipping shutdown upload — database shutdown failed");
+            }
+        }
+    }
+
+    private boolean shutdownDatabaseEngine() {
+        try {
+            databaseReloadService.shutdown();
+            logger.info("H2 engine shut down — all data flushed to disk");
+            return true;
+        } catch (Exception e) {
+            logger.warn("H2 shutdown failed during application shutdown", e);
+            return false;
         }
     }
 
