@@ -389,6 +389,11 @@ public class StudyService {
     }
 
     @Transactional(readOnly = true)
+    public Optional<StudySession> getActiveSession() {
+        return StudySession.findActiveSession();
+    }
+
+    @Transactional(readOnly = true)
     public List<StudySession> getSessionsInDateRange(LocalDate startDate, LocalDate endDate) {
         return StudySession.findInDateRange(startDate, endDate);
     }

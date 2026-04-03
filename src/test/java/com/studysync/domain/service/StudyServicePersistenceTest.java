@@ -151,6 +151,31 @@ class StudyServicePersistenceTest {
         verify(googleDriveService).saveLocally();
     }
 
+    @Test
+    void getActiveSessionFindsSessionThatStartedPreviousDay() {
+        LocalDate sessionDate = LocalDate.of(2026, 3, 27);
+        LocalDateTime startTime = LocalDateTime.of(2026, 3, 27, 23, 50);
+        LocalDateTime lastUpdate = LocalDateTime.of(2026, 3, 28, 0, 10);
+
+        jdbcTemplate.update("""
+                INSERT INTO study_sessions (
+                    id, date, start_time, end_time, duration_minutes, completed, focus_level,
+                    confidence_level, notes, session_text, is_active, last_update_time,
+                    current_elapsed_minutes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                "overnight-session", sessionDate, startTime, null, 20, false,
+                3, 3, "Still running", "Overnight notes", true, lastUpdate, 20);
+
+        StudySession restored = studyService.getActiveSession().orElseThrow();
+
+        assertEquals("overnight-session", restored.getId());
+        assertEquals(sessionDate, restored.getDate());
+        assertEquals(startTime, restored.getStartTime());
+        assertTrue(restored.isActive());
+        assertFalse(restored.isCompleted());
+    }
+
     private void createStudySessionsTable() {
         jdbcTemplate.execute("""
                 CREATE TABLE study_sessions (
