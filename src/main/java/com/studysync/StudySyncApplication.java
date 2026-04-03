@@ -1,7 +1,10 @@
 package com.studysync;
 
 import com.studysync.application.StudySyncJavaFXApp;
+import com.studysync.bootstrap.PendingDownloadApplier;
 import com.studysync.integration.drive.GoogleDriveBootstrap;
+import com.studysync.integration.drive.GoogleDriveSettings;
+import com.studysync.integration.drive.GoogleDriveSettingsLoader;
 import javafx.application.Application;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -35,9 +38,12 @@ import java.nio.file.Path;
  */
 @SpringBootApplication
 public class StudySyncApplication {
+
+    public static final int RESTART_EXIT_CODE = 75;
     
     /** The Spring application context instance shared across the application. */
     private static ConfigurableApplicationContext springContext;
+    private static volatile int requestedExitCode = 0;
 
     /** File lock held for the lifetime of the process to enforce single-instance. */
     @SuppressWarnings("unused") // must stay referenced to prevent GC releasing the lock
@@ -60,8 +66,11 @@ public class StudySyncApplication {
         // Disable Spring Boot's automatic shutdown when main method ends
         System.setProperty("java.awt.headless", "false");
 
-        // Attempt to sync Google Drive hosted data (if configured) before Spring initializes the database
-        GoogleDriveBootstrap.initialize();
+        GoogleDriveSettings driveSettings = GoogleDriveSettingsLoader.load();
+        PendingDownloadApplier.applyIfPresent(driveSettings.localDatabasePath());
+
+        // Attempt to initialize Google Drive hosted data (if configured) before Spring initializes the database
+        GoogleDriveBootstrap.initialize(driveSettings);
 
         // Configure Spring Boot for faster startup
         SpringApplication app = new SpringApplication(StudySyncApplication.class);
@@ -78,6 +87,14 @@ public class StudySyncApplication {
 
         // Launch JavaFX application
         Application.launch(StudySyncJavaFXApp.class, args);
+        shutdown();
+        if (requestedExitCode != 0) {
+            System.exit(requestedExitCode);
+        }
+    }
+
+    public static void requestRestart() {
+        requestedExitCode = RESTART_EXIT_CODE;
     }
 
     /**

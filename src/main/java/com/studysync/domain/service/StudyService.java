@@ -206,7 +206,7 @@ public class StudyService {
             });
         }
 
-        markDirty();
+        markDirtyAndSaveLocally("study goal creation");
     }
 
     /**
@@ -253,7 +253,7 @@ public class StudyService {
             }
             goal.setReplannedForDate(dateTimeService.getCurrentDate());
             goal.save();
-            markDirty();
+            markDirtyAndSaveLocally("study goal replan");
             logger.info("Rescheduled goal '{}' to appear today ({})", goal.getDescription(), dateTimeService.getCurrentDate());
         });
     }
@@ -283,7 +283,7 @@ public class StudyService {
             goal.setFailed(true);
             goal.setAchieved(false);
             goal.save();
-            markDirty();
+            markDirtyAndSaveLocally("study goal failure update");
             logger.info("Marked study goal '{}' as failed", goalId);
             return true;
         } else {
@@ -301,7 +301,7 @@ public class StudyService {
         }
         boolean deleted = StudyGoal.deleteById(goalId);
         if (deleted) {
-            markDirty();
+            markDirtyAndSaveLocally("study goal deletion");
             logger.info("Permanently deleted study goal '{}'", goalId);
         } else {
             logger.warn("Requested deletion for study goal '{}' but it did not exist", goalId);
@@ -335,7 +335,7 @@ public class StudyService {
 
     public void addDailyReflection(DailyReflection reflection) {
         reflection.save();
-        markDirty();
+        markDirtyAndSaveLocally("daily reflection save");
     }
 
     @Transactional(readOnly = true)
@@ -356,7 +356,7 @@ public class StudyService {
     public void deleteDailyReflection(LocalDate date) {
         boolean deleted = DailyReflection.deleteByDate(date);
         if (deleted) {
-            markDirty();
+            markDirtyAndSaveLocally("daily reflection deletion");
         }
     }
 
@@ -498,7 +498,7 @@ public class StudyService {
         }
 
         if (updatedGoals > 0 || failedGoals > 0) {
-            markDirty();
+            markDirtyAndSaveLocally("delayed goal processing");
         }
 
         return new GoalDelayProcessingResult(updatedGoals, failedGoals);
