@@ -1648,10 +1648,15 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             return;
         }
 
+        boolean sameActiveSession = currentSession != null
+                && currentSession.getId() != null
+                && currentSession.getId().equals(activeSession.getId());
         currentSession = activeSession;
-        String sessionText = activeSession.getSessionText() != null ? activeSession.getSessionText() : "";
-        if (!sessionText.equals(sessionTextArea.getText())) {
-            sessionTextArea.setText(sessionText);
+        if (!sameActiveSession) {
+            String sessionText = activeSession.getSessionText() != null ? activeSession.getSessionText() : "";
+            if (!sessionText.equals(sessionTextArea.getText())) {
+                sessionTextArea.setText(sessionText);
+            }
         }
         if (sessionTimer == null) {
             startSessionTimer();
