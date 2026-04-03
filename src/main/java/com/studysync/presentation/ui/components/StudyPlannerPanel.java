@@ -1633,15 +1633,34 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             return;
         }
 
-        studyService.getSessionsForDate(displayDate).stream()
+        StudySession activeSession = studyService.getSessionsForDate(displayDate).stream()
                 .filter(session -> !session.isCompleted() && session.isActive())
                 .max(Comparator.comparing(StudySession::getStartTime,
                         Comparator.nullsLast(Comparator.naturalOrder())))
-                .ifPresent(session -> {
-                    currentSession = session;
-                    sessionTextArea.setText(session.getSessionText() != null ? session.getSessionText() : "");
-                    startSessionTimer();
-                });
+                .orElse(null);
+
+        if (activeSession == null) {
+            if (currentSession != null) {
+                currentSession = null;
+                stopSessionTimer();
+                sessionTextArea.clear();
+            }
+            return;
+        }
+
+        boolean sameActiveSession = currentSession != null
+                && currentSession.getId() != null
+                && currentSession.getId().equals(activeSession.getId());
+        currentSession = activeSession;
+        if (!sameActiveSession) {
+            String sessionText = activeSession.getSessionText() != null ? activeSession.getSessionText() : "";
+            if (!sessionText.equals(sessionTextArea.getText())) {
+                sessionTextArea.setText(sessionText);
+            }
+        }
+        if (sessionTimer == null) {
+            startSessionTimer();
+        }
     }
 
     private void saveReflection() {
