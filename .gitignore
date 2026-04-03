@@ -38,6 +38,7 @@ studysync.desktop
 # Temporary files
 *.tmp
 *.bak
+.codex
 
 # Incomplete scripts
 install-desktop-entry.sh
