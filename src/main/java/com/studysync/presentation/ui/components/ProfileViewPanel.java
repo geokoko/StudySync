@@ -179,7 +179,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         saveLocallyButton.setOnAction(e -> runDriveAction(
             "Saving database to disk…",
             () -> googleDriveService.saveLocally(),
-            "Saved! Database flushed to disk.",
+            "Saved! Local checkpoint completed.",
             "Save failed. Check logs for details."
         ));
 

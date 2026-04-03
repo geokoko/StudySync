@@ -10,6 +10,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -73,6 +75,37 @@ class GoogleDriveServiceTest {
         googleDriveService.onShutdown();
 
         verify(gateway, never()).uploadDatabaseToDrive(activeCredential);
+    }
+
+    @Test
+    void uploadDatabaseSnapshotUsesShutdownReconnectCycle() {
+        Runnable preReloadListener = mock(Runnable.class);
+        Runnable reloadListener = mock(Runnable.class);
+        googleDriveService.addPreReloadListener(preReloadListener);
+        googleDriveService.addReloadListener(reloadListener);
+        when(gateway.uploadDatabaseToDrive(activeCredential)).thenReturn(true);
+
+        boolean uploaded = googleDriveService.uploadDatabaseSnapshot();
+
+        assertTrue(uploaded);
+        InOrder inOrder = inOrder(preReloadListener, databaseReloadService, gateway, reloadListener);
+        inOrder.verify(preReloadListener).run();
+        inOrder.verify(databaseReloadService).shutdown();
+        inOrder.verify(gateway).uploadDatabaseToDrive(activeCredential);
+        inOrder.verify(databaseReloadService).reconnect();
+        inOrder.verify(reloadListener).run();
+    }
+
+    @Test
+    void uploadDatabaseSnapshotReturnsFalseWhenReconnectFails() {
+        when(gateway.uploadDatabaseToDrive(activeCredential)).thenReturn(true);
+        doThrow(new RuntimeException("boom")).when(databaseReloadService).reconnect();
+
+        boolean uploaded = googleDriveService.uploadDatabaseSnapshot();
+
+        assertFalse(uploaded);
+        verify(databaseReloadService).shutdown();
+        verify(databaseReloadService).reconnect();
     }
 
     private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {

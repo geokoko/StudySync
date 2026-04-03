@@ -146,7 +146,7 @@ public class GoogleDriveService {
     public boolean saveLocally() {
         try {
             jdbcTemplate.execute("CHECKPOINT SYNC");
-            logger.info("Local save completed — database flushed to disk");
+            logger.info("Local save completed — checkpoint sync finished successfully");
             return true;
         } catch (Exception e) {
             logger.error("Local save failed (CHECKPOINT SYNC): {}", e.getMessage());
@@ -158,20 +158,38 @@ public class GoogleDriveService {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
         }
-        // Flush H2 in-memory cache to the .mv.db file before uploading.
-        // If the checkpoint fails, abort the upload to avoid overwriting
-        // Drive with a stale database file that is missing recent writes.
+
+        notifyPreReloadListeners();
+
         try {
-            jdbcTemplate.execute("CHECKPOINT SYNC");
+            databaseReloadService.shutdown();
+            logger.info("H2 engine shut down before manual Drive upload");
         } catch (Exception e) {
-            logger.error("H2 CHECKPOINT SYNC failed before upload — aborting upload to prevent stale data on Drive", e);
+            logger.error("DB shutdown failed before manual Drive upload — aborting upload", e);
+            notifyReloadListeners();
             return false;
         }
-        boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
-        if (uploaded) {
-            localDbDirty = false;
+
+        boolean uploaded = false;
+        boolean reconnectOk = false;
+        try {
+            logger.info("Uploading StudySync database to Google Drive after H2 shutdown");
+            uploaded = gateway.uploadDatabaseToDrive(activeCredential);
+            if (uploaded) {
+                localDbDirty = false;
+            }
+        } finally {
+            try {
+                databaseReloadService.reconnect();
+                reconnectOk = true;
+                logger.info("Database reconnected after manual Drive upload");
+            } catch (Exception e) {
+                logger.error("DB reconnect failed after manual Drive upload — application may need a restart", e);
+            } finally {
+                notifyReloadListeners();
+            }
         }
-        return uploaded;
+        return uploaded && reconnectOk;
     }
 
     public synchronized boolean downloadDatabaseSnapshot() {

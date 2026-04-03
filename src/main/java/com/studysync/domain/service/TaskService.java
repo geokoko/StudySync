@@ -82,6 +82,25 @@ public class TaskService {
             googleDriveService.markLocalDbDirty();
         }
     }
+
+    private void markDirtyAndSaveLocally(String operation) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    googleDriveService.markLocalDbDirty();
+                    if (!googleDriveService.saveLocally()) {
+                        logger.warn("Local checkpoint failed after {}", operation);
+                    }
+                }
+            });
+        } else {
+            googleDriveService.markLocalDbDirty();
+            if (!googleDriveService.saveLocally()) {
+                logger.warn("Local checkpoint failed after {}", operation);
+            }
+        }
+    }
     
     @Transactional(readOnly = true)
     public List<Task> getTasks() {
@@ -112,7 +131,7 @@ public class TaskService {
         
         logger.info("Successfully added task '{}' with priority {} and status {}", 
                    savedTask.getTitle(), savedTask.getPriority().stars(), savedTask.getStatus());
-        markDirty();
+        markDirtyAndSaveLocally("task creation");
         return savedTask;
     }
     
@@ -131,7 +150,7 @@ public class TaskService {
         }
         
         logger.info("Removed task: {}", task.getTitle());
-        markDirty();
+        markDirtyAndSaveLocally("task deletion");
     }
     
     @Transactional
@@ -142,7 +161,7 @@ public class TaskService {
         
         Task savedTask = finalTask.save();
         logger.info("Updated task: {}", savedTask.getTitle());
-        markDirty();
+        markDirtyAndSaveLocally("task update");
         return savedTask;
     }
     
@@ -158,7 +177,7 @@ public class TaskService {
         }
         
         logger.info("Updated task status for '{}' to {}", task.getTitle(), newStatus);
-        markDirty();
+        markDirtyAndSaveLocally("task status update");
     }
     
     @Transactional(readOnly = true)
@@ -226,7 +245,7 @@ public class TaskService {
 
         if (updatedCount > 0) {
             logger.info("Marked {} tasks as DELAYED", updatedCount);
-            markDirty();
+            markDirtyAndSaveLocally("delayed task processing");
         }
 
         return updatedCount;
@@ -297,6 +316,9 @@ public class TaskService {
         
         int deletedCount = Task.deleteByIds(taskIds);
         logger.info("Batch deleted {} tasks", deletedCount);
+        if (deletedCount > 0) {
+            markDirtyAndSaveLocally("batch task deletion");
+        }
         return deletedCount;
     }
     
