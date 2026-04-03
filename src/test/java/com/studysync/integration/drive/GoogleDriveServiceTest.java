@@ -1,17 +1,22 @@
 package com.studysync.integration.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
-import com.studysync.config.DatabaseReloadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.InOrder;
-import org.springframework.jdbc.core.JdbcTemplate;
 
+import javax.sql.DataSource;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.sql.Connection;
+import java.sql.Statement;
+import java.time.Instant;
+import java.util.Optional;
 
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.inOrder;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -21,11 +26,15 @@ class GoogleDriveServiceTest {
 
     private GoogleDriveService googleDriveService;
     private GoogleDriveGateway gateway;
-    private DatabaseReloadService databaseReloadService;
+    private DataSource dataSource;
     private Credential activeCredential;
+    private Path localDatabasePath;
 
     @BeforeEach
     void setUp() throws Exception {
+        localDatabasePath = Files.createTempDirectory("studysync-drive-test").resolve("studysync.mv.db");
+        Files.writeString(localDatabasePath, "initial");
+
         GoogleDriveSettings settings = new GoogleDriveSettings(
                 true,
                 "client-id",
@@ -34,45 +43,66 @@ class GoogleDriveServiceTest {
                 "StudySync",
                 "StudySync",
                 "studysync.mv.db",
-                Path.of("build", "tmp", "test-drive", "studysync.mv.db"),
-                Path.of("build", "tmp", "test-drive", "credentials"));
+                localDatabasePath,
+                localDatabasePath.getParent().resolve("credentials"));
         GoogleCredentialManager credentialManager = mock(GoogleCredentialManager.class);
         gateway = mock(GoogleDriveGateway.class);
-        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-        databaseReloadService = mock(DatabaseReloadService.class);
+        dataSource = mock(DataSource.class);
+        Connection connection = mock(Connection.class);
+        Statement statement = mock(Statement.class);
 
         when(credentialManager.loadStoredCredential()).thenReturn(null);
+        when(dataSource.getConnection()).thenReturn(connection);
+        when(connection.createStatement()).thenReturn(statement);
 
-        googleDriveService = new GoogleDriveService(
-                settings,
-                credentialManager,
-                gateway,
-                jdbcTemplate,
-                databaseReloadService);
+        googleDriveService = new GoogleDriveService(settings, credentialManager, gateway, dataSource);
 
         activeCredential = mock(Credential.class);
         setPrivateField(googleDriveService, "activeCredential", activeCredential);
     }
 
     @Test
-    void onShutdownShutsDownDatabaseBeforeUploading() {
-        googleDriveService.setShutdownSaveEnabled(true);
+    void uploadDatabaseSnapshotAbortsWhenLocalFileStillLooksStale() throws Exception {
+        Files.setLastModifiedTime(localDatabasePath, FileTime.from(Instant.now().minusSeconds(120)));
+        setPrivateField(googleDriveService, "lastLocalMutationAt", System.currentTimeMillis());
 
-        googleDriveService.onShutdown();
+        boolean uploaded = googleDriveService.uploadDatabaseSnapshot();
 
-        InOrder inOrder = inOrder(databaseReloadService, gateway);
-        inOrder.verify(databaseReloadService).shutdown();
-        inOrder.verify(gateway).uploadDatabaseToDrive(activeCredential);
+        assertEquals(false, uploaded);
+        verify(gateway, never()).uploadDatabaseToDrive(activeCredential);
     }
 
     @Test
-    void onShutdownSkipsUploadWhenDatabaseShutdownFails() {
-        googleDriveService.setShutdownSaveEnabled(true);
-        doThrow(new RuntimeException("boom")).when(databaseReloadService).shutdown();
+    void stageDownloadFromDriveWritesPendingDatabaseAndMetadata() throws Exception {
+        when(gateway.downloadDatabaseToPath(any(), any())).thenAnswer(invocation -> {
+            Path destination = invocation.getArgument(1);
+            Files.writeString(destination, "downloaded-db");
+            return Optional.of(new RemoteDatabaseSnapshot("drive-file", Files.size(destination), 123456789L));
+        });
 
-        googleDriveService.onShutdown();
+        boolean staged = googleDriveService.stageDownloadFromDrive();
 
-        verify(gateway, never()).uploadDatabaseToDrive(activeCredential);
+        assertTrue(staged);
+        Path pendingDatabase = PendingDownloadSupport.pendingDatabasePath(localDatabasePath);
+        Path metadataPath = PendingDownloadSupport.pendingMetadataPath(localDatabasePath);
+        assertTrue(Files.exists(pendingDatabase));
+        assertTrue(Files.exists(metadataPath));
+        PendingDownloadMetadata metadata = PendingDownloadSupport.readMetadata(metadataPath);
+        assertEquals("drive-file", metadata.fileId());
+        assertEquals(Files.size(pendingDatabase), metadata.sizeBytes());
+        assertEquals(PendingDownloadSupport.sha256Hex(pendingDatabase), metadata.sha256());
+    }
+
+    @Test
+    void checkSyncStatusReturnsConflictWhenLocalIsDirtyAndDriveIsNewer() throws Exception {
+        Files.setLastModifiedTime(localDatabasePath, FileTime.from(Instant.now()));
+        setPrivateField(googleDriveService, "localDbDirty", true);
+        when(gateway.getRemoteModifiedTime(activeCredential))
+                .thenReturn(Optional.of(Instant.now().plusSeconds(120)));
+
+        GoogleDriveService.SyncStatus status = googleDriveService.checkSyncStatus();
+
+        assertEquals(GoogleDriveService.SyncStatus.CONFLICT, status);
     }
 
     private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {
