@@ -240,6 +240,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
                     driveActionStatusLabel.setText(failureMessage);
                 } else if (Boolean.TRUE.equals(result)) {
                     driveActionStatusLabel.setText(successMessage);
+                    updateDisplay();
                 } else {
                     driveActionStatusLabel.setText(failureMessage);
                 }
