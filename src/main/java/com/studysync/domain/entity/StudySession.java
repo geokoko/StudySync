@@ -208,6 +208,28 @@ public class StudySession {
             return Optional.empty();
         }
     }
+
+    /**
+     * Returns the most recently started active session across all dates.
+     */
+    public static Optional<StudySession> findActiveSession() {
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("JdbcTemplate not initialized");
+        }
+
+        String sql = """
+                SELECT * FROM study_sessions
+                WHERE completed = FALSE AND is_active = TRUE
+                ORDER BY start_time DESC
+                LIMIT 1
+                """;
+        try {
+            StudySession session = jdbcTemplate.queryForObject(sql, getRowMapper());
+            return Optional.ofNullable(session);
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
     
     /**
      * Get sessions in date range.
