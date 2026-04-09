@@ -58,6 +58,8 @@ public class StudySyncUI {
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
     private StackPane overlayLayer;
+    private Stage profileStage;
+    private ProfileViewPanel profilePanel;
 
     @Autowired
     public StudySyncUI(TaskService taskService, CategoryService categoryService, ReminderService reminderService,
@@ -193,8 +195,16 @@ public class StudySyncUI {
             markDelayedTasksOnStartup();
             processDelayedGoalsOnStartup();
 
-            hideReloadOverlay();
             refreshAllPanels();
+            // Some controls still need one more JavaFX pulse after a live DB
+            // reload before they fully reflect the replacement database.
+            Platform.runLater(() -> {
+                refreshAllPanels();
+                if (profilePanel != null) {
+                    profilePanel.updateDisplay();
+                }
+                hideReloadOverlay();
+            });
         }));
         
         // Initialize the default tab after showing the window (to ensure Spring context is fully loaded)
@@ -357,13 +367,20 @@ public class StudySyncUI {
     }
     
     private void showProfileWindow() {
+        if (profileStage != null && profileStage.isShowing()) {
+            profilePanel.updateDisplay();
+            profileStage.toFront();
+            profileStage.requestFocus();
+            return;
+        }
+
         // Create a new stage for the profile window
-        Stage profileStage = new Stage();
+        profileStage = new Stage();
         profileStage.setTitle("Study Profile & Analytics");
         profileStage.initOwner(tabPane.getScene().getWindow());
         
         // Create the profile panel
-        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService, googleDriveService, databaseReloadService::shutdown, databaseReloadService::reconnect);
+        profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService, googleDriveService, databaseReloadService::shutdown, databaseReloadService::reconnect);
         
         Scene profileScene = new Scene(profilePanel, 1000, 700);
         profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
@@ -373,6 +390,10 @@ public class StudySyncUI {
         profileStage.setMinHeight(600);
         profileStage.setWidth(1000);
         profileStage.setHeight(700);
+        profileStage.setOnHidden(event -> {
+            profileStage = null;
+            profilePanel = null;
+        });
         profileStage.show();
         
         // Update the profile display
