@@ -278,8 +278,8 @@ public class StudySyncUI {
             if (result.updatedGoals() > 0) {
                 logger.info("Updated delay status for {} study goals carried over from previous days", result.updatedGoals());
             }
-            if (result.removedGoals() > 0) {
-                logger.info("Auto-removed {} study goals overdue by at least two weeks", result.removedGoals());
+            if (result.failedGoals() > 0) {
+                logger.info("Marked {} study goals as FAILED (overdue by at least two weeks)", result.failedGoals());
             }
         } catch (Exception e) {
             logger.error("Failed to process delayed goals on startup", e);
