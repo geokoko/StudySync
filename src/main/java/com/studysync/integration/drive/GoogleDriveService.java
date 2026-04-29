@@ -5,15 +5,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PreDestroy;
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.Instant;
-import java.util.Objects;
 import java.util.Optional;
-
-import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * High-level service exposed to the rest of the application for Google sign-in and Drive synchronization.
@@ -22,29 +22,28 @@ import org.springframework.jdbc.core.JdbcTemplate;
 public class GoogleDriveService {
 
     private static final Logger logger = LoggerFactory.getLogger(GoogleDriveService.class);
+    private static final long SYNC_STATUS_TOLERANCE_SECONDS = 30;
+    private static final long UPLOAD_FRESHNESS_TOLERANCE_MS = 5_000;
 
     private final GoogleDriveSettings settings;
     private final GoogleCredentialManager credentialManager;
     private final GoogleDriveGateway gateway;
-    private final JdbcTemplate jdbcTemplate;
+    private final DataSource dataSource;
     private Credential activeCredential;
     private String cachedAccountEmail;
-    private volatile boolean shutdownSaveEnabled = false;
 
     /** Tracks whether the local DB has been modified since the last upload to Drive. */
     private volatile boolean localDbDirty = false;
+    private volatile long lastLocalMutationAt = 0L;
 
-    /** Listeners notified when the database is reloaded from Drive. */
-    private final java.util.List<Runnable> reloadListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
-
-    /** Listeners notified just before the database is shut down for a reload. */
-    private final java.util.List<Runnable> preReloadListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
-
-    public GoogleDriveService(GoogleDriveSettings settings, GoogleCredentialManager credentialManager, GoogleDriveGateway gateway, JdbcTemplate jdbcTemplate) {
+    public GoogleDriveService(GoogleDriveSettings settings,
+                              GoogleCredentialManager credentialManager,
+                              GoogleDriveGateway gateway,
+                              DataSource dataSource) {
         this.settings = settings;
         this.credentialManager = credentialManager;
         this.gateway = gateway;
-        this.jdbcTemplate = jdbcTemplate;
+        this.dataSource = dataSource;
 
         if (settings != null && settings.isReady()) {
             this.activeCredential = loadStoredCredential();
@@ -61,42 +60,33 @@ public class GoogleDriveService {
         }
     }
 
-    public void setShutdownSaveEnabled(boolean enabled) {
-        this.shutdownSaveEnabled = enabled;
-    }
-
     public boolean isIntegrationEnabled() {
         return settings != null && settings.isReady();
     }
 
-    /**
-     * Checks if a user is currently signed in with Google.
-     *
-     * @return true if a valid Google credential is present, false otherwise
-     */
     public boolean isSignedIn() {
         return activeCredential != null;
     }
 
-    /**
-     * Returns the email address of the currently signed-in Google account, if available.
-     *
-     * @return an {@link Optional} containing the signed-in account's email, or empty if not signed in
-     */
     public Optional<String> getSignedInAccountEmail() {
         return Optional.ofNullable(cachedAccountEmail);
     }
 
-    /**
-     * Returns the local file system path to the StudySync database.
-     * <p>
-     * If Google Drive integration is enabled, returns the configured path; otherwise,
-     * returns the default path {@code data/studysync.mv.db}.
-     *
-     * @return the {@link Path} to the local StudySync database file
-     */
     public Path getLocalDatabasePath() {
-        return settings != null ? settings.localDatabasePath() : Path.of("data", "studysync.mv.db");
+        Path configured = settings != null ? settings.localDatabasePath() : Path.of("data", "studysync.mv.db");
+        return configured.toAbsolutePath();
+    }
+
+    public boolean isRestartSupported() {
+        return "1".equals(System.getenv("STUDYSYNC_RESTARTABLE"));
+    }
+
+    public boolean hasPendingDownload() {
+        return Files.exists(PendingDownloadSupport.pendingMetadataPath(getLocalDatabasePath()));
+    }
+
+    public boolean hasFailedPendingDownload() {
+        return Files.exists(PendingDownloadSupport.failedPendingMetadataPath(getLocalDatabasePath()));
     }
 
     public synchronized boolean signInWithGoogle() {
@@ -126,107 +116,143 @@ public class GoogleDriveService {
     }
 
     /**
-     * Flushes all in-memory H2 data to the .mv.db file on disk.
-     * This is the "Save Locally" operation — no network involved.
-     *
-     * @return true if the checkpoint succeeded
+     * Flushes all in-memory H2 data to the .mv.db file on disk and verifies
+     * that the file looks fresh enough to contain the latest committed writes.
      */
     public boolean saveLocally() {
-        try {
-            jdbcTemplate.execute("CHECKPOINT SYNC");
-            logger.info("Local save completed — database flushed to disk");
-            return true;
+        Path localPath = getLocalDatabasePath();
+        FileState beforeState = readFileState(localPath);
+
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(true);
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("CHECKPOINT SYNC");
+            }
         } catch (Exception e) {
-            logger.error("Local save failed (CHECKPOINT SYNC): {}", e.getMessage());
+            logger.error("Local save failed (CHECKPOINT SYNC): {}", e.getMessage(), e);
             return false;
         }
+
+        FileState afterState = readFileState(localPath);
+        boolean fresh = verifyLocalDbFreshness(afterState);
+        if (fresh) {
+            logger.info("Local save completed — file before [exists={}, size={}, mtime={}] after [exists={}, size={}, mtime={}]",
+                    beforeState.exists(), beforeState.sizeBytes(), beforeState.lastModified(),
+                    afterState.exists(), afterState.sizeBytes(), afterState.lastModified());
+            return true;
+        }
+
+        logger.error("Local save ran CHECKPOINT SYNC but the database file still looks stale "
+                        + "(before [exists={}, size={}, mtime={}]; after [exists={}, size={}, mtime={}]; lastMutationAt={})",
+                beforeState.exists(), beforeState.sizeBytes(), beforeState.lastModified(),
+                afterState.exists(), afterState.sizeBytes(), afterState.lastModified(),
+                lastLocalMutationAt > 0 ? Instant.ofEpochMilli(lastLocalMutationAt) : null);
+        return false;
     }
 
     public synchronized boolean uploadDatabaseSnapshot() {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
         }
-        // Flush H2 in-memory cache to the .mv.db file before uploading
-        try {
-            jdbcTemplate.execute("CHECKPOINT SYNC");
-        } catch (Exception e) {
-            logger.warn("H2 CHECKPOINT SYNC failed before upload: {}", e.getMessage());
+        if (!saveLocally()) {
+            logger.warn("Aborting Drive upload because the local database could not be verified as fresh");
+            return false;
         }
+
         boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
         if (uploaded) {
             localDbDirty = false;
+            lastLocalMutationAt = 0L;
         }
         return uploaded;
     }
 
-    public synchronized boolean downloadDatabaseSnapshot() {
+    public synchronized boolean stageDownloadFromDrive() {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
         }
-        return gateway.downloadDatabaseFromDrive(activeCredential);
+
+        Path localPath = getLocalDatabasePath();
+        Path partialPath = PendingDownloadSupport.pendingDatabasePartialPath(localPath);
+        Path pendingPath = PendingDownloadSupport.pendingDatabasePath(localPath);
+        Path metadataPath = PendingDownloadSupport.pendingMetadataPath(localPath);
+        Path failedMetadataPath = PendingDownloadSupport.failedPendingMetadataPath(localPath);
+
+        try {
+            Files.deleteIfExists(partialPath);
+            Optional<RemoteDatabaseSnapshot> snapshot = gateway.downloadDatabaseToPath(activeCredential, partialPath);
+            if (snapshot.isEmpty()) {
+                return false;
+            }
+
+            long sizeBytes = Files.size(partialPath);
+            String sha256 = PendingDownloadSupport.sha256Hex(partialPath);
+            PendingDownloadSupport.moveReplacing(partialPath, pendingPath);
+            PendingDownloadMetadata metadata = new PendingDownloadMetadata(
+                    snapshot.get().fileId(),
+                    sizeBytes,
+                    sha256,
+                    snapshot.get().modifiedTimeEpochMillis(),
+                    System.currentTimeMillis());
+            PendingDownloadSupport.writeMetadata(metadataPath, metadata);
+            Files.deleteIfExists(failedMetadataPath);
+            logger.info("Staged Google Drive database download at {}", pendingPath);
+            return true;
+        } catch (Exception e) {
+            logger.error("Failed to stage Google Drive database download", e);
+            try {
+                Files.deleteIfExists(partialPath);
+            } catch (IOException suppressed) {
+                e.addSuppressed(suppressed);
+            }
+            return false;
+        }
     }
 
-    // ================================================================
-    // SYNC STATUS & LOCAL-DIRTY TRACKING
-    // ================================================================
-
-    /**
-     * Mark the local database as having unsaved changes not yet uploaded to Drive.
-     * Should be called after any write operation (add/edit/delete goal, task, session, etc.).
-     */
     public void markLocalDbDirty() {
         this.localDbDirty = true;
+        this.lastLocalMutationAt = System.currentTimeMillis();
     }
 
-    /**
-     * Returns whether the local database has changes not yet uploaded to Drive.
-     */
     public boolean isLocalDbDirty() {
         return localDbDirty;
     }
 
-    /**
-     * Possible sync states between local database and Google Drive.
-     */
     public enum SyncStatus {
-        /** Drive integration not enabled or not signed in. */
         DISABLED,
-        /** Local DB is up to date with Drive (or no remote DB exists yet). */
         UP_TO_DATE,
-        /** Google Drive has a newer version than the local DB. */
         DRIVE_NEWER,
-        /** Local DB has been modified since the last upload. */
         LOCAL_NEWER,
-        /** Unable to determine status (e.g. network error). */
+        CONFLICT,
         UNKNOWN
     }
 
-    /**
-     * Compares local DB last-modified time with Google Drive's copy.
-     * This is a network call and should be executed off the FX thread.
-     */
     public SyncStatus checkSyncStatus() {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return SyncStatus.DISABLED;
         }
-        if (localDbDirty) {
-            return SyncStatus.LOCAL_NEWER;
-        }
         try {
             Optional<Instant> remoteTime = gateway.getRemoteModifiedTime(activeCredential);
             if (remoteTime.isEmpty()) {
-                return SyncStatus.UP_TO_DATE; // no remote file yet
+                return localDbDirty ? SyncStatus.LOCAL_NEWER : SyncStatus.UP_TO_DATE;
             }
+
             Path localPath = getLocalDatabasePath();
             if (!Files.exists(localPath)) {
-                return SyncStatus.DRIVE_NEWER; // remote exists, local doesn't
-            }
-            Instant localTime = Files.getLastModifiedTime(localPath).toInstant();
-            long toleranceSeconds = 30;
-            if (remoteTime.get().isAfter(localTime.plusSeconds(toleranceSeconds))) {
                 return SyncStatus.DRIVE_NEWER;
             }
-            if (localTime.isAfter(remoteTime.get().plusSeconds(toleranceSeconds))) {
+
+            Instant localTime = Files.getLastModifiedTime(localPath).toInstant();
+            if (localDbDirty && remoteTime.get().isAfter(localTime.plusSeconds(SYNC_STATUS_TOLERANCE_SECONDS))) {
+                return SyncStatus.CONFLICT;
+            }
+            if (localDbDirty) {
+                return SyncStatus.LOCAL_NEWER;
+            }
+            if (remoteTime.get().isAfter(localTime.plusSeconds(SYNC_STATUS_TOLERANCE_SECONDS))) {
+                return SyncStatus.DRIVE_NEWER;
+            }
+            if (localTime.isAfter(remoteTime.get().plusSeconds(SYNC_STATUS_TOLERANCE_SECONDS))) {
                 return SyncStatus.LOCAL_NEWER;
             }
             return SyncStatus.UP_TO_DATE;
@@ -236,116 +262,28 @@ public class GoogleDriveService {
         }
     }
 
-    /**
-     * Register a listener to be called when the database is reloaded from Drive.
-     * UI panels should use this to refresh their views.
-     */
-    public void addReloadListener(Runnable listener) {
-        reloadListeners.add(listener);
-    }
-
-    /**
-     * Register a listener called just before the DB shutdown/reload begins.
-     * UI can use this to show a blocking overlay.
-     */
-    public void addPreReloadListener(Runnable listener) {
-        preReloadListeners.add(listener);
-    }
-
-    /**
-     * Fires all registered pre-reload listeners (on the caller's thread).
-     */
-    private void notifyPreReloadListeners() {
-        for (Runnable listener : preReloadListeners) {
-            try {
-                listener.run();
-            } catch (Exception e) {
-                logger.warn("Pre-reload listener failed: {}", e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Fires all registered reload listeners (on the caller's thread).
-     */
-    private void notifyReloadListeners() {
-        for (Runnable listener : reloadListeners) {
-            try {
-                listener.run();
-            } catch (Exception e) {
-                logger.warn("Reload listener failed: {}", e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Shuts down H2, downloads the Drive database to replace the local file,
-     * then reconnects and notifies listeners.
-     *
-     * <p>The shutdown-before-download order ensures the {@code .mv.db} file lock
-     * is released before the download attempts to replace it (required on Windows).
-     *
-     * @param dbShutdown  callback that closes H2 and evicts pooled connections
-     * @param dbReconnect callback that reopens H2 and re-applies migrations
-     * @return true if the download and reload succeeded
-     */
-    public synchronized boolean downloadAndReload(Runnable dbShutdown, Runnable dbReconnect) {
-        Objects.requireNonNull(dbShutdown, "dbShutdown callback must not be null");
-        Objects.requireNonNull(dbReconnect, "dbReconnect callback must not be null");
-
-        if (!isIntegrationEnabled() || activeCredential == null) {
+    private boolean verifyLocalDbFreshness(FileState state) {
+        if (!state.exists()) {
             return false;
         }
-
-        // 0. Notify pre-reload listeners (e.g. show overlay)
-        notifyPreReloadListeners();
-
-        // 1. Release the H2 file lock so the download can replace the file
-        try {
-            dbShutdown.run();
-        } catch (Exception e) {
-            logger.error("DB shutdown failed during Drive reload — aborting", e);
+        if (lastLocalMutationAt <= 0L) {
+            return true;
+        }
+        if (state.lastModified() == null) {
             return false;
         }
-
-        // 2. Download the Drive copy over the (now unlocked) local file
-        boolean downloaded = false;
-        try {
-            downloaded = gateway.downloadDatabaseFromDrive(activeCredential);
-        } finally {
-            // 3. Always reconnect — even if the download failed the old file is still there
-            try {
-                dbReconnect.run();
-            } catch (Exception e) {
-                logger.error("DB reconnect failed after Drive reload — application may need a restart", e);
-                return false;
-            }
-        }
-
-        if (downloaded) {
-            localDbDirty = false;
-            notifyReloadListeners();
-            logger.info("Database reloaded from Google Drive successfully");
-        }
-        return downloaded;
+        return state.lastModified().toInstant().toEpochMilli() + UPLOAD_FRESHNESS_TOLERANCE_MS >= lastLocalMutationAt;
     }
 
-    @PreDestroy
-    public void onShutdown() {
-        if (isIntegrationEnabled() && activeCredential != null && shutdownSaveEnabled) {
-            // Force H2 to flush all committed data from its in-memory cache to the
-            // .mv.db file on disk BEFORE we upload.  Without this, DB_CLOSE_DELAY=-1
-            // keeps the engine alive and pending MVStore pages may not yet be written,
-            // causing the uploaded file to be stale.
-            try {
-                jdbcTemplate.execute("CHECKPOINT SYNC");
-                logger.info("H2 checkpoint completed — database file is up to date on disk");
-            } catch (Exception e) {
-                logger.warn("H2 CHECKPOINT SYNC failed (database may already be closed): {}", e.getMessage());
+    private FileState readFileState(Path localPath) {
+        try {
+            if (!Files.exists(localPath)) {
+                return new FileState(false, -1L, null);
             }
-
-            logger.info("Uploading StudySync database to Google Drive before shutdown");
-            gateway.uploadDatabaseToDrive(activeCredential);
+            return new FileState(true, Files.size(localPath), Files.getLastModifiedTime(localPath));
+        } catch (IOException e) {
+            logger.warn("Failed to inspect database file {}: {}", localPath, e.getMessage());
+            return new FileState(false, -1L, null);
         }
     }
 
@@ -359,5 +297,8 @@ public class GoogleDriveService {
             logger.warn("Cannot load stored Google credentials: {}", e.getMessage());
             return null;
         }
+    }
+
+    private record FileState(boolean exists, long sizeBytes, FileTime lastModified) {
     }
 }

@@ -14,7 +14,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -39,8 +38,8 @@ public class GoogleDriveGateway {
     public Optional<String> fetchAccountEmail(Credential credential) {
         try {
             Oauth2 oauth2 = new Oauth2.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(), credential)
-                .setApplicationName(settings.applicationName())
-                .build();
+                    .setApplicationName(settings.applicationName())
+                    .build();
             Userinfo info = oauth2.userinfo().get().execute();
             return Optional.ofNullable(info.getEmail());
         } catch (IOException e) {
@@ -50,36 +49,57 @@ public class GoogleDriveGateway {
     }
 
     public boolean downloadDatabaseFromDrive(Credential credential) {
+        return downloadDatabaseToPath(credential, settings.localDatabasePath()).isPresent();
+    }
+
+    public Optional<RemoteDatabaseSnapshot> downloadDatabaseToPath(Credential credential, Path destinationPath) {
         if (credential == null) {
-            return false;
+            return Optional.empty();
         }
         try {
             Drive drive = buildDriveClient(credential);
             Optional<String> folderId = ensureAppFolder(drive);
             if (folderId.isEmpty()) {
                 logger.info("Google Drive folder '{}' not found and could not be created", settings.folderName());
-                return false;
+                return Optional.empty();
             }
             Optional<File> databaseFile = findDatabaseFile(drive, folderId.get());
             if (databaseFile.isEmpty()) {
                 logger.info("No existing StudySync database found in Google Drive. A new one will be created on upload.");
-                return false;
+                return Optional.empty();
             }
 
-            Path localPath = settings.localDatabasePath();
-            if (localPath.getParent() != null) {
-                Files.createDirectories(localPath.getParent());
+            Path absDestinationPath = destinationPath.toAbsolutePath();
+            Path targetDirectory = absDestinationPath.getParent() != null
+                    ? absDestinationPath.getParent()
+                    : Path.of(".").toAbsolutePath();
+            Files.createDirectories(targetDirectory);
+            Path tempFile = Files.createTempFile(targetDirectory, "studysync-drive-", ".tmp");
+            try {
+                try (OutputStream outputStream = Files.newOutputStream(tempFile)) {
+                    drive.files().get(databaseFile.get().getId()).executeMediaAndDownloadTo(outputStream);
+                }
+                PendingDownloadSupport.moveReplacing(tempFile, absDestinationPath);
+            } catch (IOException e) {
+                try {
+                    Files.deleteIfExists(tempFile);
+                } catch (IOException suppressed) {
+                    e.addSuppressed(suppressed);
+                }
+                throw e;
             }
-            Path tempFile = Files.createTempFile("studysync-drive", ".tmp");
-            try (OutputStream outputStream = Files.newOutputStream(tempFile)) {
-                drive.files().get(databaseFile.get().getId()).executeMediaAndDownloadTo(outputStream);
-            }
-            Files.move(tempFile, localPath, StandardCopyOption.REPLACE_EXISTING);
-            logger.info("Downloaded latest StudySync database from Google Drive to {}", localPath);
-            return true;
+
+            RemoteDatabaseSnapshot snapshot = new RemoteDatabaseSnapshot(
+                    databaseFile.get().getId(),
+                    databaseFile.get().getSize() != null ? databaseFile.get().getSize() : Files.size(absDestinationPath),
+                    databaseFile.get().getModifiedTime() != null
+                            ? databaseFile.get().getModifiedTime().getValue()
+                            : Files.getLastModifiedTime(absDestinationPath).toInstant().toEpochMilli());
+            logger.info("Downloaded StudySync database from Google Drive to {}", absDestinationPath);
+            return Optional.of(snapshot);
         } catch (IOException e) {
             logger.warn("Failed to download StudySync database from Google Drive: {}", e.getMessage());
-            return false;
+            return Optional.empty();
         }
     }
 
@@ -93,6 +113,13 @@ public class GoogleDriveGateway {
             return false;
         }
         try {
+            long fileSize = Files.size(localPath);
+            logger.info("Uploading database file: {} ({} bytes, lastModified={})",
+                    localPath.toAbsolutePath(), fileSize, Files.getLastModifiedTime(localPath));
+        } catch (IOException ignored) {
+            // Non-fatal — just diagnostic logging
+        }
+        try {
             Drive drive = buildDriveClient(credential);
             Optional<String> folderId = ensureAppFolder(drive);
             if (folderId.isEmpty()) {
@@ -103,16 +130,16 @@ public class GoogleDriveGateway {
             FileContent mediaContent = new FileContent("application/octet-stream", localPath.toFile());
             if (existingFile.isPresent()) {
                 drive.files().update(existingFile.get().getId(), null, mediaContent)
-                    .setFields("id")
-                    .execute();
+                        .setFields("id")
+                        .execute();
                 logger.info("Updated StudySync database on Google Drive (file id={})", existingFile.get().getId());
             } else {
                 File metadata = new File();
                 metadata.setName(settings.remoteFileName());
                 metadata.setParents(Collections.singletonList(folderId.get()));
                 drive.files().create(metadata, mediaContent)
-                    .setFields("id")
-                    .execute();
+                        .setFields("id")
+                        .execute();
                 logger.info("Uploaded StudySync database to Google Drive folder '{}'", settings.folderName());
             }
             return true;
@@ -124,16 +151,16 @@ public class GoogleDriveGateway {
 
     private Drive buildDriveClient(Credential credential) {
         return new Drive.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(), credential)
-            .setApplicationName(settings.applicationName())
-            .build();
+                .setApplicationName(settings.applicationName())
+                .build();
     }
 
     private Optional<String> ensureAppFolder(Drive drive) throws IOException {
         FileList folderList = drive.files().list()
-            .setQ(String.format("mimeType='application/vnd.google-apps.folder' and name='%s' and trashed=false", settings.folderName()))
-            .setFields("files(id, name)")
-            .setPageSize(1)
-            .execute();
+                .setQ(String.format("mimeType='application/vnd.google-apps.folder' and name='%s' and trashed=false", settings.folderName()))
+                .setFields("files(id, name)")
+                .setPageSize(1)
+                .execute();
         if (folderList.getFiles() != null && !folderList.getFiles().isEmpty()) {
             return Optional.of(folderList.getFiles().get(0).getId());
         }
@@ -143,18 +170,18 @@ public class GoogleDriveGateway {
         fileMetadata.setMimeType("application/vnd.google-apps.folder");
         fileMetadata.setParents(List.of("root"));
         File createdFolder = drive.files().create(fileMetadata)
-            .setFields("id")
-            .execute();
+                .setFields("id")
+                .execute();
         return Optional.ofNullable(createdFolder.getId());
     }
 
     private Optional<File> findDatabaseFile(Drive drive, String folderId) throws IOException {
         String query = String.format("name='%s' and '%s' in parents and trashed=false", settings.remoteFileName(), folderId);
         FileList fileList = drive.files().list()
-            .setQ(query)
-            .setFields("files(id, name, modifiedTime)")
-            .setPageSize(1)
-            .execute();
+                .setQ(query)
+                .setFields("files(id, name, modifiedTime, size)")
+                .setPageSize(1)
+                .execute();
         if (fileList.getFiles() == null || fileList.getFiles().isEmpty()) {
             return Optional.empty();
         }
@@ -174,9 +201,13 @@ public class GoogleDriveGateway {
         try {
             Drive drive = buildDriveClient(credential);
             Optional<String> folderId = ensureAppFolder(drive);
-            if (folderId.isEmpty()) return Optional.empty();
+            if (folderId.isEmpty()) {
+                return Optional.empty();
+            }
             Optional<File> file = findDatabaseFile(drive, folderId.get());
-            if (file.isEmpty() || file.get().getModifiedTime() == null) return Optional.empty();
+            if (file.isEmpty() || file.get().getModifiedTime() == null) {
+                return Optional.empty();
+            }
             return Optional.of(Instant.ofEpochMilli(file.get().getModifiedTime().getValue()));
         } catch (IOException e) {
             logger.warn("Failed to fetch remote database modified time: {}", e.getMessage());

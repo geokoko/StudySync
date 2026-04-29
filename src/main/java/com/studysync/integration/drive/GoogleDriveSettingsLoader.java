@@ -124,7 +124,9 @@ public final class GoogleDriveSettingsLoader {
 
     private static Path resolvePath(String configuredValue, Path defaultPath) {
         if (configuredValue == null || configuredValue.isBlank()) {
-            return defaultPath;
+            // Always resolve to absolute so upload/download paths are
+            // deterministic regardless of the working directory at launch.
+            return defaultPath.toAbsolutePath();
         }
         String normalized = configuredValue
             .replace("${user.home}", System.getProperty("user.home"))

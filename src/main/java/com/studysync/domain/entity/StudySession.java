@@ -1,10 +1,8 @@
 
 package com.studysync.domain.entity;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -119,14 +117,22 @@ public class StudySession {
             throw new IllegalStateException("JdbcTemplate not initialized. Make sure Spring context is loaded.");
         }
         
-        String sql = "MERGE INTO study_sessions (id, date, start_time, end_time, duration_minutes, completed, focus_level, confidence_level, notes, subject, topic, location, outcome_expected, actual_work, what_helped, what_distracted, improvement_note, points_earned, session_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = """
+            MERGE INTO study_sessions (id, date, start_time, end_time, duration_minutes, completed,
+                                      focus_level, confidence_level, notes, subject, topic, location,
+                                      outcome_expected, actual_work, what_helped, what_distracted,
+                                      improvement_note, points_earned, session_text, is_active,
+                                      last_update_time, current_elapsed_minutes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """;
         jdbcTemplate.update(sql,
             this.id, this.date, this.startTime, this.endTime,
             this.durationMinutes, this.completed, this.focusLevel,
             this.confidenceLevel, this.notes, this.subject,
             this.topic, this.location, this.outcomeExpected,
             this.actualWork, this.whatHelped, this.whatDistracted,
-            this.improvementNote, this.pointsEarned, this.sessionText
+            this.improvementNote, this.pointsEarned, this.sessionText,
+            this.isActive, this.lastUpdateTime, this.currentElapsedMinutes
         );
         
         logger.debug("Study session saved: {}", this.id);
@@ -199,6 +205,28 @@ public class StudySession {
             return Optional.ofNullable(session);
         } catch (Exception e) {
             logger.debug("Study session not found: {}", id);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Returns the most recently started active session across all dates.
+     */
+    public static Optional<StudySession> findActiveSession() {
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("JdbcTemplate not initialized");
+        }
+
+        String sql = """
+                SELECT * FROM study_sessions
+                WHERE completed = FALSE AND is_active = TRUE
+                ORDER BY start_time DESC
+                LIMIT 1
+                """;
+        try {
+            StudySession session = jdbcTemplate.queryForObject(sql, getRowMapper());
+            return Optional.ofNullable(session);
+        } catch (Exception e) {
             return Optional.empty();
         }
     }
@@ -275,6 +303,9 @@ public class StudySession {
                 rs.getInt("points_earned"),
                 rs.getString("session_text")
             );
+            session.setActive(rs.getBoolean("is_active"));
+            session.setLastUpdateTime(rs.getObject("last_update_time", LocalDateTime.class));
+            session.setCurrentElapsedMinutes(rs.getInt("current_elapsed_minutes"));
             return session;
         };
     }
@@ -282,6 +313,7 @@ public class StudySession {
     // Business logic methods
     public void startSession() {
         this.startTime = LocalDateTime.now();
+        this.date = this.startTime.toLocalDate();
         this.isActive = true;
         this.lastUpdateTime = LocalDateTime.now();
         this.currentElapsedMinutes = 0;
@@ -495,6 +527,10 @@ public class StudySession {
 
     public LocalDateTime getLastUpdateTime() { return lastUpdateTime; }
     public void setLastUpdateTime(LocalDateTime lastUpdateTime) { this.lastUpdateTime = lastUpdateTime; }
+
+    public void setCurrentElapsedMinutes(int currentElapsedMinutes) {
+        this.currentElapsedMinutes = currentElapsedMinutes;
+    }
 
 
     @Override

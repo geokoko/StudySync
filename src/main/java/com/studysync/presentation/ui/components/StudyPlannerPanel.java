@@ -78,6 +78,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private Label dateNavLabel;
     private final Label dateNavIcon = TaskStyleUtils.iconLabel("\u25A6", 22);
     private TextArea sessionTextArea;
+    private Button startSessionBtn;
+    private Button endSessionBtn;
+    private Label sessionStatusLabel;
 
     // ──────────────────────────────────────────────
     // CONSTRUCTION
@@ -235,42 +238,32 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox sessionControls = new HBox(15);
         sessionControls.setAlignment(Pos.CENTER_LEFT);
 
-        Button startSessionBtn = new Button("Start Session");
+        startSessionBtn = new Button("Start Session");
         startSessionBtn.getStyleClass().add("btn-success");
 
-        Button endSessionBtn = new Button("End Session");
+        endSessionBtn = new Button("End Session");
         endSessionBtn.getStyleClass().add("btn-danger");
         endSessionBtn.setDisable(true);
 
-        Label sessionStatus = new Label("No active session");
-        TaskStyleUtils.fontNormal(sessionStatus, 14);
+        sessionStatusLabel = new Label("No active session");
+        TaskStyleUtils.fontNormal(sessionStatusLabel, 14);
 
         startSessionBtn.setOnAction(e -> {
             currentSession = studyService.startStudySession();
-            currentSession.startSession();
-            startSessionTimer(sessionStatus);
-            startSessionBtn.setDisable(true);
-            endSessionBtn.setDisable(false);
-            sessionTextArea.setDisable(false);
             sessionTextArea.clear();
+            startSessionTimer();
+            syncSessionControls();
+            updateSessionsDisplay();
         });
 
         endSessionBtn.setOnAction(e -> {
             if (currentSession != null) {
                 currentSession.setSessionText(sessionTextArea.getText());
-                stopSessionTimer();
                 showEndSessionDialog();
-                javafx.application.Platform.runLater(() -> {
-                    sessionStatus.setText("No active session");
-                    startSessionBtn.setDisable(false);
-                    endSessionBtn.setDisable(true);
-                    sessionTextArea.setDisable(true);
-                    updateSessionsDisplay();
-                });
             }
         });
 
-        sessionControls.getChildren().addAll(startSessionBtn, endSessionBtn, sessionStatus);
+        sessionControls.getChildren().addAll(startSessionBtn, endSessionBtn, sessionStatusLabel);
 
         sessionTextArea = new TextArea();
         sessionTextArea.setPromptText("Write your session notes, thoughts, or study content here…");
@@ -290,6 +283,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         sessionSection.getChildren().addAll(
                 sessionTitle, sessionControls, sessionTextArea, completedLabel, sessionsFlowPane);
         mainContent.getChildren().add(sessionSection);
+        syncSessionControls();
     }
 
     private void createReflectionSection(VBox mainContent) {
@@ -824,15 +818,23 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private void updateSessionsDisplay() {
         sessionsFlowPane.getChildren().clear();
         List<StudySession> sessions = studyService.getSessionsForDate(displayDate);
+        List<StudySession> completedSessions = sessions.stream()
+                .filter(StudySession::isCompleted)
+                .toList();
+        List<StudySession> incompleteSessions = sessions.stream()
+                .filter(session -> !session.isCompleted())
+                .toList();
 
-        for (StudySession session : sessions) {
-            if (session.isCompleted()) {
-                sessionsFlowPane.getChildren().add(buildSessionCard(session));
-            }
+        for (StudySession session : completedSessions) {
+            sessionsFlowPane.getChildren().add(buildSessionCard(session));
+        }
+
+        for (StudySession session : incompleteSessions) {
+            sessionsFlowPane.getChildren().add(buildIncompleteSessionCard(session));
         }
 
         if (sessionsFlowPane.getChildren().isEmpty()) {
-            Label none = new Label("No completed sessions yet.");
+            Label none = new Label("No sessions for this date.");
             TaskStyleUtils.fontNormal(none, 13);
             none.setTextFill(Color.web("#7f8c8d"));
             sessionsFlowPane.getChildren().add(none);
@@ -901,6 +903,70 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         btnRow.getChildren().addAll(detailsBtn, deleteBtn);
         card.getChildren().addAll(timeLabel, durationLabel, focusLabel, pointsLabel, btnRow);
+        return card;
+    }
+
+    private VBox buildIncompleteSessionCard(StudySession session) {
+        VBox card = new VBox(5);
+        card.setPadding(new Insets(10, 12, 10, 12));
+        card.setPrefWidth(220);
+        card.setStyle("-fx-background-color: #fff8ef; -fx-background-radius: 8;" +
+                      " -fx-border-color: #f39c12; -fx-border-radius: 8;" +
+                      " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 4, 0, 0, 1);");
+
+        String startStr = session.getStartTime() != null
+                ? session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "?";
+        String endStr = session.getEndTime() != null
+                ? session.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "?";
+
+        Label statusLabel = new Label(session.isActive() ? "Active, not completed" : "Incomplete session");
+        statusLabel.setGraphic(TaskStyleUtils.iconLabel(session.isActive() ? "\u23F3" : "\u26A0", 11));
+        TaskStyleUtils.fontBold(statusLabel, 11);
+        statusLabel.setTextFill(Color.web("#d35400"));
+
+        Label timeLabel = new Label(startStr + "\u2013" + endStr);
+        timeLabel.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 12));
+        TaskStyleUtils.fontBold(timeLabel, 12);
+
+        String durationText = session.getDurationMinutes() > 0
+                ? session.getDurationMinutes() + " min tracked"
+                : "Not completed";
+        Label durationLabel = new Label(durationText);
+        TaskStyleUtils.fontNormal(durationLabel, 11);
+        durationLabel.setTextFill(Color.web("#7f8c8d"));
+
+        Button detailsBtn = new Button("Details");
+        detailsBtn.getStyleClass().addAll("btn-primary", "btn-small");
+        detailsBtn.setStyle("-fx-padding: 3 7;");
+        detailsBtn.setOnAction(e -> showSessionDetails(session));
+
+        Button deleteBtn = new Button("\u2715");
+        TaskStyleUtils.fontEmoji(deleteBtn, 11);
+        deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
+        deleteBtn.setStyle("-fx-padding: 3 7;");
+        deleteBtn.setOnAction(e -> {
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                    "Delete this incomplete session?", ButtonType.OK, ButtonType.CANCEL);
+            alert.setHeaderText(null);
+            alert.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
+            alert.showAndWait().ifPresent(bt -> {
+                if (bt == ButtonType.OK) {
+                    studyService.deleteStudySession(session.getId());
+                    if (currentSession != null && currentSession.getId().equals(session.getId())) {
+                        currentSession = null;
+                        stopSessionTimer();
+                        sessionTextArea.clear();
+                        syncSessionControls();
+                    }
+                    updateSessionsDisplay();
+                }
+            });
+        });
+
+        HBox btnRow = new HBox(5, detailsBtn, deleteBtn);
+        btnRow.setAlignment(Pos.CENTER_RIGHT);
+
+        card.getChildren().addAll(statusLabel, timeLabel, durationLabel, btnRow);
         return card;
     }
 
@@ -1267,13 +1333,19 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         okBtn.getStyleClass().add("btn-primary");
         Button cancelBtn = new Button("Cancel");
         cancelBtn.getStyleClass().add("btn-cancel");
-        cancelBtn.setOnAction(e -> closeModal.run());
+        cancelBtn.setOnAction(e -> {
+            closeModal.run();
+            syncSessionControls();
+        });
 
         okBtn.setOnAction(e -> {
             try {
                 StudySessionEnd sessionEnd = new StudySessionEnd((int) focusSlider.getValue(), notesArea.getText());
                 studyService.endStudySession(currentSession, sessionEnd);
+                stopSessionTimer();
                 currentSession = null;
+                sessionTextArea.clear();
+                syncSessionControls();
                 closeModal.run();
                 updateSessionsDisplay();
                 updateProgress();
@@ -1504,12 +1576,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         progressLabel.setText("Daily Progress: " + progress + "%");
     }
 
-    private void startSessionTimer(Label statusLabel) {
+    private void startSessionTimer() {
         if (sessionTimer != null) sessionTimer.stop();
         sessionTimer = new Timeline(new KeyFrame(Duration.seconds(1),
-                e -> updateSessionTimer(statusLabel)));
+                e -> updateSessionTimer()));
         sessionTimer.setCycleCount(Timeline.INDEFINITE);
         sessionTimer.play();
+        updateSessionTimer();
     }
 
     private void stopSessionTimer() {
@@ -1519,18 +1592,70 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         }
     }
 
-    private void updateSessionTimer(Label statusLabel) {
+    private void updateSessionTimer() {
+        if (sessionStatusLabel == null) {
+            return;
+        }
         if (currentSession != null && currentSession.isActive()) {
             currentSession.updateRealTimeProgress();
             int elapsed = currentSession.getCurrentElapsedMinutes();
             int h = elapsed / 60, m = elapsed % 60;
-            statusLabel.setText(h > 0
+            sessionStatusLabel.setText(h > 0
                     ? String.format("⌚ Session running: %dh %02dm", h, m)
                     : String.format("⌚ Session running: %dm", m));
-            statusLabel.setTextFill(Color.web("#27ae60"));
+            sessionStatusLabel.setTextFill(Color.web("#27ae60"));
         } else {
-            statusLabel.setText("No active session");
-            statusLabel.setTextFill(Color.web("#2c3e50"));
+            sessionStatusLabel.setText("No active session");
+            sessionStatusLabel.setTextFill(Color.web("#2c3e50"));
+        }
+    }
+
+    private void syncSessionControls() {
+        if (startSessionBtn == null || endSessionBtn == null || sessionStatusLabel == null || sessionTextArea == null) {
+            return;
+        }
+
+        boolean hasActiveSession = currentSession != null && currentSession.isActive();
+        startSessionBtn.setDisable(hasActiveSession);
+        endSessionBtn.setDisable(!hasActiveSession);
+        sessionTextArea.setDisable(!hasActiveSession);
+
+        if (!hasActiveSession) {
+            updateSessionTimer();
+        }
+    }
+
+    private void restoreActiveSessionIfNeeded() {
+        if (currentSession != null || sessionTextArea == null) {
+            return;
+        }
+        if (!displayDate.equals(dateTimeService.getCurrentDate())) {
+            return;
+        }
+
+        StudySession activeSession = studyService.getActiveSession().orElse(null);
+
+        if (activeSession == null) {
+            if (currentSession != null) {
+                currentSession = null;
+                stopSessionTimer();
+                sessionTextArea.clear();
+            }
+            return;
+        }
+
+        boolean sameActiveSession = currentSession != null
+                && currentSession.getId() != null
+                && currentSession.getId().equals(activeSession.getId());
+        currentSession = activeSession;
+        if (!sameActiveSession) {
+            String sessionText = activeSession.getSessionText() != null ? activeSession.getSessionText() : "";
+            if (!sessionText.equals(sessionTextArea.getText())) {
+                sessionTextArea.setText(sessionText);
+            }
+        }
+        if (sessionTimer == null) {
+            startSessionTimer();
         }
     }
 
@@ -1575,6 +1700,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     @Override
     public void updateDisplay() {
+        restoreActiveSessionIfNeeded();
+        syncSessionControls();
         boolean isToday = displayDate.equals(dateTimeService.getCurrentDate());
         String prefix = isToday ? "Today \u2014 " : "";
         dateNavLabel.setGraphic(dateNavIcon);

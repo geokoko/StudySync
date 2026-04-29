@@ -71,6 +71,25 @@ public class StudyService {
         }
     }
 
+    private void markDirtyAndSaveLocally(String operation) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    googleDriveService.markLocalDbDirty();
+                    if (!googleDriveService.saveLocally()) {
+                        logger.warn("Local checkpoint failed after {}", operation);
+                    }
+                }
+            });
+        } else {
+            googleDriveService.markLocalDbDirty();
+            if (!googleDriveService.saveLocally()) {
+                logger.warn("Local checkpoint failed after {}", operation);
+            }
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<StudySession> getStudySessions() {
         return StudySession.findAll();
@@ -187,7 +206,7 @@ public class StudyService {
             });
         }
 
-        markDirty();
+        markDirtyAndSaveLocally("study goal creation");
     }
 
     /**
@@ -234,7 +253,7 @@ public class StudyService {
             }
             goal.setReplannedForDate(dateTimeService.getCurrentDate());
             goal.save();
-            markDirty();
+            markDirtyAndSaveLocally("study goal replan");
             logger.info("Rescheduled goal '{}' to appear today ({})", goal.getDescription(), dateTimeService.getCurrentDate());
         });
     }
@@ -246,7 +265,7 @@ public class StudyService {
             goal.setAchieved(achieved);
             goal.setReasonIfNotAchieved(reasonIfNot);
             goal.save();
-            markDirty();
+            markDirtyAndSaveLocally("study goal achievement update");
         }
     }
 
@@ -264,7 +283,7 @@ public class StudyService {
             goal.setFailed(true);
             goal.setAchieved(false);
             goal.save();
-            markDirty();
+            markDirtyAndSaveLocally("study goal failure update");
             logger.info("Marked study goal '{}' as failed", goalId);
             return true;
         } else {
@@ -282,7 +301,7 @@ public class StudyService {
         }
         boolean deleted = StudyGoal.deleteById(goalId);
         if (deleted) {
-            markDirty();
+            markDirtyAndSaveLocally("study goal deletion");
             logger.info("Permanently deleted study goal '{}'", goalId);
         } else {
             logger.warn("Requested deletion for study goal '{}' but it did not exist", goalId);
@@ -293,8 +312,9 @@ public class StudyService {
     public StudySession startStudySession() {
         StudySession session = new StudySession();
         session.startSession();
-        session.save();  // Model handles its own persistence
-        markDirty();
+        session.save();
+        markDirtyAndSaveLocally("study session start");
+        logger.info("Started study session {} at {}", session.getId(), session.getStartTime());
         return session;
     }
 
@@ -308,12 +328,14 @@ public class StudyService {
         
         // Save to database
         session.save();
-        markDirty();
+        markDirtyAndSaveLocally("study session completion");
+        logger.info("Completed study session {} on {} for {} minutes (focus={})",
+                session.getId(), session.getDate(), session.getDurationMinutes(), session.getFocusLevel());
     }
 
     public void addDailyReflection(DailyReflection reflection) {
         reflection.save();
-        markDirty();
+        markDirtyAndSaveLocally("daily reflection save");
     }
 
     @Transactional(readOnly = true)
@@ -334,7 +356,7 @@ public class StudyService {
     public void deleteDailyReflection(LocalDate date) {
         boolean deleted = DailyReflection.deleteByDate(date);
         if (deleted) {
-            markDirty();
+            markDirtyAndSaveLocally("daily reflection deletion");
         }
     }
 
@@ -357,13 +379,18 @@ public class StudyService {
     public void deleteStudySession(String sessionId) {
         boolean deleted = StudySession.deleteById(sessionId);
         if (deleted) {
-            markDirty();
+            markDirtyAndSaveLocally("study session deletion");
         }
     }
 
     @Transactional(readOnly = true)
     public List<StudySession> getSessionsForDate(LocalDate date) {
         return StudySession.findByDate(date);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<StudySession> getActiveSession() {
+        return StudySession.findActiveSession();
     }
 
     @Transactional(readOnly = true)
@@ -471,7 +498,7 @@ public class StudyService {
         }
 
         if (updatedGoals > 0 || failedGoals > 0) {
-            markDirty();
+            markDirtyAndSaveLocally("delayed goal processing");
         }
 
         return new GoalDelayProcessingResult(updatedGoals, failedGoals);

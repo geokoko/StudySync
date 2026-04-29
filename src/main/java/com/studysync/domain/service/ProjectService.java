@@ -5,6 +5,8 @@ import com.studysync.domain.entity.ProjectSession;
 import com.studysync.domain.valueobject.ProjectStatus;
 import com.studysync.domain.service.ProjectSessionEnd;
 import com.studysync.integration.drive.GoogleDriveService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +28,8 @@ import java.util.stream.Collectors;
 @Transactional
 public class ProjectService {
 
+    private static final Logger logger = LoggerFactory.getLogger(ProjectService.class);
+
     private final GoogleDriveService googleDriveService;
 
     @Autowired
@@ -43,6 +47,25 @@ public class ProjectService {
             });
         } else {
             googleDriveService.markLocalDbDirty();
+        }
+    }
+
+    private void markDirtyAndSaveLocally(final String operation) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    googleDriveService.markLocalDbDirty();
+                    if (!googleDriveService.saveLocally()) {
+                        logger.warn("Local checkpoint failed after {}", operation);
+                    }
+                }
+            });
+        } else {
+            googleDriveService.markLocalDbDirty();
+            if (!googleDriveService.saveLocally()) {
+                logger.warn("Local checkpoint failed after {}", operation);
+            }
         }
     }
 
@@ -69,7 +92,7 @@ public class ProjectService {
             throw new IllegalArgumentException("Project title cannot be empty");
         }
         project.save();
-        markDirty();
+        markDirtyAndSaveLocally("project creation");
     }
 
     public void updateProject(Project project) {
@@ -77,7 +100,7 @@ public class ProjectService {
             throw new IllegalArgumentException("Project cannot be null");
         }
         project.save();
-        markDirty();
+        markDirtyAndSaveLocally("project update");
     }
 
     public void deleteProject(String projectId) {
@@ -85,7 +108,7 @@ public class ProjectService {
         ProjectSession.deleteByProjectId(projectId);
         // Then delete the project
         Project.deleteById(projectId);
-        markDirty();
+        markDirtyAndSaveLocally("project deletion");
     }
 
     @Transactional(readOnly = true)
@@ -114,7 +137,7 @@ public class ProjectService {
         ProjectSession session = new ProjectSession(projectId);
         session.setStartTime(LocalDateTime.now());
         session.save();  // Model handles its own persistence
-        markDirty();
+        markDirtyAndSaveLocally("project session start");
         return session;
     }
 
@@ -143,7 +166,7 @@ public class ProjectService {
         project.addWorkedMinutes(existingSession.getDurationMinutes());
         project.incrementSessionCount();
         project.save();
-        markDirty();
+        markDirtyAndSaveLocally("project session completion");
     }
 
     public void deleteProjectSession(String sessionId) {
@@ -159,7 +182,7 @@ public class ProjectService {
 
         // Delete the session
         ProjectSession.deleteById(sessionId);
-        markDirty();
+        markDirtyAndSaveLocally("project session deletion");
     }
 
     @Transactional(readOnly = true)
