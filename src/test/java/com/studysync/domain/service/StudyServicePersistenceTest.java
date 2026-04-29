@@ -147,8 +147,43 @@ class StudyServicePersistenceTest {
         StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
         assertTrue(stored.isAchieved());
 
+        Integer achievedAttempts = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ? AND outcome = 'ACHIEVED'",
+                Integer.class,
+                goal.getId());
+        assertEquals(1, achievedAttempts);
+
         verify(googleDriveService).markLocalDbDirty();
         verify(googleDriveService).saveLocally();
+    }
+
+    @Test
+    void overdueGoalAttemptBecomesMissedAndCanBeReplanned() {
+        StudyGoal goal = new StudyGoal("Review missed topic");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.save();
+
+        reset(googleDriveService);
+        when(googleDriveService.saveLocally()).thenReturn(true);
+
+        StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
+
+        assertEquals(1, result.updatedGoals());
+        assertEquals(0, result.failedGoals());
+        assertEquals(1, StudyGoal.findDelayedAndNotReplanned().size());
+
+        studyService.replanGoalForToday(goal.getId());
+
+        List<StudyGoal> todayGoals = studyService.getStudyGoalsForDate(LocalDate.of(2026, 3, 28));
+        assertEquals(1, todayGoals.size());
+        assertEquals(2, todayGoals.getFirst().getAttemptNumber());
+        assertEquals(1, todayGoals.getFirst().getMissedAttemptCount());
+
+        Integer attempts = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?",
+                Integer.class,
+                goal.getId());
+        assertEquals(2, attempts);
     }
 
     @Test
@@ -221,6 +256,21 @@ class StudyServicePersistenceTest {
                     task_id VARCHAR(50),
                     replanned_for_date DATE,
                     failed BOOLEAN DEFAULT FALSE,
+                    status VARCHAR(20) DEFAULT 'ACTIVE',
+                    achieved_attempt_id VARCHAR(50),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE study_goal_attempts (
+                    id VARCHAR(50) PRIMARY KEY,
+                    goal_id VARCHAR(50) NOT NULL,
+                    planned_for_date DATE NOT NULL,
+                    replanned_from_attempt_id VARCHAR(50),
+                    outcome VARCHAR(20) DEFAULT 'PENDING',
+                    reason_if_not_achieved TEXT,
+                    outcome_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )

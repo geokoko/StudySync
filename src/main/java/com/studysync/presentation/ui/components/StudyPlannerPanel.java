@@ -548,7 +548,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (desc != null && desc.length() > 60) {
             desc = desc.substring(0, 57) + "...";
         }
-        return taskLabel + desc + " (" + goal.getDaysDelayed() + "d delayed)";
+        int misses = goal.getMissedAttemptCount();
+        String missLabel = misses == 1 ? "1 prior miss" : misses + " prior misses";
+        return taskLabel + desc + " (attempt " + (goal.getAttemptNumber() + 1) + ", " + missLabel + ")";
     }
 
     /**
@@ -750,8 +752,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         textBox.getChildren().add(goalLabel);
 
         if (goal.isDelayed()) {
-            Label delayLabel = new Label(String.format("Delayed %d day(s) — -%d pts",
-                    goal.getDaysDelayed(), goal.getPointsDeducted()));
+            Label delayLabel = new Label(String.format("Attempt %d (%d prior miss%s)",
+                    goal.getAttemptNumber(),
+                    goal.getMissedAttemptCount(),
+                    goal.getMissedAttemptCount() == 1 ? "" : "es"));
             delayLabel.setStyle("-fx-text-fill: #dc3545;");
             TaskStyleUtils.fontNormal(delayLabel, 11);
             textBox.getChildren().add(delayLabel);
@@ -803,7 +807,19 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             label.setStyle("-fx-strikethrough: true; -fx-text-fill: #7f8c8d;");
             TaskStyleUtils.fontNormal(label, 12);
 
-            row.getChildren().addAll(check, label);
+            VBox textBox = new VBox(2);
+            textBox.getChildren().add(label);
+            if (goal.getMissedAttemptCount() > 0) {
+                Label attempts = new Label(String.format("Achieved on attempt %d after %d miss%s",
+                        goal.getAttemptNumber(),
+                        goal.getMissedAttemptCount(),
+                        goal.getMissedAttemptCount() == 1 ? "" : "es"));
+                attempts.setTextFill(Color.web("#7f8c8d"));
+                TaskStyleUtils.fontNormal(attempts, 10);
+                textBox.getChildren().add(attempts);
+            }
+
+            row.getChildren().addAll(check, textBox);
             itemsBox.getChildren().add(row);
         }
 

@@ -1047,13 +1047,13 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         String statusText;
         if (goal.isFailed()) {
             statusIcon = "\u2715";
-            statusText = "Failed";
+            statusText = goal.getStatus() == StudyGoal.GoalStatus.ABANDONED ? "Abandoned" : "Missed";
         } else if (goal.isAchieved()) {
             statusIcon = "\u2705";
             statusText = "Achieved";
         } else if (goal.isDelayed()) {
             statusIcon = "[!] ";
-            statusText = "Delayed";
+            statusText = "Attempt " + goal.getAttemptNumber();
         } else {
             statusIcon = "\u25CB";
             statusText = "Pending";
@@ -1073,8 +1073,10 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
 
         // Add delay info if applicable
         if (goal.isDelayed()) {
-            Label delayLabel = new Label(String.format("» Originally from: %s • \u2668 %d days delayed",
-                goal.getDate().toString(), goal.getDaysDelayed()));
+            Label delayLabel = new Label(String.format("» Attempt %d • %d prior miss%s",
+                goal.getAttemptNumber(),
+                goal.getMissedAttemptCount(),
+                goal.getMissedAttemptCount() == 1 ? "" : "es"));
             TaskStyleUtils.fontNormal(delayLabel, 11);
             delayLabel.setTextFill(Color.web("#ff5722"));
             goalBox.getChildren().add(delayLabel);
@@ -1084,17 +1086,18 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
 
-        // "Mark as Failed" button — soft-delete (only for active goals)
+        // "Abandon" button — keeps the attempt timeline but stops future replanning.
         if (!goal.isAchieved() && !goal.isFailed()) {
-            Button failBtn = new Button("Mark as Failed");
+            Button failBtn = new Button("Abandon Goal");
             failBtn.setGraphic(TaskStyleUtils.iconLabel("\u2716", 12));
             failBtn.getStyleClass().addAll("btn-warning", "btn-small");
             failBtn.setOnAction(e -> {
                 Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
                 confirmation.initOwner(goalBox.getScene() != null ? goalBox.getScene().getWindow() : null);
-                confirmation.setTitle("Mark Goal as Failed");
-                confirmation.setHeaderText("Mark this goal as failed?");
-                confirmation.setContentText("The goal will be kept in history as failed.\nGoal: " + goal.getDescription());
+                confirmation.setTitle("Abandon Study Goal");
+                confirmation.setHeaderText("Abandon this goal?");
+                confirmation.setContentText("The goal will stop appearing for re-planning, but its attempt history will be kept.\nGoal: "
+                        + goal.getDescription());
 
                 confirmation.showAndWait().ifPresent(response -> {
                     if (response == ButtonType.OK) {

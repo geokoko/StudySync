@@ -280,10 +280,10 @@ public class StudySyncUI {
         try {
             StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
             if (result.updatedGoals() > 0) {
-                logger.info("Updated delay status for {} study goals carried over from previous days", result.updatedGoals());
+                logger.info("Marked {} overdue study goal attempt(s) as missed", result.updatedGoals());
             }
             if (result.failedGoals() > 0) {
-                logger.info("Marked {} study goals as FAILED (overdue by at least two weeks)", result.failedGoals());
+                logger.info("Abandoned {} study goal(s)", result.failedGoals());
             }
         } catch (Exception e) {
             logger.error("Failed to process delayed goals on startup", e);

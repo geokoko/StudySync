@@ -596,9 +596,11 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(dateLabel, 11);
         dateLabel.setTextFill(Color.web("#7f8c8d"));
         
-        // Show if it was delayed before achievement
+        // Show attempt history if achievement followed one or more misses.
         if (goal.isDelayed()) {
-            Label delayLabel = new Label("[!]  Delayed " + goal.getDaysDelayed() + " day(s)");
+            Label delayLabel = new Label("[!]  Attempt " + goal.getAttemptNumber()
+                    + " after " + goal.getMissedAttemptCount() + " miss"
+                    + (goal.getMissedAttemptCount() == 1 ? "" : "es"));
             TaskStyleUtils.fontNormal(delayLabel, 11);
             delayLabel.setTextFill(Color.web("#e67e22"));
             detailsBox.getChildren().addAll(dateLabel, delayLabel);
@@ -665,8 +667,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
                 recentSessions.stream().mapToInt(StudySession::getFocusLevel).average().orElse(0);
 
             int achievedGoals = (int) recentGoals.stream().filter(StudyGoal::isAchieved).count();
-            int totalGoals = recentGoals.size();
-            double goalCompletionRate = totalGoals > 0 ? (double) achievedGoals / totalGoals * 100 : 0;
+            int missedGoals = (int) recentGoals.stream().filter(StudyGoal::isFailed).count();
+            int goalAttemptScore = achievedGoals - missedGoals;
             
             long completedTasks = allTasks.stream().filter(t -> t.getStatus() == TaskStatus.COMPLETED).count();
             long totalActiveTasks = allTasks.stream().filter(t -> t.getStatus() != TaskStatus.COMPLETED).count();
@@ -685,7 +687,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             HBox row2 = new HBox(15);
             row2.setAlignment(Pos.CENTER);
             
-            VBox goalsCard = createStatCard("Goal Rate", String.format("%.0f%%", goalCompletionRate), "Goals achieved", "#27ae60");
+            VBox goalsCard = createStatCard("Goal Score", String.format("%+d", goalAttemptScore), "Achieved minus missed attempts", "#27ae60");
             VBox tasksCard = createStatCard("Tasks Done", String.valueOf(completedTasks), "Completed tasks", "#16a085");
             VBox efficiencyCard = createStatCard("Efficiency", 
                 totalMinutes > 0 ? String.format("%.1f", (double) totalPoints / totalMinutes * 60) : "0", 
@@ -875,14 +877,16 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         double avgMinutesPerDay = totalMinutes / 30.0;
         double volumeScore = Math.min(1.0, avgMinutesPerDay / 120.0) * 20; // 2 hours per day = max score
         
-        // Goal achievement score (10% weight) — failed/delayed goals count against the rate
+        // Goal attempt score (10% weight): achieved attempts help, missed attempts hurt.
         List<StudyGoal> goals = studyService.getStudyGoals().stream()
             .filter(g -> g.getDate().isAfter(dateTimeService.getCurrentDate().minusDays(30)))
             .collect(Collectors.toList());
         double goalScore = 0;
         if (!goals.isEmpty()) {
             long achievedGoals = goals.stream().filter(StudyGoal::isAchieved).count();
-            goalScore = ((double) achievedGoals / goals.size()) * 10;
+            long missedGoals = goals.stream().filter(StudyGoal::isFailed).count();
+            double normalized = ((double) (achievedGoals - missedGoals + goals.size())) / (2.0 * goals.size());
+            goalScore = Math.max(0, Math.min(1, normalized)) * 10;
         }
         
         return focusScore + consistencyScore + volumeScore + goalScore;

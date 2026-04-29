@@ -403,12 +403,12 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         // Summary stats
         long achieved = goals.stream().filter(StudyGoal::isAchieved).count();
-        long failed = goals.stream().filter(StudyGoal::isFailed).count();
+        long missed = goals.stream().filter(StudyGoal::isFailed).count();
         long active = goals.stream().filter(g -> !g.isAchieved() && !g.isFailed()).count();
 
         Label statsLabel = new Label("Total: " + goals.size()
                 + "  |  Achieved: " + achieved
-                + "  |  Failed: " + failed
+                + "  |  Missed: " + missed
                 + "  |  Active: " + active);
         TaskStyleUtils.fontSemiBold(statsLabel, 11);
         statsLabel.setTextFill(Color.web("#495057"));
@@ -469,11 +469,13 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                 badge.setStyle("-fx-background-color: #e8f5e9; -fx-background-radius: 8; -fx-padding: 1 6;");
                 badge.setTextFill(Color.web("#1b5e20"));
             } else if (goal.isFailed()) {
-                badge = new Label("Failed");
+                badge = new Label(goal.getStatus() == StudyGoal.GoalStatus.ABANDONED ? "Abandoned" : "Missed");
                 badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 8; -fx-padding: 1 6;");
                 badge.setTextFill(Color.web("#b71c1c"));
             } else if (goal.isDelayed()) {
-                badge = new Label("Delayed (" + goal.getDaysDelayed() + "d)");
+                badge = new Label("Attempt " + goal.getAttemptNumber()
+                        + " (" + goal.getMissedAttemptCount() + " miss"
+                        + (goal.getMissedAttemptCount() == 1 ? "" : "es") + ")");
                 badge.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 8; -fx-padding: 1 6;");
                 badge.setTextFill(Color.web("#e65100"));
             } else {
