@@ -14,6 +14,7 @@ import com.studysync.domain.entity.Task;
 import com.studysync.domain.valueobject.TaskCategory;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
+import javafx.util.Callback;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -75,6 +76,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private ProgressBar dailyProgressBar;
     private Label progressLabel;
     private Label dateNavLabel;
+    private final Label dateNavIcon = TaskStyleUtils.iconLabel("\u25A6", 22);
     private TextArea sessionTextArea;
 
     // ──────────────────────────────────────────────
@@ -418,7 +420,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         // Re-plan section — only available when viewing today
         if (displayDate.equals(today)) {
-            tasksContainer.getChildren().add(buildReplanSection());
+            Set<String> todayTaskIds = tasks.stream()
+                    .map(Task::getId)
+                    .collect(Collectors.toSet());
+            tasksContainer.getChildren().add(buildReplanSection(todayTaskIds));
         }
     }
 
@@ -464,8 +469,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
      * Shows a ComboBox of delayed goals (from non-cancelled/non-postponed tasks)
      * and a button to reschedule the selected goal to appear today exactly once.
      */
-    private VBox buildReplanSection() {
-        List<StudyGoal> candidates = studyService.getDelayedGoalsForReplanning();
+    private VBox buildReplanSection(Set<String> todayTaskIds) {
+        List<StudyGoal> candidates = studyService.getDelayedGoalsForReplanning(todayTaskIds);
 
         VBox section = new VBox(8);
         section.setPadding(new Insets(14, 0, 0, 0));
@@ -496,21 +501,23 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         ComboBox<StudyGoal> combo = new ComboBox<>();
         combo.getItems().addAll(candidates);
+        combo.setVisibleRowCount(Math.min(candidates.size(), 15));
         combo.setMaxWidth(Double.MAX_VALUE);
-        combo.setCellFactory(lv -> new ListCell<>() {
+        Callback<ListView<StudyGoal>, ListCell<StudyGoal>> cellFactory = lv -> new ListCell<>() {
             @Override
             protected void updateItem(StudyGoal goal, boolean empty) {
                 super.updateItem(goal, empty);
-                setText(empty || goal == null ? "" : formatDelayedGoal(goal, taskTitles));
+                if (empty || goal == null) {
+                    setText(null);
+                    setGraphic(null);
+                } else {
+                    setText(formatDelayedGoal(goal, taskTitles));
+                    setGraphic(null);
+                }
             }
-        });
-        combo.setButtonCell(new ListCell<>() {
-            @Override
-            protected void updateItem(StudyGoal goal, boolean empty) {
-                super.updateItem(goal, empty);
-                setText(empty || goal == null ? "" : formatDelayedGoal(goal, taskTitles));
-            }
-        });
+        };
+        combo.setCellFactory(cellFactory);
+        combo.setButtonCell(cellFactory.call(null));
         combo.setPromptText("Select a delayed goal to re-plan...");
 
         Button replanBtn = new Button("Re-plan for Today");
@@ -1573,7 +1580,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     public void updateDisplay() {
         boolean isToday = displayDate.equals(dateTimeService.getCurrentDate());
         String prefix = isToday ? "Today \u2014 " : "";
-        dateNavLabel.setGraphic(TaskStyleUtils.iconLabel("\u25A6", 22));
+        dateNavLabel.setGraphic(dateNavIcon);
         dateNavLabel.setText(prefix + displayDate.format(
                 DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")));
 
