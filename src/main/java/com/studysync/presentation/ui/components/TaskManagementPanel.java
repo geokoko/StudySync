@@ -245,7 +245,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         priorityLabel.setTextFill(Color.web("#f39c12"));
 
         // Status badge
-        Label statusBadge = new Label(TaskStyleUtils.statusEmoji(task.getStatus()) + " " + task.getStatus().name());
+        Label statusBadge = new Label(task.getStatus().name());
+        statusBadge.setGraphic(TaskStyleUtils.iconLabel(TaskStyleUtils.statusEmoji(task.getStatus()), 11));
         statusBadge.setTextFill(TaskStyleUtils.statusTextColor(task.getStatus()));
         statusBadge.setPadding(new Insets(2, 7, 2, 7));
         statusBadge.setStyle("-fx-background-color: " + TaskStyleUtils.statusBadgeBg(task.getStatus()) +
@@ -584,7 +585,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private void showInlineError(VBox form, String message) {
         // Remove existing error label if any
         form.getChildren().removeIf(n -> "error-label".equals(n.getUserData()));
-        Label err = new Label("⚠ " + message);
+        Label err = new Label(message);
+        err.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
         err.setUserData("error-label");
         TaskStyleUtils.fontNormal(err, 12);
         err.setTextFill(Color.web("#e74c3c"));

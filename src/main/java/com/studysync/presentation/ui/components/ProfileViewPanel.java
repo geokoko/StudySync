@@ -86,7 +86,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
 
     private void initializeComponents(VBox mainContent) {
         // Header
-        Label headerLabel = new Label("👤 Study Profile & Analytics");
+        Label headerLabel = new Label("Study Profile & Analytics");
+        headerLabel.setGraphic(TaskStyleUtils.iconLabel("\u2606", 24));
         TaskStyleUtils.fontBold(headerLabel, 24);
         
         VBox driveSyncSection = createDriveSyncSection();
@@ -110,7 +111,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         VBox section = new VBox(12);
         section.getStyleClass().add("section-card-light");
         
-        Label title = new Label("☁️ Google Drive Sync");
+        Label title = new Label("Google Drive Sync");
+        title.setGraphic(TaskStyleUtils.iconLabel("\u2601", 18));
         TaskStyleUtils.fontBold(title, 18);
         
         driveStatusLabel = new Label();
@@ -127,7 +129,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(driveActionStatusLabel, 12);
         driveActionStatusLabel.setTextFill(Color.web("#16a085"));
         
-        driveSignInButton = new Button("🔐 Sign in with Google");
+        driveSignInButton = new Button("Sign in with Google");
+        driveSignInButton.setGraphic(TaskStyleUtils.iconLabel("\u2192", 14));
         driveSignInButton.getStyleClass().add("btn-google");
         driveSignInButton.setOnAction(e -> runDriveAction(
             "Opening Google sign-in…",
@@ -136,7 +139,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Unable to sign in with Google. Please try again."
         ));
         
-        driveSignOutButton = new Button("\uD83D\uDD12 Sign out");
+        driveSignOutButton = new Button("Sign out");
+        driveSignOutButton.setGraphic(TaskStyleUtils.iconLabel("\u2716", 14));
         driveSignOutButton.getStyleClass().add("btn-gray");
         driveSignOutButton.setOnAction(e -> runDriveAction(
             "Signing out…",
@@ -148,7 +152,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Failed to sign out from Google."
         ));
         
-        driveSyncButton = new Button("⬆️ Sync to Drive now");
+        driveSyncButton = new Button("Sync to Drive now");
+        driveSyncButton.setGraphic(TaskStyleUtils.iconLabel("\u2191", 14));
         driveSyncButton.getStyleClass().add("btn-success");
         driveSyncButton.setOnAction(e -> runDriveAction(
             "Uploading database to Google Drive…",
@@ -157,7 +162,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Upload failed. Check your connection and credentials."
         ));
 
-        driveDownloadButton = new Button("⬇️ Download from Drive");
+        driveDownloadButton = new Button("Download from Drive");
+        driveDownloadButton.setGraphic(TaskStyleUtils.iconLabel("\u2193", 14));
         driveDownloadButton.getStyleClass().add("btn-orange-download");
         driveDownloadButton.setOnAction(e -> runDriveAction(
             "Downloading database from Google Drive…",
@@ -189,9 +195,11 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             String email = googleDriveService.getSignedInAccountEmail().orElse("Google Account");
             String statusText = "Connected as " + email + ".";
             if (googleDriveService.isLocalDbDirty()) {
-                statusText += " ⚠ Local changes not yet uploaded to Drive.";
+                statusText += " Local changes not yet uploaded to Drive.";
+                driveStatusLabel.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 13));
                 driveHintLabel.setText("Upload your database to keep Drive up to date.");
             } else {
+                driveStatusLabel.setGraphic(null);
                 driveHintLabel.setText("Your database uploads to Drive when you close the app.");
             }
             driveStatusLabel.setText(statusText);
@@ -239,7 +247,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         VBox section = new VBox(15);
         section.getStyleClass().add("section-card");
         
-        Label sectionTitle = new Label("▪ Overall Performance");
+        Label sectionTitle = new Label("Overall Performance");
+        sectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 18));
         TaskStyleUtils.fontBold(sectionTitle, 18);
         
         // Profile summary with dynamic content
@@ -286,7 +295,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         HBox header = new HBox(15);
         header.setAlignment(Pos.CENTER_LEFT);
         
-        Label sectionTitle = new Label("♦ Achieved Goals");
+        Label sectionTitle = new Label("Achieved Goals");
+        sectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u2666", 18));
         TaskStyleUtils.fontBold(sectionTitle, 18);
         
         // Get recent achieved goals count
@@ -349,8 +359,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         item.setPadding(new Insets(8, 12, 8, 12));
         item.setStyle("-fx-background-color: #e8f5e8; -fx-background-radius: 5; -fx-border-color: #27ae60; -fx-border-radius: 5;");
         
-        Label checkLabel = new Label("✅");
-        TaskStyleUtils.fontNormal(checkLabel, 14);
+        Label checkLabel = new Label("\u2713");
+        TaskStyleUtils.fontEmoji(checkLabel, 14);
         
         VBox textContainer = new VBox(2);
         
@@ -372,7 +382,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         Dialog<Void> dialog = new Dialog<>();
         dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         dialog.setTitle("All Achieved Goals");
-        dialog.setHeaderText("♦ Your Achievement History");
+        dialog.setHeaderText("\u2666 Your Achievement History");
         
         VBox content = new VBox(10);
         content.setPadding(new Insets(20));
@@ -441,8 +451,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         item.setPadding(new Insets(10, 15, 10, 15));
         item.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 8; -fx-border-color: #27ae60; -fx-border-radius: 8; -fx-border-width: 1;");
         
-        Label checkLabel = new Label("✅");
-        TaskStyleUtils.fontNormal(checkLabel, 16);
+        Label checkLabel = new Label("\u2713");
+        TaskStyleUtils.fontEmoji(checkLabel, 16);
         
         VBox textContainer = new VBox(4);
         HBox.setHgrow(textContainer, Priority.ALWAYS);
@@ -577,7 +587,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             VBox focusChartBox = new VBox(10);
             focusChartBox.getStyleClass().add("section-card");
             focusChartBox.setPadding(new Insets(15));
-            Label focusChartTitle = new Label("↑ Focus Level Trend (Last 14 Days)");
+            Label focusChartTitle = new Label("Focus Level Trend (Last 14 Days)");
+            focusChartTitle.setGraphic(TaskStyleUtils.iconLabel("\u2191", 16));
             TaskStyleUtils.fontBold(focusChartTitle, 16);
             focusChartBox.getChildren().addAll(focusChartTitle, focusChart);
             
@@ -586,7 +597,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             VBox productivityChartBox = new VBox(10);
             productivityChartBox.getStyleClass().add("section-card");
             productivityChartBox.setPadding(new Insets(15));
-            Label productivityChartTitle = new Label("▪ Daily Study Time (Last 7 Days)");
+            Label productivityChartTitle = new Label("Daily Study Time (Last 7 Days)");
+            productivityChartTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 16));
             TaskStyleUtils.fontBold(productivityChartTitle, 16);
             productivityChartBox.getChildren().addAll(productivityChartTitle, productivityChart);
             
