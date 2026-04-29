@@ -240,7 +240,7 @@ Icon=studysync
 Terminal=false
 Categories=Education;Office;ProjectManagement;
 Keywords=study;task;project;calendar;academic;planner;
-StartupWMClass=com-studysync-StudySyncApplication
+StartupWMClass=com.studysync.application.StudySyncJavaFXApp
 EOF
     else
         print_info "Using desktop file from: $desktop_source"
