@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -97,13 +98,14 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         // Statistics cards
         HBox statsSection = createStatsSection();
         
-        // Achieved goals section
-        VBox achievedGoalsSection = createAchievedGoalsSection();
+        // Goal history section
+        VBox goalHistorySection = createGoalHistorySection();
         
         // Charts section
         VBox chartsSection = createChartsSection();
         
-        mainContent.getChildren().addAll(headerLabel, driveSyncSection, profileSection, statsSection, achievedGoalsSection, chartsSection);
+        mainContent.getChildren().addAll(headerLabel, driveSyncSection, profileSection, statsSection,
+                goalHistorySection, chartsSection);
     }
     
     private VBox createDriveSyncSection() {
@@ -410,61 +412,64 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         return section;
     }
     
-    private VBox createAchievedGoalsSection() {
+    private VBox createGoalHistorySection() {
         VBox section = new VBox(15);
         section.getStyleClass().add("section-card");
         
         HBox header = new HBox(15);
         header.setAlignment(Pos.CENTER_LEFT);
         
-        Label sectionTitle = new Label("Achieved Goals");
+        Label sectionTitle = new Label("Goal History");
         sectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u2666", 18));
         TaskStyleUtils.fontBold(sectionTitle, 18);
         
-        // Get recent achieved goals count
-        List<StudyGoal> allAchievedGoals = studyService.getStudyGoals().stream()
-            .filter(StudyGoal::isAchieved)
-            .collect(Collectors.toList());
+        List<StudyGoal> allGoals = getSortedGoalHistory("Newest first");
+        long achievedCount = allGoals.stream().filter(StudyGoal::isAchieved).count();
+        long failedCount = allGoals.stream().filter(StudyGoal::isFailed).count();
+        long activeCount = allGoals.stream()
+            .filter(goal -> !goal.isAchieved() && !goal.isFailed())
+            .count();
         
-        Label countLabel = new Label("(" + allAchievedGoals.size() + " total)");
+        Label countLabel = new Label("(" + achievedCount + " achieved, "
+                + failedCount + " missed/failed, " + activeCount + " active)");
         TaskStyleUtils.fontNormal(countLabel, 14);
         countLabel.setTextFill(Color.web("#7f8c8d"));
         
-        Button viewAllBtn = new Button("» View All Achieved Goals");
+        Button viewAllBtn = new Button("» View All Goals");
         viewAllBtn.getStyleClass().add("btn-success");
-        viewAllBtn.setOnAction(e -> showAllAchievedGoalsDialog());
+        viewAllBtn.setOnAction(e -> showAllGoalsDialog());
         
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         
         header.getChildren().addAll(sectionTitle, countLabel, spacer, viewAllBtn);
         
-        // Show recent achieved goals (last 5)
+        // Show recent goal activity (last 5 attempts, newest first)
         VBox recentGoalsContainer = new VBox(8);
-        List<StudyGoal> recentAchievedGoals = allAchievedGoals.stream()
-            .sorted((g1, g2) -> g2.getDate().compareTo(g1.getDate())) // Sort by date descending
+        List<StudyGoal> recentGoals = allGoals.stream()
             .limit(5)
             .collect(Collectors.toList());
         
-        if (recentAchievedGoals.isEmpty()) {
-            Label noGoalsLabel = new Label("No goals achieved yet. Start setting and completing goals to see them here!");
+        if (recentGoals.isEmpty()) {
+            Label noGoalsLabel = new Label("No goal attempts recorded yet.");
             TaskStyleUtils.fontNormal(noGoalsLabel, 12);
             noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
             noGoalsLabel.setPadding(new Insets(10, 0, 0, 0));
             recentGoalsContainer.getChildren().add(noGoalsLabel);
         } else {
-            Label recentLabel = new Label("Recent Achievements:");
+            Label recentLabel = new Label("Recent Goal Activity:");
             TaskStyleUtils.fontSemiBold(recentLabel, 12);
             recentLabel.setTextFill(Color.web("#2c3e50"));
             recentGoalsContainer.getChildren().add(recentLabel);
             
-            for (StudyGoal goal : recentAchievedGoals) {
-                HBox goalItem = createAchievedGoalItem(goal);
+            for (StudyGoal goal : recentGoals) {
+                HBox goalItem = createGoalHistoryItem(goal, false);
                 recentGoalsContainer.getChildren().add(goalItem);
             }
             
-            if (allAchievedGoals.size() > 5) {
-                Label moreLabel = new Label("... and " + (allAchievedGoals.size() - 5) + " more. Click 'View All' to see them.");
+            if (allGoals.size() > 5) {
+                Label moreLabel = new Label("... and " + (allGoals.size() - 5)
+                        + " more. Click 'View All Goals' to filter and sort them.");
                 TaskStyleUtils.fontItalic(moreLabel, 11);
                 moreLabel.setTextFill(Color.web("#95a5a6"));
                 recentGoalsContainer.getChildren().add(moreLabel);
@@ -475,50 +480,60 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         return section;
     }
     
-    private HBox createAchievedGoalItem(StudyGoal goal) {
+    private HBox createGoalHistoryItem(StudyGoal goal, boolean detailed) {
         HBox item = new HBox(10);
         item.setAlignment(Pos.CENTER_LEFT);
-        item.setPadding(new Insets(8, 12, 8, 12));
-        item.setStyle("-fx-background-color: #e8f5e8; -fx-background-radius: 5; -fx-border-color: #27ae60; -fx-border-radius: 5;");
-        
-        Label checkLabel = new Label("\u2713");
-        TaskStyleUtils.fontEmoji(checkLabel, 14);
-        
-        VBox textContainer = new VBox(2);
+        item.setPadding(detailed ? new Insets(10, 15, 10, 15) : new Insets(8, 12, 8, 12));
+        item.setStyle("-fx-background-color: " + goalHistoryBackground(goal)
+                + "; -fx-background-radius: " + (detailed ? "8" : "5")
+                + "; -fx-border-color: " + goalHistoryColor(goal)
+                + "; -fx-border-radius: " + (detailed ? "8" : "5")
+                + "; -fx-border-width: 1;");
+
+        Label statusIcon = new Label(goalHistoryIcon(goal));
+        TaskStyleUtils.fontEmoji(statusIcon, detailed ? 16 : 14);
+        statusIcon.setTextFill(Color.web(goalHistoryColor(goal)));
+
+        VBox textContainer = new VBox(detailed ? 4 : 2);
+        HBox.setHgrow(textContainer, Priority.ALWAYS);
         
         Label descLabel = new Label(goal.getDescription());
-        TaskStyleUtils.fontNormal(descLabel, 12);
+        TaskStyleUtils.fontNormal(descLabel, detailed ? 13 : 12);
         descLabel.setWrapText(true);
         
-        Label dateLabel = new Label("Achieved on " + goal.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
-        TaskStyleUtils.fontNormal(dateLabel, 10);
+        HBox detailsBox = new HBox(15);
+        detailsBox.setAlignment(Pos.CENTER_LEFT);
+
+        Label dateLabel = new Label(goalHistoryDateText(goal, detailed));
+        TaskStyleUtils.fontNormal(dateLabel, detailed ? 11 : 10);
         dateLabel.setTextFill(Color.web("#7f8c8d"));
+
+        Label attemptLabel = new Label("Attempt " + goal.getAttemptNumber());
+        TaskStyleUtils.fontNormal(attemptLabel, detailed ? 11 : 10);
+        attemptLabel.setTextFill(Color.web(goalHistoryColor(goal)));
         
-        textContainer.getChildren().addAll(descLabel, dateLabel);
+        detailsBox.getChildren().addAll(dateLabel, attemptLabel);
+        textContainer.getChildren().addAll(descLabel, detailsBox);
         
-        item.getChildren().addAll(checkLabel, textContainer);
+        item.getChildren().addAll(statusIcon, textContainer);
         return item;
     }
     
-    private void showAllAchievedGoalsDialog() {
+    private void showAllGoalsDialog() {
         Dialog<Void> dialog = new Dialog<>();
         dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
-        dialog.setTitle("All Achieved Goals");
-        dialog.setHeaderText("\u2666 Your Achievement History");
+        dialog.setTitle("All Goals");
+        dialog.setHeaderText("\u2666 Goal History");
         
-        VBox content = new VBox(10);
+        VBox content = new VBox(12);
         content.setPadding(new Insets(20));
-        content.setPrefWidth(600);
-        content.setPrefHeight(500);
+        content.setPrefWidth(720);
+        content.setPrefHeight(560);
         
-        // Get all achieved goals sorted by date (most recent first)
-        List<StudyGoal> allAchievedGoals = studyService.getStudyGoals().stream()
-            .filter(StudyGoal::isAchieved)
-            .sorted((g1, g2) -> g2.getDate().compareTo(g1.getDate()))
-            .collect(Collectors.toList());
+        List<StudyGoal> allGoals = studyService.getStudyGoals();
         
-        if (allAchievedGoals.isEmpty()) {
-            Label noGoalsLabel = new Label("You haven't achieved any goals yet.\n\nStart by setting daily study goals and completing them to build your achievement history!");
+        if (allGoals.isEmpty()) {
+            Label noGoalsLabel = new Label("No goal attempts recorded yet.");
             TaskStyleUtils.fontNormal(noGoalsLabel, 14);
             noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
             noGoalsLabel.setWrapText(true);
@@ -526,92 +541,172 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             noGoalsLabel.setPadding(new Insets(50, 20, 50, 20));
             content.getChildren().add(noGoalsLabel);
         } else {
-            Label totalLabel = new Label("Total Achieved Goals: " + allAchievedGoals.size());
+            HBox controls = new HBox(10);
+            controls.setAlignment(Pos.CENTER_LEFT);
+
+            ComboBox<String> filterCombo = new ComboBox<>();
+            filterCombo.getItems().addAll("All goals", "Achieved", "Missed / failed", "Active / pending");
+            filterCombo.setValue("All goals");
+
+            ComboBox<String> sortCombo = new ComboBox<>();
+            sortCombo.getItems().addAll("Newest first", "Oldest first", "Status", "Attempt number", "Description");
+            sortCombo.setValue("Newest first");
+
+            Label totalLabel = new Label();
             TaskStyleUtils.fontBold(totalLabel, 14);
-            totalLabel.setTextFill(Color.web("#27ae60"));
-            content.getChildren().add(totalLabel);
+            totalLabel.setTextFill(Color.web("#2c3e50"));
+
+            controls.getChildren().addAll(new Label("Show:"), filterCombo, new Label("Sort:"), sortCombo, totalLabel);
             
             ScrollPane scrollPane = new ScrollPane();
             VBox goalsContainer = new VBox(8);
             goalsContainer.setPadding(new Insets(10));
-            
-            // Group goals by month for better organization
-            Map<String, List<StudyGoal>> goalsByMonth = allAchievedGoals.stream()
-                .collect(Collectors.groupingBy(goal -> 
-                    goal.getDate().format(DateTimeFormatter.ofPattern("MMMM yyyy"))));
-            
-            for (Map.Entry<String, List<StudyGoal>> monthEntry : goalsByMonth.entrySet()) {
-                // Month header
-                Label monthLabel = new Label("» " + monthEntry.getKey());
-                TaskStyleUtils.fontBold(monthLabel, 16);
-                monthLabel.setPadding(new Insets(15, 0, 5, 0));
-                goalsContainer.getChildren().add(monthLabel);
-                
-                // Goals for this month
-                for (StudyGoal goal : monthEntry.getValue()) {
-                    HBox goalItem = createDetailedAchievedGoalItem(goal);
-                    goalsContainer.getChildren().add(goalItem);
-                }
-            }
-            
+
             scrollPane.setContent(goalsContainer);
             scrollPane.setFitToWidth(true);
-            scrollPane.setPrefHeight(400);
-            content.getChildren().add(scrollPane);
+            scrollPane.setPrefHeight(430);
+
+            Runnable refresh = () -> populateGoalHistoryDialog(
+                    goalsContainer, totalLabel, allGoals, filterCombo.getValue(), sortCombo.getValue());
+            filterCombo.setOnAction(e -> refresh.run());
+            sortCombo.setOnAction(e -> refresh.run());
+            refresh.run();
+
+            content.getChildren().addAll(controls, scrollPane);
         }
         
         dialog.getDialogPane().setContent(content);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
-        dialog.getDialogPane().setMinSize(620, 540);
+        dialog.getDialogPane().setMinSize(740, 600);
         dialog.setResizable(true);
 
         dialog.setOnShown(e -> {
-            dialog.setWidth(640);
-            dialog.setHeight(560);
+            dialog.setWidth(760);
+            dialog.setHeight(620);
         });
 
         dialog.showAndWait();
     }
-    
-    private HBox createDetailedAchievedGoalItem(StudyGoal goal) {
-        HBox item = new HBox(12);
-        item.setAlignment(Pos.CENTER_LEFT);
-        item.setPadding(new Insets(10, 15, 10, 15));
-        item.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 8; -fx-border-color: #27ae60; -fx-border-radius: 8; -fx-border-width: 1;");
-        
-        Label checkLabel = new Label("\u2713");
-        TaskStyleUtils.fontEmoji(checkLabel, 16);
-        
-        VBox textContainer = new VBox(4);
-        HBox.setHgrow(textContainer, Priority.ALWAYS);
-        
-        Label descLabel = new Label(goal.getDescription());
-        TaskStyleUtils.fontNormal(descLabel, 13);
-        descLabel.setWrapText(true);
-        
-        HBox detailsBox = new HBox(15);
-        detailsBox.setAlignment(Pos.CENTER_LEFT);
-        
-        Label dateLabel = new Label("» " + goal.getDate().format(DateTimeFormatter.ofPattern("EEE, MMM dd, yyyy")));
-        TaskStyleUtils.fontNormal(dateLabel, 11);
-        dateLabel.setTextFill(Color.web("#7f8c8d"));
-        
-        // Show attempt history if achievement followed one or more misses.
-        if (goal.isDelayed()) {
-            Label delayLabel = new Label("[!]  Attempt " + goal.getAttemptNumber()
-                    + " after " + goal.getMissedAttemptCount() + " miss"
-                    + (goal.getMissedAttemptCount() == 1 ? "" : "es"));
-            TaskStyleUtils.fontNormal(delayLabel, 11);
-            delayLabel.setTextFill(Color.web("#e67e22"));
-            detailsBox.getChildren().addAll(dateLabel, delayLabel);
-        } else {
-            detailsBox.getChildren().add(dateLabel);
+
+    private void populateGoalHistoryDialog(VBox goalsContainer, Label totalLabel,
+                                           List<StudyGoal> allGoals, String filter, String sort) {
+        goalsContainer.getChildren().clear();
+        List<StudyGoal> visibleGoals = allGoals.stream()
+            .filter(goal -> matchesGoalHistoryFilter(goal, filter))
+            .sorted(goalHistoryComparator(sort))
+            .collect(Collectors.toList());
+
+        totalLabel.setText("(" + visibleGoals.size() + " shown)");
+
+        if (visibleGoals.isEmpty()) {
+            Label emptyLabel = new Label("No goals match this filter.");
+            TaskStyleUtils.fontNormal(emptyLabel, 13);
+            emptyLabel.setTextFill(Color.web("#7f8c8d"));
+            emptyLabel.setPadding(new Insets(30));
+            goalsContainer.getChildren().add(emptyLabel);
+            return;
         }
-        
-        textContainer.getChildren().addAll(descLabel, detailsBox);
-        
-        item.getChildren().addAll(checkLabel, textContainer);
-        return item;
+
+        for (StudyGoal goal : visibleGoals) {
+            goalsContainer.getChildren().add(createGoalHistoryItem(goal, true));
+        }
+    }
+
+    private List<StudyGoal> getSortedGoalHistory(String sort) {
+        return studyService.getStudyGoals().stream()
+            .sorted(goalHistoryComparator(sort))
+            .collect(Collectors.toList());
+    }
+
+    private boolean matchesGoalHistoryFilter(StudyGoal goal, String filter) {
+        return switch (filter) {
+            case "Achieved" -> goal.isAchieved();
+            case "Missed / failed" -> goal.isFailed();
+            case "Active / pending" -> !goal.isAchieved() && !goal.isFailed();
+            default -> true;
+        };
+    }
+
+    private Comparator<StudyGoal> goalHistoryComparator(String sort) {
+        return switch (sort) {
+            case "Oldest first" -> Comparator
+                .comparing(StudyGoal::getDate)
+                .thenComparingInt(StudyGoal::getAttemptNumber)
+                .thenComparing(goal -> safeText(goal.getDescription()), String.CASE_INSENSITIVE_ORDER);
+            case "Attempt number" -> Comparator
+                .comparingInt(StudyGoal::getAttemptNumber).reversed()
+                .thenComparing(StudyGoal::getDate, Comparator.reverseOrder())
+                .thenComparing(goal -> safeText(goal.getDescription()), String.CASE_INSENSITIVE_ORDER);
+            case "Status" -> Comparator
+                .comparingInt(this::goalHistoryStatusRank)
+                .thenComparing(StudyGoal::getDate, Comparator.reverseOrder())
+                .thenComparing(Comparator.comparingInt(StudyGoal::getAttemptNumber).reversed())
+                .thenComparing(goal -> safeText(goal.getDescription()), String.CASE_INSENSITIVE_ORDER);
+            case "Description" -> Comparator
+                .comparing((StudyGoal goal) -> safeText(goal.getDescription()), String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(StudyGoal::getDate, Comparator.reverseOrder())
+                .thenComparing(Comparator.comparingInt(StudyGoal::getAttemptNumber).reversed());
+            default -> Comparator
+                .comparing(StudyGoal::getDate, Comparator.reverseOrder())
+                .thenComparing(Comparator.comparingInt(StudyGoal::getAttemptNumber).reversed())
+                .thenComparing(goal -> safeText(goal.getDescription()), String.CASE_INSENSITIVE_ORDER);
+        };
+    }
+
+    private int goalHistoryStatusRank(StudyGoal goal) {
+        if (goal.isFailed()) {
+            return 0;
+        }
+        if (goal.isAchieved()) {
+            return 1;
+        }
+        return 2;
+    }
+
+    private String goalHistoryIcon(StudyGoal goal) {
+        if (goal.isAchieved()) {
+            return "\u2713";
+        }
+        if (goal.isFailed()) {
+            return "\u2715";
+        }
+        return "\u25CB";
+    }
+
+    private String goalHistoryColor(StudyGoal goal) {
+        if (goal.isAchieved()) {
+            return "#27ae60";
+        }
+        if (goal.isFailed()) {
+            return "#c0392b";
+        }
+        return "#3498db";
+    }
+
+    private String goalHistoryBackground(StudyGoal goal) {
+        if (goal.isAchieved()) {
+            return "#e8f5e8";
+        }
+        if (goal.isFailed()) {
+            return "#fdecea";
+        }
+        return "#e3f2fd";
+    }
+
+    private String goalHistoryDateText(StudyGoal goal, boolean detailed) {
+        String date = goal.getDate().format(DateTimeFormatter.ofPattern(
+                detailed ? "EEE, MMM dd, yyyy" : "MMM dd, yyyy"));
+        if (goal.isAchieved()) {
+            return "Achieved on " + date;
+        }
+        if (goal.isFailed()) {
+            return (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED ? "Abandoned on " : "Missed on ") + date;
+        }
+        return "Planned for " + date;
+    }
+
+    private String safeText(String text) {
+        return text == null ? "" : text;
     }
     
     private VBox createChartsSection() {

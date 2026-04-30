@@ -209,33 +209,15 @@ public class StudyService {
     }
 
     /**
-     * Returns delayed, unachieved goals that are eligible for manual rescheduling
-     * to today. Goals linked to CANCELLED or POSTPONED tasks are excluded.
-     * Orphan goals (no task) are included so they remain visible and don't
-     * silently age into auto-deletion.
+     * Returns active goals whose latest attempt was missed and which do not
+     * already have a pending attempt. Task status is intentionally ignored here:
+     * the parent goal lifecycle is the source of truth for retry eligibility.
      *
-     * @return list of goals the user can choose to re-plan for today
+     * @return list of goals the user can choose to retry today
      */
     @Transactional(readOnly = true)
     public List<StudyGoal> getDelayedGoalsForReplanning() {
-        return StudyGoal.findDelayedAndNotReplanned().stream()
-                .filter(goal -> {
-                    // Orphan goals (no task) are eligible for rescheduling.
-                    // Without this, they become invisible in the planner and
-                    // silently auto-delete after 14 days.
-                    if (goal.getTaskId() == null || goal.getTaskId().isBlank()) {
-                        return true;
-                    }
-                    // NOTE: Do NOT filter out goals whose task is already visible
-                    // today. findByTaskIdForDate() no longer auto-carries forward
-                    // delayed goals, so if we also exclude them here, they become
-                    // unreachable and silently age into auto-deletion.
-                    return Task.findById(goal.getTaskId())
-                            .map(task -> task.getStatus() != TaskStatus.CANCELLED
-                                      && task.getStatus() != TaskStatus.POSTPONED)
-                            .orElse(false);
-                })
-                .collect(Collectors.toList());
+        return StudyGoal.findDelayedAndNotReplanned();
     }
 
     /**

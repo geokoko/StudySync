@@ -14,6 +14,7 @@ import com.studysync.domain.entity.Task;
 import com.studysync.domain.valueobject.TaskCategory;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
+import javafx.application.Platform;
 import javafx.util.Callback;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -71,6 +72,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     // UI containers that get rebuilt on navigation
     private VBox tasksContainer;
+    private FlowPane attemptOverviewContainer;
     private FlowPane sessionsFlowPane;
     private TextArea reflectionArea;
     private ProgressBar dailyProgressBar;
@@ -187,18 +189,23 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox sectionHeader = new HBox(15);
         sectionHeader.setAlignment(Pos.CENTER_LEFT);
 
-        Label sectionTitle = new Label("Today's Tasks");
+        Label sectionTitle = new Label("Today's Tasks & Goal Attempts");
         sectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u2611", 18));
         TaskStyleUtils.fontBold(sectionTitle, 18);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        Button addGoalBtn = new Button("+ Add Goal");
+        Button addGoalBtn = new Button("+ Add Goal Attempt");
         addGoalBtn.getStyleClass().add("btn-purple");
         addGoalBtn.setOnAction(e -> showAddGoalDialog(null));
 
         sectionHeader.getChildren().addAll(sectionTitle, spacer, addGoalBtn);
+
+        attemptOverviewContainer = new FlowPane();
+        attemptOverviewContainer.setHgap(10);
+        attemptOverviewContainer.setVgap(8);
+        attemptOverviewContainer.setAlignment(Pos.CENTER_LEFT);
 
         // Sort / group toolbar
         HBox toolbar = new HBox(10);
@@ -221,7 +228,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         toolbar.getChildren().addAll(sortLabel, sortCombo, groupLabel, groupCombo);
 
         tasksContainer = new VBox(10);
-        section.getChildren().addAll(sectionHeader, toolbar, tasksContainer);
+        section.getChildren().addAll(sectionHeader, attemptOverviewContainer, toolbar, tasksContainer);
         mainContent.getChildren().add(section);
     }
 
@@ -316,6 +323,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         List<Task> tasks = new ArrayList<>(taskService.getTasksForDate(displayDate));
         LocalDate today = dateTimeService.getCurrentDate();
+        updateAttemptOverview();
 
         if (tasks.isEmpty()) {
             // No tasks for this day — offer "Create Task" shortcut
@@ -389,7 +397,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             }
         }
 
-        // Unlinked goals section (goals with no task)
+        // Unlinked attempts section (goals with no task)
         List<StudyGoal> allUnlinked = StudyGoal.findUnlinkedForDate(displayDate);
         List<StudyGoal> unlinkedGoals = allUnlinked.stream()
                 .filter(g -> !g.isAchieved()).toList();
@@ -398,7 +406,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (!unlinkedGoals.isEmpty() || !completedUnlinked.isEmpty()) {
             VBox unlinkedSection = new VBox(6);
             unlinkedSection.setPadding(new Insets(10, 0, 0, 0));
-            Label unlinkedTitle = new Label("Goals without a task:");
+            Label unlinkedTitle = new Label("Goal attempts without a task:");
             TaskStyleUtils.fontBold(unlinkedTitle, 13);
             unlinkedTitle.setTextFill(Color.web("#6c757d"));
             unlinkedSection.getChildren().add(unlinkedTitle);
@@ -416,6 +424,64 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (displayDate.equals(today)) {
             tasksContainer.getChildren().add(buildReplanSection());
         }
+    }
+
+    private void updateAttemptOverview() {
+        if (attemptOverviewContainer == null) {
+            return;
+        }
+        attemptOverviewContainer.getChildren().clear();
+
+        List<StudyGoal> attempts = getAllAttemptsForDisplayDate();
+        long pending = attempts.stream()
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING)
+                .count();
+        long achieved = attempts.stream().filter(StudyGoal::isAchieved).count();
+        long missed = attempts.stream()
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED)
+                .count();
+        long retrying = attempts.stream()
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
+                        && goal.getMissedAttemptCount() > 0)
+                .count();
+        int score = (int) (achieved - missed);
+
+        attemptOverviewContainer.getChildren().addAll(
+                createAttemptMetricCard("Attempts Today", String.valueOf(attempts.size()), "#3949ab", "#e8eaf6"),
+                createAttemptMetricCard("Pending", String.valueOf(pending), "#0d47a1", "#e3f2fd"),
+                createAttemptMetricCard("Retries", String.valueOf(retrying), "#e65100", "#fff3e0"),
+                createAttemptMetricCard("Achieved", String.valueOf(achieved), "#1b5e20", "#e8f5e9"),
+                createAttemptMetricCard("Missed", String.valueOf(missed), "#b71c1c", "#ffebee"),
+                createAttemptMetricCard("Score", String.format("%+d", score), "#4a148c", "#f3e5f5")
+        );
+    }
+
+    private VBox createAttemptMetricCard(String title, String value, String textColor, String backgroundColor) {
+        VBox card = new VBox(2);
+        card.setAlignment(Pos.CENTER_LEFT);
+        card.setMinWidth(105);
+        card.setPadding(new Insets(8, 10, 8, 10));
+        card.setStyle("-fx-background-color: " + backgroundColor + "; -fx-background-radius: 8;"
+                + " -fx-border-color: #d6dbe0; -fx-border-radius: 8;");
+
+        Label valueLabel = new Label(value);
+        TaskStyleUtils.fontBold(valueLabel, 18);
+        valueLabel.setTextFill(Color.web(textColor));
+
+        Label titleLabel = new Label(title);
+        TaskStyleUtils.fontNormal(titleLabel, 10);
+        titleLabel.setTextFill(Color.web(textColor));
+
+        card.getChildren().addAll(valueLabel, titleLabel);
+        return card;
+    }
+
+    private List<StudyGoal> getAllAttemptsForDisplayDate() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        if (displayDate.isAfter(today)) {
+            return studyService.getAllGoalsForFutureDate(displayDate);
+        }
+        return studyService.getAllGoalsForDate(displayDate);
     }
 
     /** Returns a comparator based on the user's current sort choice. */
@@ -456,9 +522,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
 
     /**
-     * Builds the "Re-plan a delayed goal for today" section.
-     * Shows a ComboBox of delayed goals (from non-cancelled/non-postponed tasks)
-     * and a button to reschedule the selected goal to appear today exactly once.
+     * Builds the retry section for missed goal attempts.
+     * Shows a ComboBox of missed attempts whose parent goal can be tried again.
      */
     private VBox buildReplanSection() {
         List<StudyGoal> candidates = studyService.getDelayedGoalsForReplanning();
@@ -467,13 +532,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         section.setPadding(new Insets(14, 0, 0, 0));
 
         // Collapsible header row
-        Label header = new Label("Re-plan a Delayed Goal");
+        Label header = new Label("Plan a Retry for a Missed Goal");
         header.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 13));
         TaskStyleUtils.fontBold(header, 13);
         header.setTextFill(Color.web("#6c757d"));
 
         if (candidates.isEmpty()) {
-            Label none = new Label("No delayed goals available to re-plan.");
+            Label none = new Label("No missed goal attempts available to retry.");
             TaskStyleUtils.fontNormal(none, 12);
             none.setTextFill(Color.web("#7f8c8d"));
             section.getChildren().addAll(header, none);
@@ -492,8 +557,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         ComboBox<StudyGoal> combo = new ComboBox<>();
         combo.getItems().addAll(candidates);
-        combo.setVisibleRowCount(Math.min(candidates.size(), 15));
+        combo.setVisibleRowCount(Math.max(1, Math.min(candidates.size(), 8)));
         combo.setMaxWidth(Double.MAX_VALUE);
+        combo.setOnShowing(e -> combo.setVisibleRowCount(Math.max(1, Math.min(candidates.size(), 8))));
+        combo.setOnShown(e -> sizeComboPopupToRows(combo, candidates.size()));
         Callback<ListView<StudyGoal>, ListCell<StudyGoal>> cellFactory = lv -> new ListCell<>() {
             @Override
             protected void updateItem(StudyGoal goal, boolean empty) {
@@ -509,9 +576,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         };
         combo.setCellFactory(cellFactory);
         combo.setButtonCell(cellFactory.call(null));
-        combo.setPromptText("Select a delayed goal to re-plan...");
+        combo.setPromptText("Select a missed goal to retry...");
 
-        Button replanBtn = new Button("Re-plan for Today");
+        Button replanBtn = new Button("Plan Retry Today");
         replanBtn.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 13));
         replanBtn.getStyleClass().addAll("btn-orange", "btn-small");
         replanBtn.setDisable(true);
@@ -534,7 +601,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         return section;
     }
 
-    /** Formats a delayed goal for display in the re-plan ComboBox. */
+    /** Formats a missed attempt for display in the retry ComboBox. */
     private String formatDelayedGoal(StudyGoal goal, Map<String, String> taskTitles) {
         String taskLabel = "";
         String taskId = goal.getTaskId();
@@ -549,8 +616,23 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             desc = desc.substring(0, 57) + "...";
         }
         int misses = goal.getMissedAttemptCount();
-        String missLabel = misses == 1 ? "1 prior miss" : misses + " prior misses";
-        return taskLabel + desc + " (attempt " + (goal.getAttemptNumber() + 1) + ", " + missLabel + ")";
+        int nextAttempt = Math.max(goal.getAttemptNumber() + 1, misses + 2);
+        return taskLabel + desc + " (attempt " + nextAttempt + ")";
+    }
+
+    private void sizeComboPopupToRows(ComboBox<?> combo, int itemCount) {
+        Platform.runLater(() -> {
+            Node popupContent = combo.lookup(".list-view");
+            if (popupContent instanceof ListView<?> listView) {
+                double rowHeight = 28.0;
+                int visibleRows = Math.max(1, Math.min(itemCount, 8));
+                double height = visibleRows * rowHeight + 2;
+                listView.setFixedCellSize(rowHeight);
+                listView.setMinHeight(height);
+                listView.setPrefHeight(height);
+                listView.setMaxHeight(height);
+            }
+        });
     }
 
     /**
@@ -596,7 +678,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         headerRow.getChildren().addAll(0, List.of(arrow)); // arrow first
-        headerRow.getChildren().addAll(taskTitle, priorityLabel, spacer);
+        headerRow.getChildren().addAll(taskTitle, priorityLabel);
+        headerRow.getChildren().addAll(createTaskAttemptBadges(task));
+        headerRow.getChildren().add(spacer);
 
         // Overdue / due-today badge (between spacer and status badge)
         if (TaskStyleUtils.isOverdue(task, displayDate)) {
@@ -636,6 +720,50 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         card.getChildren().addAll(headerRow, goalsPanel);
         return card;
+    }
+
+    private List<Label> createTaskAttemptBadges(Task task) {
+        List<StudyGoal> attempts = StudyGoal.findByTaskId(task.getId()).stream()
+                .filter(goal -> displayDate.equals(goal.getDate()))
+                .toList();
+        if (attempts.isEmpty()) {
+            return List.of();
+        }
+
+        long pending = attempts.stream()
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING)
+                .count();
+        long achieved = attempts.stream().filter(StudyGoal::isAchieved).count();
+        long missed = attempts.stream()
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED)
+                .count();
+        long retries = attempts.stream().filter(goal -> goal.getMissedAttemptCount() > 0).count();
+
+        List<Label> badges = new ArrayList<>();
+        badges.add(createTaskAttemptBadge(attempts.size() + " attempt" + (attempts.size() == 1 ? "" : "s"),
+                "#3949ab", "#e8eaf6"));
+        if (pending > 0) {
+            badges.add(createTaskAttemptBadge(pending + " pending", "#0d47a1", "#e3f2fd"));
+        }
+        if (retries > 0) {
+            badges.add(createTaskAttemptBadge(retries + " retry", "#e65100", "#fff3e0"));
+        }
+        if (achieved > 0) {
+            badges.add(createTaskAttemptBadge(achieved + " done", "#1b5e20", "#e8f5e9"));
+        }
+        if (missed > 0) {
+            badges.add(createTaskAttemptBadge(missed + " missed", "#b71c1c", "#ffebee"));
+        }
+        return badges;
+    }
+
+    private Label createTaskAttemptBadge(String text, String textColor, String backgroundColor) {
+        Label badge = new Label(text);
+        TaskStyleUtils.fontBold(badge, 10);
+        badge.setTextFill(Color.web(textColor));
+        badge.setPadding(new Insets(2, 7, 2, 7));
+        badge.setStyle("-fx-background-color: " + backgroundColor + "; -fx-background-radius: 10;");
+        return badge;
     }
 
     /**
@@ -692,11 +820,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         List<StudyGoal> completedGoals = allGoals.stream().filter(StudyGoal::isAchieved).toList();
 
         if (activeGoals.isEmpty() && completedGoals.isEmpty()) {
-            Label noGoals = new Label("No goals linked to this task yet.");
+            Label noGoals = new Label("No goal attempts linked to this task for this date.");
             TaskStyleUtils.fontNormal(noGoals, 12);
             noGoals.setTextFill(Color.web("#7f8c8d"));
 
-            Button addGoalBtn = new Button("+ Create Goal");
+            Button addGoalBtn = new Button("+ Create Goal Attempt");
             addGoalBtn.getStyleClass().addAll("btn-purple", "btn-small");
             addGoalBtn.setOnAction(e -> {
                 showAddGoalDialog(task);
@@ -708,7 +836,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             for (StudyGoal goal : activeGoals) {
                 goalsPanel.getChildren().add(buildGoalRow(goal, task));
             }
-            Button addMoreBtn = new Button("+ Add Goal");
+            Button addMoreBtn = new Button("+ Add Goal Attempt");
             addMoreBtn.getStyleClass().addAll("btn-purple", "btn-small");
             addMoreBtn.setOnAction(e -> {
                 showAddGoalDialog(task);
@@ -717,7 +845,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             goalsPanel.getChildren().add(addMoreBtn);
         }
 
-        // Completed goals — collapsible section
+        // Completed attempts - collapsible section
         if (!completedGoals.isEmpty()) {
             goalsPanel.getChildren().add(
                     buildCompletedGoalsSection(completedGoals));
@@ -751,22 +879,30 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(goalLabel, 13);
         textBox.getChildren().add(goalLabel);
 
-        if (goal.isDelayed()) {
-            Label delayLabel = new Label(String.format("Attempt %d (%d prior miss%s)",
-                    goal.getAttemptNumber(),
-                    goal.getMissedAttemptCount(),
-                    goal.getMissedAttemptCount() == 1 ? "" : "es"));
-            delayLabel.setStyle("-fx-text-fill: #dc3545;");
-            TaskStyleUtils.fontNormal(delayLabel, 11);
-            textBox.getChildren().add(delayLabel);
-        }
+        Label attemptLabel = new Label(formatAttemptSummary(goal));
+        attemptLabel.setStyle("-fx-text-fill: "
+                + (goal.getMissedAttemptCount() > 0 ? "#dc3545" : "#6c757d") + ";");
+        TaskStyleUtils.fontNormal(attemptLabel, 11);
+        textBox.getChildren().add(attemptLabel);
 
         row.getChildren().addAll(check, textBox);
         return row;
     }
 
+    private String formatAttemptSummary(StudyGoal goal) {
+        String summary = "Attempt " + goal.getAttemptNumber();
+        if (goal.isAchieved()) {
+            summary += " - achieved";
+        } else if (goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED) {
+            summary += " - missed";
+        } else {
+            summary += " - pending";
+        }
+        return summary;
+    }
+
     /**
-     * Builds a collapsible "Completed" section for achieved goals.
+     * Builds a collapsible "Completed Attempts" section for achieved attempts.
      * Clicking the header toggles visibility of the completed goal rows.
      */
     private VBox buildCompletedGoalsSection(List<StudyGoal> completedGoals) {
@@ -777,7 +913,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         itemsBox.setVisible(false);
         itemsBox.setManaged(false);
 
-        Label toggle = new Label("Completed (" + completedGoals.size() + ")");
+        Label toggle = new Label("Completed Attempts (" + completedGoals.size() + ")");
         toggle.setGraphic(TaskStyleUtils.iconLabel("\u25B6", 11));
         TaskStyleUtils.fontBold(toggle, 11);
         toggle.setTextFill(Color.web("#27ae60"));
@@ -809,15 +945,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
             VBox textBox = new VBox(2);
             textBox.getChildren().add(label);
-            if (goal.getMissedAttemptCount() > 0) {
-                Label attempts = new Label(String.format("Achieved on attempt %d after %d miss%s",
-                        goal.getAttemptNumber(),
-                        goal.getMissedAttemptCount(),
-                        goal.getMissedAttemptCount() == 1 ? "" : "es"));
-                attempts.setTextFill(Color.web("#7f8c8d"));
-                TaskStyleUtils.fontNormal(attempts, 10);
-                textBox.getChildren().add(attempts);
-            }
+            Label attempts = new Label(formatAttemptSummary(goal));
+            attempts.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.fontNormal(attempts, 10);
+            textBox.getChildren().add(attempts);
 
             row.getChildren().addAll(check, textBox);
             itemsBox.getChildren().add(row);
@@ -1203,8 +1334,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         content.setMaxHeight(Region.USE_PREF_SIZE);
 
         Label headerLabel = new Label(linkedTask != null
-                ? "Add goal for: " + linkedTask.getTitle()
-                : "Create a new study goal");
+                ? "Add goal attempt for: " + linkedTask.getTitle()
+                : "Create a new study goal attempt");
         TaskStyleUtils.fontBold(headerLabel, 16);
 
         // Date
@@ -1224,7 +1355,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         dateRow.setAlignment(Pos.CENTER_LEFT);
 
         TextArea descArea = new TextArea();
-        descArea.setPromptText("Goal description…");
+        descArea.setPromptText("Goal attempt description...");
         descArea.setPrefRowCount(3);
         descArea.setWrapText(true);
 
@@ -1260,7 +1391,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                     new Label("Description:"), descArea);
         }
 
-        Button okBtn = new Button("Add Goal");
+        Button okBtn = new Button("Add Goal Attempt");
         okBtn.getStyleClass().add("btn-purple");
         okBtn.setDisable(true);
         descArea.textProperty().addListener((obs, o, n) -> okBtn.setDisable(n.trim().isEmpty()));

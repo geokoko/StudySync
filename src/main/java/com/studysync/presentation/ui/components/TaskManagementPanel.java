@@ -391,108 +391,186 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private void populateGoalHistory(VBox pane, Task task) {
         pane.getChildren().clear();
 
-        List<StudyGoal> goals = StudyGoal.findByTaskId(task.getId());
+        List<StudyGoal> attempts = StudyGoal.findByTaskId(task.getId());
 
-        if (goals.isEmpty()) {
-            Label empty = new Label("No goals have been planned for this task yet.");
+        if (attempts.isEmpty()) {
+            Label empty = new Label("No attempts have been planned for this task yet.");
             TaskStyleUtils.fontNormal(empty, 12);
             empty.setTextFill(Color.web("#7f8c8d"));
             pane.getChildren().add(empty);
             return;
         }
 
-        // Summary stats
-        long achieved = goals.stream().filter(StudyGoal::isAchieved).count();
-        long missed = goals.stream().filter(StudyGoal::isFailed).count();
-        long active = goals.stream().filter(g -> !g.isAchieved() && !g.isFailed()).count();
+        Map<String, List<StudyGoal>> attemptsByGoal = attempts.stream()
+                .collect(Collectors.groupingBy(StudyGoal::getId, LinkedHashMap::new, Collectors.toList()));
+        attemptsByGoal.values().forEach(goalAttempts ->
+                goalAttempts.sort(Comparator.comparingInt(StudyGoal::getAttemptNumber)));
 
-        Label statsLabel = new Label("Total: " + goals.size()
+        long achieved = attempts.stream().filter(StudyGoal::isAchieved).count();
+        long missed = attempts.stream()
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED)
+                .count();
+        long active = attempts.stream()
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
+                        && goal.getStatus() == StudyGoal.GoalStatus.ACTIVE)
+                .count();
+        int score = (int) (achieved - missed);
+
+        Label statsLabel = new Label("Goals: " + attemptsByGoal.size()
+                + "  |  Attempts: " + attempts.size()
                 + "  |  Achieved: " + achieved
                 + "  |  Missed: " + missed
-                + "  |  Active: " + active);
+                + "  |  Active: " + active
+                + "  |  Score: " + String.format("%+d", score));
         TaskStyleUtils.fontSemiBold(statsLabel, 11);
         statsLabel.setTextFill(Color.web("#495057"));
         statsLabel.setPadding(new Insets(0, 0, 4, 0));
         pane.getChildren().add(statsLabel);
 
-        // Goal list
-        for (StudyGoal goal : goals) {
-            HBox row = new HBox(8);
-            row.setAlignment(Pos.CENTER_LEFT);
-            row.setPadding(new Insets(4, 8, 4, 8));
-
-            // Status indicator
-            String statusIcon;
-            String statusColor;
-            if (goal.isAchieved()) {
-                statusIcon = "\u2713"; // checkmark
-                statusColor = "#27ae60";
-            } else if (goal.isFailed()) {
-                statusIcon = "\u2715"; // X
-                statusColor = "#e74c3c";
-            } else if (goal.isDelayed()) {
-                statusIcon = "\u231B"; // hourglass
-                statusColor = "#f39c12";
-            } else {
-                statusIcon = "\u25CB"; // circle
-                statusColor = "#3498db";
-            }
-
-            Label icon = TaskStyleUtils.iconLabel(statusIcon, 11);
-            icon.setTextFill(Color.web(statusColor));
-
-            // Date
-            Label dateLabel = new Label(goal.getDate().toString());
-            TaskStyleUtils.fontNormal(dateLabel, 11);
-            dateLabel.setTextFill(Color.web("#6c757d"));
-            dateLabel.setMinWidth(80);
-
-            // Description
-            String descText = goal.getDescription() != null ? goal.getDescription() : "";
-            if (descText.length() > 80) descText = descText.substring(0, 80) + "...";
-            Label descLabel = new Label(descText);
-            TaskStyleUtils.fontNormal(descLabel, 11);
-            descLabel.setWrapText(true);
-            HBox.setHgrow(descLabel, Priority.ALWAYS);
-            if (goal.isFailed()) {
-                descLabel.setTextFill(Color.web("#999"));
-            } else if (goal.isAchieved()) {
-                descLabel.setTextFill(Color.web("#2d6a4f"));
-            } else {
-                descLabel.setTextFill(Color.web("#333"));
-            }
-
-            // Status badge
-            Label badge;
-            if (goal.isAchieved()) {
-                badge = new Label("Achieved");
-                badge.setStyle("-fx-background-color: #e8f5e9; -fx-background-radius: 8; -fx-padding: 1 6;");
-                badge.setTextFill(Color.web("#1b5e20"));
-            } else if (goal.isFailed()) {
-                badge = new Label(goal.getStatus() == StudyGoal.GoalStatus.ABANDONED ? "Abandoned" : "Missed");
-                badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 8; -fx-padding: 1 6;");
-                badge.setTextFill(Color.web("#b71c1c"));
-            } else if (goal.isDelayed()) {
-                badge = new Label("Attempt " + goal.getAttemptNumber()
-                        + " (" + goal.getMissedAttemptCount() + " miss"
-                        + (goal.getMissedAttemptCount() == 1 ? "" : "es") + ")");
-                badge.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 8; -fx-padding: 1 6;");
-                badge.setTextFill(Color.web("#e65100"));
-            } else {
-                badge = new Label("Active");
-                badge.setStyle("-fx-background-color: #e3f2fd; -fx-background-radius: 8; -fx-padding: 1 6;");
-                badge.setTextFill(Color.web("#0d47a1"));
-            }
-            TaskStyleUtils.fontBold(badge, 10);
-
-            row.getChildren().addAll(icon, dateLabel, descLabel, badge);
-
-            // Alternate row background
-            row.setStyle("-fx-background-color: " + (pane.getChildren().size() % 2 == 0 ? "#f0f0f0" : "transparent") +
-                         "; -fx-background-radius: 4;");
-
-            pane.getChildren().add(row);
+        for (List<StudyGoal> goalAttempts : attemptsByGoal.values()) {
+            pane.getChildren().add(createGoalAttemptTimeline(goalAttempts));
         }
+    }
+
+    private VBox createGoalAttemptTimeline(List<StudyGoal> attempts) {
+        StudyGoal latest = attempts.get(attempts.size() - 1);
+
+        VBox card = new VBox(8);
+        card.setPadding(new Insets(10));
+        card.setStyle("-fx-background-color: white; -fx-background-radius: 6; -fx-border-color: #dee2e6;"
+                + " -fx-border-radius: 6;");
+
+        HBox header = new HBox(8);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Label title = new Label(shorten(latest.getDescription(), 90));
+        TaskStyleUtils.fontSemiBold(title, 12);
+        title.setTextFill(Color.web("#2c3e50"));
+        title.setWrapText(true);
+        HBox.setHgrow(title, Priority.ALWAYS);
+
+        Label parentBadge = new Label(parentStatusLabel(latest));
+        TaskStyleUtils.fontBold(parentBadge, 10);
+        parentBadge.setTextFill(Color.web(parentStatusColor(latest)));
+        parentBadge.setStyle("-fx-background-color: " + parentStatusBackground(latest)
+                + "; -fx-background-radius: 8; -fx-padding: 2 8;");
+
+        header.getChildren().addAll(title, parentBadge);
+
+        Label summary = new Label("Latest attempt " + latest.getAttemptNumber()
+                + " | " + attempts.size() + " total attempt" + (attempts.size() == 1 ? "" : "s"));
+        TaskStyleUtils.fontNormal(summary, 11);
+        summary.setTextFill(Color.web("#6c757d"));
+
+        VBox timeline = new VBox(4);
+        for (StudyGoal attempt : attempts) {
+            timeline.getChildren().add(createAttemptTimelineRow(attempt));
+        }
+
+        card.getChildren().addAll(header, summary, timeline);
+        return card;
+    }
+
+    private HBox createAttemptTimelineRow(StudyGoal attempt) {
+        HBox row = new HBox(8);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(4, 6, 4, 6));
+        row.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 4;");
+
+        Label marker = TaskStyleUtils.iconLabel(attemptIcon(attempt), 11);
+        marker.setTextFill(Color.web(attemptStatusColor(attempt)));
+
+        Label attemptLabel = new Label("Attempt " + attempt.getAttemptNumber());
+        TaskStyleUtils.fontSemiBold(attemptLabel, 11);
+        attemptLabel.setMinWidth(72);
+        attemptLabel.setTextFill(Color.web("#495057"));
+
+        Label dateLabel = new Label(attempt.getDate().toString());
+        TaskStyleUtils.fontNormal(dateLabel, 11);
+        dateLabel.setMinWidth(82);
+        dateLabel.setTextFill(Color.web("#6c757d"));
+
+        Label status = new Label(attemptStatusLabel(attempt));
+        TaskStyleUtils.fontBold(status, 10);
+        status.setTextFill(Color.web(attemptStatusColor(attempt)));
+        status.setStyle("-fx-background-color: " + attemptStatusBackground(attempt)
+                + "; -fx-background-radius: 8; -fx-padding: 1 7;");
+
+        row.getChildren().addAll(marker, attemptLabel, dateLabel, status);
+        return row;
+    }
+
+    private String parentStatusLabel(StudyGoal goal) {
+        if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
+            return "Achieved";
+        }
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
+            return "Abandoned";
+        }
+        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING ? "Active" : "Needs retry";
+    }
+
+    private String parentStatusColor(StudyGoal goal) {
+        if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
+            return "#1b5e20";
+        }
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
+            return "#7f1d1d";
+        }
+        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING ? "#0d47a1" : "#e65100";
+    }
+
+    private String parentStatusBackground(StudyGoal goal) {
+        if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
+            return "#e8f5e9";
+        }
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
+            return "#ffebee";
+        }
+        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING ? "#e3f2fd" : "#fff3e0";
+    }
+
+    private String attemptIcon(StudyGoal attempt) {
+        return switch (attempt.getAttemptOutcome()) {
+            case ACHIEVED -> "\u2713";
+            case MISSED -> "\u2715";
+            case PENDING -> "\u25CB";
+        };
+    }
+
+    private String attemptStatusLabel(StudyGoal attempt) {
+        if (attempt.getStatus() == StudyGoal.GoalStatus.ABANDONED
+                && attempt.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING) {
+            return "Abandoned";
+        }
+        return switch (attempt.getAttemptOutcome()) {
+            case ACHIEVED -> "Achieved";
+            case MISSED -> "Missed";
+            case PENDING -> "Pending";
+        };
+    }
+
+    private String attemptStatusColor(StudyGoal attempt) {
+        return switch (attempt.getAttemptOutcome()) {
+            case ACHIEVED -> "#1b5e20";
+            case MISSED -> "#b71c1c";
+            case PENDING -> "#0d47a1";
+        };
+    }
+
+    private String attemptStatusBackground(StudyGoal attempt) {
+        return switch (attempt.getAttemptOutcome()) {
+            case ACHIEVED -> "#e8f5e9";
+            case MISSED -> "#ffebee";
+            case PENDING -> "#e3f2fd";
+        };
+    }
+
+    private String shorten(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() > maxLength ? text.substring(0, maxLength - 3) + "..." : text;
     }
 
     // ──────────────────────────────────────────────

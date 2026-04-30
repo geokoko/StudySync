@@ -632,8 +632,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         metricsGrid.add(new Label("Points Earned:"), 0, 2);
         metricsGrid.add(new Label(String.valueOf(dayData.totalPoints)), 1, 2);
         
-        // Goals
-        metricsGrid.add(new Label("Goals Achieved:"), 0, 3);
+        // Goal attempts
+        metricsGrid.add(new Label("Attempts Achieved:"), 0, 3);
         metricsGrid.add(new Label(dayData.achievedGoals + "/" + dayData.totalGoals), 1, 3);
         
         // Tasks
@@ -708,7 +708,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             HBox headerBox = new HBox(15);
             headerBox.setAlignment(Pos.CENTER_LEFT);
             
-            Button addGoalBtn = new Button("+ Add Study Goal");
+            Button addGoalBtn = new Button("+ Add Goal Attempt");
             addGoalBtn.getStyleClass().add("btn-purple");
             addGoalBtn.setStyle("-fx-font-size: 12px; -fx-padding: 8 16;");
             addGoalBtn.setOnAction(e -> {
@@ -729,8 +729,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         
         if (studyGoals.isEmpty()) {
             String emptyMessage = isFutureDate
-                ? "No goals planned yet. Click the button above to plan ahead!"
-                : "No goals recorded for this date";
+                ? "No goal attempts planned yet. Click the button above to plan ahead!"
+                : "No goal attempts recorded for this date";
             Label noGoalsLabel = new Label(emptyMessage);
             noGoalsLabel.setGraphic(TaskStyleUtils.iconLabel(isFutureDate ? "\u25C6" : "\u25CB", 14));
             TaskStyleUtils.fontNormal(noGoalsLabel, 14);
@@ -741,7 +741,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             return content;
         }
         
-        Label goalsTitle = new Label("\u25CE Study Goals (" + studyGoals.size() + ")");
+        Label goalsTitle = new Label("\u25CE Study Goal Attempts (" + studyGoals.size() + ")");
         TaskStyleUtils.fontBold(goalsTitle, 18);
         goalsTitle.setTextFill(Color.web("#9b59b6"));
         content.getChildren().add(goalsTitle);
@@ -945,7 +945,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         // Goal achievement analysis
         if (dayData.totalGoals > 0) {
             double goalCompletionRate = ((double) dayData.achievedGoals / dayData.totalGoals) * 100;
-            Label goalAnalysis = new Label(String.format("Goal Completion: %.0f%% (%d out of %d goals achieved)", 
+            Label goalAnalysis = new Label(String.format("Attempt Completion: %.0f%% (%d out of %d attempts achieved)",
                 goalCompletionRate, dayData.achievedGoals, dayData.totalGoals));
             TaskStyleUtils.fontNormal(goalAnalysis, 12);
             goalAnalysis.setTextFill(goalCompletionRate == 100 ? Color.web("#27ae60") : Color.web("#e74c3c"));
@@ -983,7 +983,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             }
             
             if (dayData.totalGoals > 0 && dayData.achievedGoals < dayData.totalGoals) {
-                recommendations.getChildren().add(createRecommendationLabel("• Some goals were not achieved - review and adjust goal difficulty"));
+                recommendations.getChildren().add(createRecommendationLabel("• Some attempts were missed - review and adjust goal difficulty"));
             }
             
             if (dayData.productivityScore >= 80) {
@@ -1047,16 +1047,16 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         String statusText;
         if (goal.isFailed()) {
             statusIcon = "\u2715";
-            statusText = goal.getStatus() == StudyGoal.GoalStatus.ABANDONED ? "Abandoned" : "Missed";
+            statusText = goal.getStatus() == StudyGoal.GoalStatus.ABANDONED ? "Abandoned Goal" : "Missed Attempt";
         } else if (goal.isAchieved()) {
             statusIcon = "\u2705";
-            statusText = "Achieved";
+            statusText = "Achieved Attempt";
         } else if (goal.isDelayed()) {
             statusIcon = "[!] ";
-            statusText = "Attempt " + goal.getAttemptNumber();
+            statusText = "Retry Attempt";
         } else {
             statusIcon = "\u25CB";
-            statusText = "Pending";
+            statusText = "Pending Attempt";
         }
 
         Label statusLabel = new Label(statusIcon + " " + statusText);
@@ -1069,18 +1069,11 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(descriptionLabel, 13);
         descriptionLabel.setWrapText(true);
 
-        goalBox.getChildren().addAll(statusLabel, descriptionLabel);
+        Label attemptLabel = new Label(formatGoalAttemptSummary(goal));
+        TaskStyleUtils.fontNormal(attemptLabel, 11);
+        attemptLabel.setTextFill(goal.getMissedAttemptCount() > 0 ? Color.web("#ff5722") : Color.web("#6c757d"));
 
-        // Add delay info if applicable
-        if (goal.isDelayed()) {
-            Label delayLabel = new Label(String.format("» Attempt %d • %d prior miss%s",
-                goal.getAttemptNumber(),
-                goal.getMissedAttemptCount(),
-                goal.getMissedAttemptCount() == 1 ? "" : "es"));
-            TaskStyleUtils.fontNormal(delayLabel, 11);
-            delayLabel.setTextFill(Color.web("#ff5722"));
-            goalBox.getChildren().add(delayLabel);
-        }
+        goalBox.getChildren().addAll(statusLabel, descriptionLabel, attemptLabel);
 
         // Action buttons
         HBox actionBox = new HBox(8);
@@ -1133,6 +1126,14 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         goalBox.getChildren().add(actionBox);
 
         return goalBox;
+    }
+
+    private String formatGoalAttemptSummary(StudyGoal goal) {
+        String summary = "Attempt " + goal.getAttemptNumber() + " planned for " + goal.getDate();
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
+            summary += " | parent abandoned";
+        }
+        return summary;
     }
     
     private VBox createStudySessionBox(StudySession session) {
@@ -1265,8 +1266,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         boolean isFutureDate = date.isAfter(LocalDate.now());
         
-        dialog.setTitle(isFutureDate ? "Plan Study Goal" : "Add Study Goal");
-        dialog.setHeaderText("Add a study goal for " + date.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy")));
+        dialog.setTitle(isFutureDate ? "Plan Goal Attempt" : "Add Goal Attempt");
+        dialog.setHeaderText("Add a goal attempt for " + date.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy")));
         
         DialogPane dialogPane = dialog.getDialogPane();
         dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
@@ -1275,8 +1276,8 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         content.setPadding(new Insets(20));
         
         Label instructionLabel = new Label(isFutureDate 
-            ? "Plan what you want to achieve on this day:"
-            : "What do you want to achieve today?");
+            ? "Plan what you want to attempt on this day:"
+            : "What do you want to attempt today?");
         TaskStyleUtils.fontNormal(instructionLabel, 12);
         
         TextArea goalTextArea = new TextArea();
@@ -1310,10 +1311,10 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                     // Show confirmation
                     Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
                     successAlert.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
-                    successAlert.setTitle("Goal Added");
+                    successAlert.setTitle("Goal Attempt Added");
                     successAlert.setHeaderText(null);
-                    successAlert.setContentText("Study goal added successfully for " + 
-                        date.format(DateTimeFormatter.ofPattern("MMMM dd, yyyy")));
+                    successAlert.setContentText("Goal attempt added successfully for "
+                        + date.format(DateTimeFormatter.ofPattern("MMMM dd, yyyy")));
                     successAlert.showAndWait();
                 } catch (Exception e) {
                     Alert errorAlert = new Alert(Alert.AlertType.ERROR);

@@ -375,6 +375,11 @@
     -fx-min-height: 100px;
 }
 
+/* ComboBox popups must fit their items, not inherit page-level ListView sizing. */
+.combo-box-popup .list-view {
+    -fx-min-height: 0;
+}
+
 /*
  * ============================================================
  * CONTEXT MENUS
