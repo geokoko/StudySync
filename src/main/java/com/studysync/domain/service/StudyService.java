@@ -240,6 +240,53 @@ public class StudyService {
         });
     }
 
+    public boolean planGoalAttempt(String goalId, LocalDate plannedForDate) {
+        if (goalId == null || goalId.isBlank()) {
+            throw ValidationException.requiredFieldMissing("goalId");
+        }
+        if (plannedForDate == null) {
+            throw ValidationException.requiredFieldMissing("plannedForDate");
+        }
+        Optional<StudyGoal> goalOpt = StudyGoal.findById(goalId);
+        if (goalOpt.isEmpty()) {
+            logger.warn("Requested retry for study goal '{}' but it did not exist", goalId);
+            return false;
+        }
+        StudyGoal goal = goalOpt.get();
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED || goal.isAchieved()) {
+            return false;
+        }
+        boolean created = StudyGoal.createReplanAttempt(goalId, plannedForDate);
+        if (created) {
+            markDirtyAndSaveLocally("study goal retry planning");
+            logger.info("Created new attempt for goal '{}' on {}", goal.getDescription(), plannedForDate);
+        }
+        return created;
+    }
+
+    public boolean updateStudyGoalDetails(String goalId, String description, LocalDate pendingPlannedForDate) {
+        if (goalId == null || goalId.isBlank()) {
+            throw ValidationException.requiredFieldMissing("goalId");
+        }
+        if (description == null || description.trim().isEmpty()) {
+            throw ValidationException.requiredFieldMissing("description");
+        }
+        Optional<StudyGoal> goalOpt = StudyGoal.findById(goalId);
+        if (goalOpt.isEmpty()) {
+            logger.warn("Requested update for study goal '{}' but it did not exist", goalId);
+            return false;
+        }
+        StudyGoal goal = goalOpt.get();
+        if (goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING && pendingPlannedForDate == null) {
+            throw ValidationException.requiredFieldMissing("plannedForDate");
+        }
+        boolean updated = StudyGoal.updateDetails(goalId, description, pendingPlannedForDate);
+        if (updated) {
+            markDirtyAndSaveLocally("study goal details update");
+        }
+        return updated;
+    }
+
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
         boolean updated = achieved
                 ? StudyGoal.markCurrentAttemptAchieved(goalId, reasonIfNot)

@@ -100,7 +100,7 @@ public class StudySyncUI {
         Tab tasksTab = new Tab("Tasks");
         tasksTab.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
         panels.put(tasksTab, new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService,
-                this::showModal, this::closeModal));
+                this.studyService, this::showModal, this::closeModal));
         panelMap = Collections.unmodifiableMap(panels);
     }
 

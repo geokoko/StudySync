@@ -10,6 +10,7 @@ import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.domain.service.TaskService;
 import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.service.ReminderService;
+import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskUpdate;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -34,6 +35,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private final TaskService taskService;
     private final CategoryService categoryService;
     private final ReminderService reminderService;
+    private final StudyService studyService;
     private final Consumer<Node> showModal;
     private final Runnable closeModal;
 
@@ -47,11 +49,12 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private TabPane statusTabPane;
 
     public TaskManagementPanel(TaskService taskService, CategoryService categoryService,
-                               ReminderService reminderService,
+                               ReminderService reminderService, StudyService studyService,
                                Consumer<Node> showModal, Runnable closeModal) {
         this.taskService = taskService;
         this.categoryService = categoryService;
         this.reminderService = reminderService;
+        this.studyService = studyService;
         this.showModal = showModal;
         this.closeModal = closeModal;
 
@@ -391,6 +394,22 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private void populateGoalHistory(VBox pane, Task task) {
         pane.getChildren().clear();
 
+        HBox toolbar = new HBox(8);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+
+        Label heading = new Label("Goal history");
+        TaskStyleUtils.fontBold(heading, 12);
+        heading.setTextFill(Color.web("#3949ab"));
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button addGoalBtn = new Button("+ Plan Goal");
+        addGoalBtn.getStyleClass().addAll("btn-purple", "btn-small");
+        addGoalBtn.setOnAction(e -> showTaskGoalForm(task, null, pane));
+        toolbar.getChildren().addAll(heading, spacer, addGoalBtn);
+        pane.getChildren().add(toolbar);
+
         List<StudyGoal> attempts = StudyGoal.findByTaskId(task.getId());
 
         if (attempts.isEmpty()) {
@@ -428,11 +447,11 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         pane.getChildren().add(statsLabel);
 
         for (List<StudyGoal> goalAttempts : attemptsByGoal.values()) {
-            pane.getChildren().add(createGoalAttemptTimeline(goalAttempts));
+            pane.getChildren().add(createGoalAttemptTimeline(task, goalAttempts, pane));
         }
     }
 
-    private VBox createGoalAttemptTimeline(List<StudyGoal> attempts) {
+    private VBox createGoalAttemptTimeline(Task task, List<StudyGoal> attempts, VBox ownerPane) {
         StudyGoal latest = attempts.get(attempts.size() - 1);
 
         VBox card = new VBox(8);
@@ -455,7 +474,29 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         parentBadge.setStyle("-fx-background-color: " + parentStatusBackground(latest)
                 + "; -fx-background-radius: 8; -fx-padding: 2 8;");
 
-        header.getChildren().addAll(title, parentBadge);
+        HBox actions = new HBox(6);
+        actions.setAlignment(Pos.CENTER_RIGHT);
+
+        Button editBtn = new Button("Edit");
+        editBtn.getStyleClass().addAll("btn-primary", "btn-small");
+        editBtn.setOnAction(e -> showTaskGoalForm(task, latest, ownerPane));
+        actions.getChildren().add(editBtn);
+
+        if (canPlanAnotherAttempt(latest)) {
+            Button planBtn = new Button("Plan");
+            planBtn.getStyleClass().addAll("btn-orange", "btn-small");
+            planBtn.setOnAction(e -> showPlanGoalAttemptForm(task, latest, ownerPane));
+            actions.getChildren().add(planBtn);
+        }
+
+        if (canAbandonGoal(latest)) {
+            Button abandonBtn = new Button("Abandon");
+            abandonBtn.getStyleClass().addAll("btn-danger", "btn-small");
+            abandonBtn.setOnAction(e -> confirmAbandonGoal(task, latest, ownerPane));
+            actions.getChildren().add(abandonBtn);
+        }
+
+        header.getChildren().addAll(title, parentBadge, actions);
 
         Label summary = new Label("Latest attempt " + latest.getAttemptNumber()
                 + " | " + attempts.size() + " total attempt" + (attempts.size() == 1 ? "" : "s"));
@@ -469,6 +510,16 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         card.getChildren().addAll(header, summary, timeline);
         return card;
+    }
+
+    private boolean canPlanAnotherAttempt(StudyGoal goal) {
+        return goal.getStatus() == StudyGoal.GoalStatus.ACTIVE
+                && goal.getAttemptOutcome() != StudyGoal.AttemptOutcome.PENDING
+                && !goal.isAchieved();
+    }
+
+    private boolean canAbandonGoal(StudyGoal goal) {
+        return goal.getStatus() == StudyGoal.GoalStatus.ACTIVE && !goal.isAchieved();
     }
 
     private HBox createAttemptTimelineRow(StudyGoal attempt) {
@@ -571,6 +622,155 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             return "";
         }
         return text.length() > maxLength ? text.substring(0, maxLength - 3) + "..." : text;
+    }
+
+    private void showTaskGoalForm(Task task, StudyGoal existingGoal, VBox ownerPane) {
+        boolean isNew = existingGoal == null;
+
+        VBox form = new VBox(12);
+        form.setPadding(new Insets(24));
+        form.getStyleClass().add("modal-content-light");
+        form.setMaxWidth(500);
+        form.setMaxHeight(Region.USE_PREF_SIZE);
+
+        Label title = new Label(isNew ? "Plan Goal for Task" : "Edit Goal");
+        TaskStyleUtils.fontBold(title, 18);
+
+        Label taskLabel = new Label(task.getTitle());
+        TaskStyleUtils.fontSemiBold(taskLabel, 12);
+        taskLabel.setTextFill(Color.web("#495057"));
+        taskLabel.setWrapText(true);
+
+        TextArea descriptionArea = new TextArea(isNew ? "" : nvl(existingGoal.getDescription()));
+        descriptionArea.setPromptText("Goal description");
+        descriptionArea.setPrefRowCount(3);
+        descriptionArea.setWrapText(true);
+
+        boolean canEditDate = isNew || existingGoal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING;
+        DatePicker datePicker = new DatePicker(isNew ? LocalDate.now() : existingGoal.getDate());
+        datePicker.setMaxWidth(Double.MAX_VALUE);
+        datePicker.setDisable(!canEditDate);
+
+        Label dateHint = new Label(canEditDate
+                ? "Choose when this attempt should appear in the planner."
+                : "Only pending attempts can be rescheduled. Use Plan to create a new dated attempt.");
+        TaskStyleUtils.fontNormal(dateHint, 11);
+        dateHint.setTextFill(Color.web("#6c757d"));
+        dateHint.setWrapText(true);
+
+        Button saveBtn = new Button(isNew ? "Plan Goal" : "Save Goal");
+        saveBtn.getStyleClass().add("btn-primary");
+        Button cancelBtn = new Button("Cancel");
+        cancelBtn.getStyleClass().add("btn-cancel");
+        cancelBtn.setOnAction(e -> closeModal.run());
+
+        saveBtn.setOnAction(e -> {
+            String description = descriptionArea.getText().trim();
+            LocalDate plannedDate = datePicker.getValue();
+            if (description.isEmpty()) {
+                showInlineError(form, "Description is required.");
+                return;
+            }
+            if (canEditDate && plannedDate == null) {
+                showInlineError(form, "Planned date is required.");
+                return;
+            }
+
+            try {
+                if (isNew) {
+                    studyService.addStudyGoal(description, plannedDate, task.getId());
+                } else {
+                    studyService.updateStudyGoalDetails(existingGoal.getId(), description,
+                            canEditDate ? plannedDate : null);
+                }
+                closeModal.run();
+                populateGoalHistory(ownerPane, task);
+            } catch (Exception ex) {
+                showInlineError(form, ex.getMessage());
+            }
+        });
+
+        HBox buttons = new HBox(10, saveBtn, cancelBtn);
+        buttons.setAlignment(Pos.CENTER_RIGHT);
+
+        form.getChildren().addAll(title, new Label("Task:"), taskLabel,
+                new Label("Description:"), descriptionArea,
+                new Label("Planned date:"), datePicker, dateHint, buttons);
+
+        showModal.accept(wrapGoalModal(form));
+    }
+
+    private void showPlanGoalAttemptForm(Task task, StudyGoal goal, VBox ownerPane) {
+        VBox form = new VBox(12);
+        form.setPadding(new Insets(24));
+        form.getStyleClass().add("modal-content-light");
+        form.setMaxWidth(460);
+        form.setMaxHeight(Region.USE_PREF_SIZE);
+
+        Label title = new Label("Plan Goal Attempt");
+        TaskStyleUtils.fontBold(title, 18);
+
+        Label description = new Label(goal.getDescription());
+        TaskStyleUtils.fontNormal(description, 13);
+        description.setWrapText(true);
+
+        DatePicker datePicker = new DatePicker(LocalDate.now());
+        datePicker.setMaxWidth(Double.MAX_VALUE);
+
+        Button planBtn = new Button("Plan Attempt");
+        planBtn.getStyleClass().add("btn-orange");
+        Button cancelBtn = new Button("Cancel");
+        cancelBtn.getStyleClass().add("btn-cancel");
+        cancelBtn.setOnAction(e -> closeModal.run());
+
+        planBtn.setOnAction(e -> {
+            LocalDate plannedDate = datePicker.getValue();
+            if (plannedDate == null) {
+                showInlineError(form, "Planned date is required.");
+                return;
+            }
+            try {
+                boolean created = studyService.planGoalAttempt(goal.getId(), plannedDate);
+                if (!created) {
+                    showInlineError(form, "This goal already has a pending attempt or cannot be replanned.");
+                    return;
+                }
+                closeModal.run();
+                populateGoalHistory(ownerPane, task);
+            } catch (Exception ex) {
+                showInlineError(form, ex.getMessage());
+            }
+        });
+
+        HBox buttons = new HBox(10, planBtn, cancelBtn);
+        buttons.setAlignment(Pos.CENTER_RIGHT);
+
+        form.getChildren().addAll(title, new Label("Goal:"), description,
+                new Label("Attempt date:"), datePicker, buttons);
+        showModal.accept(wrapGoalModal(form));
+    }
+
+    private void confirmAbandonGoal(Task task, StudyGoal goal, VBox ownerPane) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "Abandon \"" + shorten(goal.getDescription(), 80) + "\"?",
+                ButtonType.OK, ButtonType.CANCEL);
+        confirm.setTitle("Abandon Goal");
+        confirm.setHeaderText(null);
+        confirm.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
+        confirm.showAndWait().ifPresent(button -> {
+            if (button == ButtonType.OK && studyService.markGoalAsFailed(goal.getId())) {
+                populateGoalHistory(ownerPane, task);
+            }
+        });
+    }
+
+    private ScrollPane wrapGoalModal(VBox form) {
+        ScrollPane wrapper = new ScrollPane(form);
+        wrapper.setFitToWidth(true);
+        wrapper.getStyleClass().add("transparent-bg");
+        wrapper.setMaxWidth(520);
+        wrapper.setMaxHeight(560);
+        return wrapper;
     }
 
     // ──────────────────────────────────────────────

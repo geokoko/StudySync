@@ -204,6 +204,34 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void taskGoalDetailsCanBeEditedAndRetriedForChosenDate() {
+        studyService.addStudyGoal("Read chapter", LocalDate.of(2026, 3, 27), "task-1");
+
+        StudyGoal pending = StudyGoal.findByTaskId("task-1").getFirst();
+        assertTrue(studyService.updateStudyGoalDetails(
+                pending.getId(), "Read chapter and write notes", LocalDate.of(2026, 3, 29)));
+
+        StudyGoal edited = StudyGoal.findById(pending.getId()).orElseThrow();
+        assertEquals("Read chapter and write notes", edited.getDescription());
+        assertEquals(LocalDate.of(2026, 3, 29), edited.getDate());
+
+        jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET outcome = 'MISSED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ?
+                """, edited.getId());
+
+        assertTrue(studyService.planGoalAttempt(edited.getId(), LocalDate.of(2026, 4, 2)));
+
+        List<StudyGoal> attempts = StudyGoal.findByTaskId("task-1");
+        assertEquals(2, attempts.size());
+        StudyGoal latest = StudyGoal.findById(edited.getId()).orElseThrow();
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, latest.getAttemptOutcome());
+        assertEquals(LocalDate.of(2026, 4, 2), latest.getDate());
+        assertEquals(2, latest.getAttemptNumber());
+    }
+
+    @Test
     void getActiveSessionFindsSessionThatStartedPreviousDay() {
         LocalDate sessionDate = LocalDate.of(2026, 3, 27);
         LocalDateTime startTime = LocalDateTime.of(2026, 3, 27, 23, 50);

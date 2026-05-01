@@ -487,6 +487,26 @@ public class StudyGoal {
         return jdbcTemplate.query(sql, getAttemptViewMapper(), taskId);
     }
 
+    public static boolean updateDetails(String goalId, String description, LocalDate pendingPlannedForDate) {
+        if (jdbcTemplate == null || goalId == null || goalId.isBlank()
+                || description == null || description.isBlank()) {
+            return false;
+        }
+        int parentRows = jdbcTemplate.update("""
+            UPDATE study_goals
+            SET description = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, description.trim(), goalId);
+        if (pendingPlannedForDate != null) {
+            jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET planned_for_date = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ? AND outcome = 'PENDING'
+                """, pendingPlannedForDate, goalId);
+        }
+        return parentRows > 0;
+    }
+
     public static Set<String> findAchievedTaskDatePairs(LocalDate rangeStart, LocalDate rangeEnd) {
         if (jdbcTemplate == null || rangeStart == null || rangeEnd == null) {
             return Set.of();
