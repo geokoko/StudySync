@@ -187,6 +187,23 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void explicitlyAbandonedGoalIsNotOfferedForRetry() {
+        StudyGoal goal = new StudyGoal("Drop this goal");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.save();
+
+        studyService.processAllDelayedGoals();
+        assertEquals(1, StudyGoal.findDelayedAndNotReplanned().size());
+
+        assertTrue(studyService.markGoalAsFailed(goal.getId()));
+
+        StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
+        assertEquals(StudyGoal.GoalStatus.ABANDONED, stored.getStatus());
+        assertTrue(stored.isAbandonedExplicitly());
+        assertTrue(StudyGoal.findDelayedAndNotReplanned().isEmpty());
+    }
+
+    @Test
     void getActiveSessionFindsSessionThatStartedPreviousDay() {
         LocalDate sessionDate = LocalDate.of(2026, 3, 27);
         LocalDateTime startTime = LocalDateTime.of(2026, 3, 27, 23, 50);
@@ -257,6 +274,7 @@ class StudyServicePersistenceTest {
                     replanned_for_date DATE,
                     failed BOOLEAN DEFAULT FALSE,
                     status VARCHAR(20) DEFAULT 'ACTIVE',
+                    abandoned_explicitly BOOLEAN DEFAULT FALSE,
                     achieved_attempt_id VARCHAR(50),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

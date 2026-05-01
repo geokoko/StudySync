@@ -46,6 +46,7 @@ public class StudyGoal {
             g.description,
             g.task_id,
             COALESCE(g.status, 'ACTIVE') AS status,
+            COALESCE(g.abandoned_explicitly, FALSE) AS abandoned_explicitly,
             g.achieved_attempt_id,
             g.created_at AS goal_created_at,
             g.updated_at AS goal_updated_at,
@@ -87,6 +88,7 @@ public class StudyGoal {
     private boolean failed;
 
     private GoalStatus status = GoalStatus.ACTIVE;
+    private boolean abandonedExplicitly;
     private String achievedAttemptId;
     private String attemptId;
     private String replannedFromAttemptId;
@@ -161,13 +163,13 @@ public class StudyGoal {
         this.taskId = taskId;
         this.replannedForDate = replannedForDate;
         this.failed = failed;
-        this.status = failed ? GoalStatus.ABANDONED : achieved ? GoalStatus.ACHIEVED : GoalStatus.ACTIVE;
+        this.status = achieved ? GoalStatus.ACHIEVED : GoalStatus.ACTIVE;
         this.attemptOutcome = failed ? AttemptOutcome.MISSED : achieved ? AttemptOutcome.ACHIEVED : AttemptOutcome.PENDING;
     }
 
     private StudyGoal(String id, LocalDate date, String description, String taskId,
-                      GoalStatus status, String achievedAttemptId, String attemptId,
-                      String replannedFromAttemptId, AttemptOutcome attemptOutcome,
+                      GoalStatus status, boolean abandonedExplicitly, String achievedAttemptId,
+                      String attemptId, String replannedFromAttemptId, AttemptOutcome attemptOutcome,
                       String reasonIfNotAchieved, LocalDateTime outcomeAt,
                       int attemptNumber, int missedAttemptCount) {
         this.id = id;
@@ -175,6 +177,7 @@ public class StudyGoal {
         this.description = description;
         this.taskId = taskId;
         this.status = status;
+        this.abandonedExplicitly = abandonedExplicitly;
         this.achievedAttemptId = achievedAttemptId;
         this.attemptId = attemptId;
         this.replannedFromAttemptId = replannedFromAttemptId;
@@ -238,12 +241,12 @@ public class StudyGoal {
         this.failed = failed;
         if (failed) {
             this.achieved = false;
-            this.status = GoalStatus.ABANDONED;
             this.attemptOutcome = AttemptOutcome.MISSED;
         }
     }
 
     public GoalStatus getStatus() { return status; }
+    public boolean isAbandonedExplicitly() { return abandonedExplicitly; }
     public String getAchievedAttemptId() { return achievedAttemptId; }
     public String getAttemptId() { return attemptId; }
     public String getReplannedFromAttemptId() { return replannedFromAttemptId; }
@@ -275,7 +278,7 @@ public class StudyGoal {
             date = LocalDate.now();
         }
         if (status == null) {
-            status = failed ? GoalStatus.ABANDONED : achieved ? GoalStatus.ACHIEVED : GoalStatus.ACTIVE;
+            status = abandonedExplicitly ? GoalStatus.ABANDONED : achieved ? GoalStatus.ACHIEVED : GoalStatus.ACTIVE;
         }
         if (attemptOutcome == null) {
             attemptOutcome = failed ? AttemptOutcome.MISSED : achieved ? AttemptOutcome.ACHIEVED : AttemptOutcome.PENDING;
@@ -308,14 +311,16 @@ public class StudyGoal {
             MERGE INTO study_goals (
                 id, date, description, achieved, reason_if_not_achieved,
                 days_delayed, is_delayed, points_deducted, task_id,
-                replanned_for_date, failed, status, achieved_attempt_id, updated_at
+                replanned_for_date, failed, status, abandoned_explicitly,
+                achieved_attempt_id, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         jdbcTemplate.update(sql,
                 id, date, description, status == GoalStatus.ACHIEVED, reasonIfNotAchieved,
                 daysDelayed, isDelayed, pointsDeducted, taskId,
-                replannedForDate, status == GoalStatus.ABANDONED, status.name(), achievedAttemptId);
+                replannedForDate, attemptOutcome == AttemptOutcome.MISSED, status.name(),
+                abandonedExplicitly, achievedAttemptId);
     }
 
     private void upsertAttempt() {
@@ -671,7 +676,7 @@ public class StudyGoal {
         int rows = jdbcTemplate.update("""
             UPDATE study_goals
             SET status = 'ABANDONED', achieved_attempt_id = NULL, achieved = FALSE, failed = TRUE,
-                updated_at = CURRENT_TIMESTAMP
+                abandoned_explicitly = TRUE, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """, goalId);
         return rows > 0;
@@ -684,6 +689,7 @@ public class StudyGoal {
                 rs.getString("description"),
                 rs.getString("task_id"),
                 parseGoalStatus(rs.getString("status")),
+                rs.getBoolean("abandoned_explicitly"),
                 rs.getString("achieved_attempt_id"),
                 rs.getString("attempt_id"),
                 rs.getString("replanned_from_attempt_id"),

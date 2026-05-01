@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS study_goals (
     task_id VARCHAR(50),
     replanned_for_date DATE,
     status VARCHAR(20) DEFAULT 'ACTIVE',
+    abandoned_explicitly BOOLEAN DEFAULT FALSE,
     achieved_attempt_id VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -210,6 +211,7 @@ ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS failed BOOLEAN DEFAULT FALSE;
 -- schema.sql is re-run on every startup, so destructive DROP COLUMN migrations
 -- would make the compatibility backfill below unsafe on later launches.
 ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'ACTIVE';
+ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS abandoned_explicitly BOOLEAN DEFAULT FALSE;
 ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS achieved_attempt_id VARCHAR(50);
 
 CREATE INDEX IF NOT EXISTS idx_study_goals_status ON study_goals(status);
@@ -294,10 +296,13 @@ WHERE EXISTS (
     WHERE a.goal_id = g.id AND a.outcome = 'ACHIEVED'
 );
 
+-- Legacy "failed" goals were missed attempts, not explicit abandonment.
+-- Keep missed-only parent goals active so users can plan another retry.
 UPDATE study_goals g
-SET status = 'ABANDONED'
-WHERE failed = TRUE
+SET status = 'ACTIVE', failed = FALSE
+WHERE status = 'ABANDONED'
+  AND COALESCE(abandoned_explicitly, FALSE) = FALSE
   AND NOT EXISTS (
       SELECT 1 FROM study_goal_attempts a
-      WHERE a.goal_id = g.id AND a.outcome IN ('PENDING', 'ACHIEVED')
+      WHERE a.goal_id = g.id AND a.outcome = 'ACHIEVED'
   );
