@@ -507,8 +507,24 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         for (StudyGoal attempt : attempts) {
             timeline.getChildren().add(createAttemptTimelineRow(attempt));
         }
+        timeline.setVisible(false);
+        timeline.setManaged(false);
 
-        card.getChildren().addAll(header, summary, timeline);
+        Button toggleAttemptsBtn = new Button("Show attempts");
+        toggleAttemptsBtn.getStyleClass().addAll("btn-gray", "btn-small");
+        toggleAttemptsBtn.setOnAction(e -> {
+            boolean show = !timeline.isManaged();
+            timeline.setVisible(show);
+            timeline.setManaged(show);
+            toggleAttemptsBtn.setText(show ? "Hide attempts" : "Show attempts");
+        });
+
+        Region summarySpacer = new Region();
+        HBox.setHgrow(summarySpacer, Priority.ALWAYS);
+        HBox summaryRow = new HBox(8, summary, summarySpacer, toggleAttemptsBtn);
+        summaryRow.setAlignment(Pos.CENTER_LEFT);
+
+        card.getChildren().addAll(header, summaryRow, timeline);
         return card;
     }
 
