@@ -69,7 +69,7 @@
     -fx-cursor: hand;
     -fx-alignment: center;
     -fx-text-alignment: center;
-    -fx-content-display: center;
+    -fx-content-display: left;
 }
 
 .button .text {
@@ -172,6 +172,13 @@
 .combo-box-popup .list-view .list-cell {
     -fx-text-fill: #2c3e50;
     -fx-background-color: white;
+}
+
+.combo-box-popup .list-view .list-cell:empty {
+    -fx-pref-height: 0;
+    -fx-min-height: 0;
+    -fx-padding: 0;
+    -fx-background-color: transparent;
 }
 
 .combo-box-popup .list-view .list-cell:hover {

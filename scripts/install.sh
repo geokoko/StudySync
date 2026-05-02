@@ -181,9 +181,9 @@ create_launcher() {
 
     local launch_command
     if [[ "$launch_mode" == "jar" ]]; then
-        launch_command="exec \"$JAVA_EXEC\" -jar \"$main_jar\" \"\$@\""
+        launch_command="\"$JAVA_EXEC\" -jar \"$main_jar\" \"\$@\""
     else
-        launch_command="exec \"$JAVA_EXEC\" -cp \"\$INSTALL_DIR/lib/*\" com.studysync.StudySyncApplication \"\$@\""
+        launch_command="\"$JAVA_EXEC\" -cp \"\$INSTALL_DIR/lib/*\" com.studysync.StudySyncApplication \"\$@\""
     fi
     
     # Create launcher script
@@ -197,8 +197,19 @@ create_launcher() {
 INSTALL_DIR="\$HOME/.local/share/studysync"
 cd "\$INSTALL_DIR"
 
-# Run the application
-$launch_command
+export STUDYSYNC_RESTARTABLE=1
+
+while true; do
+    $launch_command
+    exit_code=\$?
+
+    if [[ "\$exit_code" -eq 75 ]]; then
+        sleep 1
+        continue
+    fi
+
+    exit "\$exit_code"
+done
 LAUNCHER
     
     chmod +x "$INSTALL_DIR/bin/studysync"
@@ -240,7 +251,7 @@ Icon=studysync
 Terminal=false
 Categories=Education;Office;ProjectManagement;
 Keywords=study;task;project;calendar;academic;planner;
-StartupWMClass=com-studysync-StudySyncApplication
+StartupWMClass=com.studysync.application.StudySyncJavaFXApp
 EOF
     else
         print_info "Using desktop file from: $desktop_source"

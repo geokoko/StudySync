@@ -14,6 +14,7 @@ import com.studysync.domain.entity.Task;
 import com.studysync.domain.valueobject.TaskCategory;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
+import javafx.util.Callback;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -75,7 +76,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private ProgressBar dailyProgressBar;
     private Label progressLabel;
     private Label dateNavLabel;
+    private final Label dateNavIcon = TaskStyleUtils.iconLabel("\u25A6", 22);
     private TextArea sessionTextArea;
+    private Button startSessionBtn;
+    private Button endSessionBtn;
+    private Label sessionStatusLabel;
 
     // ──────────────────────────────────────────────
     // CONSTRUCTION
@@ -129,7 +134,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox navRow = new HBox(12);
         navRow.setAlignment(Pos.CENTER);
 
-        Button prevBtn = new Button("◀");
+        Button prevBtn = new Button();
+        prevBtn.setGraphic(TaskStyleUtils.iconLabel("\u25C0", 14));
         prevBtn.getStyleClass().add("btn-primary");
         prevBtn.setOnAction(e -> {
             displayDate = displayDate.minusDays(1);
@@ -141,14 +147,17 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         dateNavLabel.setMinWidth(300);
         dateNavLabel.setAlignment(Pos.CENTER);
 
-        Button nextBtn = new Button("▶");
+        Button nextBtn = new Button();
+        nextBtn.setGraphic(TaskStyleUtils.iconLabel("\u25B6", 14));
         nextBtn.getStyleClass().add("btn-primary");
         nextBtn.setOnAction(e -> {
             displayDate = displayDate.plusDays(1);
             updateDisplay();
         });
 
-        Button todayBtn = new Button("» Today");
+        Button todayBtn = new Button();
+        todayBtn.setGraphic(TaskStyleUtils.iconLabel("\u00BB", 14));
+        todayBtn.setText("Today");
         todayBtn.getStyleClass().add("btn-success");
         todayBtn.setOnAction(e -> {
             displayDate = dateTimeService.getCurrentDate();
@@ -178,7 +187,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox sectionHeader = new HBox(15);
         sectionHeader.setAlignment(Pos.CENTER_LEFT);
 
-        Label sectionTitle = new Label("☑ Today's Tasks");
+        Label sectionTitle = new Label("Today's Tasks");
+        sectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u2611", 18));
         TaskStyleUtils.fontBold(sectionTitle, 18);
 
         Region spacer = new Region();
@@ -221,48 +231,39 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         sessionSection.getStyleClass().add("section-card");
         sessionSection.setPadding(new Insets(20));
 
-        Label sessionTitle = new Label("✎ Study Session");
+        Label sessionTitle = new Label("Study Session");
+        sessionTitle.setGraphic(TaskStyleUtils.iconLabel("\u270E", 18));
         TaskStyleUtils.fontBold(sessionTitle, 18);
 
         HBox sessionControls = new HBox(15);
         sessionControls.setAlignment(Pos.CENTER_LEFT);
 
-        Button startSessionBtn = new Button("Start Session");
+        startSessionBtn = new Button("Start Session");
         startSessionBtn.getStyleClass().add("btn-success");
 
-        Button endSessionBtn = new Button("End Session");
+        endSessionBtn = new Button("End Session");
         endSessionBtn.getStyleClass().add("btn-danger");
         endSessionBtn.setDisable(true);
 
-        Label sessionStatus = new Label("No active session");
-        TaskStyleUtils.fontNormal(sessionStatus, 14);
+        sessionStatusLabel = new Label("No active session");
+        TaskStyleUtils.fontNormal(sessionStatusLabel, 14);
 
         startSessionBtn.setOnAction(e -> {
             currentSession = studyService.startStudySession();
-            currentSession.startSession();
-            startSessionTimer(sessionStatus);
-            startSessionBtn.setDisable(true);
-            endSessionBtn.setDisable(false);
-            sessionTextArea.setDisable(false);
             sessionTextArea.clear();
+            startSessionTimer();
+            syncSessionControls();
+            updateSessionsDisplay();
         });
 
         endSessionBtn.setOnAction(e -> {
             if (currentSession != null) {
                 currentSession.setSessionText(sessionTextArea.getText());
-                stopSessionTimer();
                 showEndSessionDialog();
-                javafx.application.Platform.runLater(() -> {
-                    sessionStatus.setText("No active session");
-                    startSessionBtn.setDisable(false);
-                    endSessionBtn.setDisable(true);
-                    sessionTextArea.setDisable(true);
-                    updateSessionsDisplay();
-                });
             }
         });
 
-        sessionControls.getChildren().addAll(startSessionBtn, endSessionBtn, sessionStatus);
+        sessionControls.getChildren().addAll(startSessionBtn, endSessionBtn, sessionStatusLabel);
 
         sessionTextArea = new TextArea();
         sessionTextArea.setPromptText("Write your session notes, thoughts, or study content here…");
@@ -270,7 +271,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         sessionTextArea.setWrapText(true);
         sessionTextArea.setDisable(true);
 
-        Label completedLabel = new Label("☑ Today's Completed Sessions");
+        Label completedLabel = new Label("Today's Completed Sessions");
+        completedLabel.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
         TaskStyleUtils.fontBold(completedLabel, 14);
 
         // FlowPane for compact session cards
@@ -281,6 +283,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         sessionSection.getChildren().addAll(
                 sessionTitle, sessionControls, sessionTextArea, completedLabel, sessionsFlowPane);
         mainContent.getChildren().add(sessionSection);
+        syncSessionControls();
     }
 
     private void createReflectionSection(VBox mainContent) {
@@ -369,7 +372,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             if (!byTask.isEmpty()) {
                 VBox missedSection = new VBox(6);
                 missedSection.setPadding(new Insets(10, 0, 0, 0));
-                Label missedTitle = new Label("\u26A0 Missed recurring tasks:");
+                Label missedTitle = new Label("Missed recurring tasks:");
+                missedTitle.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 13));
                 TaskStyleUtils.fontBold(missedTitle, 13);
                 missedTitle.setTextFill(Color.web(TaskStyleUtils.MISSED_COLOR));
                 missedSection.getChildren().add(missedTitle);
@@ -463,7 +467,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         section.setPadding(new Insets(14, 0, 0, 0));
 
         // Collapsible header row
-        Label header = new Label("\u21BA Re-plan a Delayed Goal");
+        Label header = new Label("Re-plan a Delayed Goal");
+        header.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 13));
         TaskStyleUtils.fontBold(header, 13);
         header.setTextFill(Color.web("#6c757d"));
 
@@ -487,24 +492,27 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         ComboBox<StudyGoal> combo = new ComboBox<>();
         combo.getItems().addAll(candidates);
+        combo.setVisibleRowCount(Math.min(candidates.size(), 15));
         combo.setMaxWidth(Double.MAX_VALUE);
-        combo.setCellFactory(lv -> new ListCell<>() {
+        Callback<ListView<StudyGoal>, ListCell<StudyGoal>> cellFactory = lv -> new ListCell<>() {
             @Override
             protected void updateItem(StudyGoal goal, boolean empty) {
                 super.updateItem(goal, empty);
-                setText(empty || goal == null ? "" : formatDelayedGoal(goal, taskTitles));
+                if (empty || goal == null) {
+                    setText(null);
+                    setGraphic(null);
+                } else {
+                    setText(formatDelayedGoal(goal, taskTitles));
+                    setGraphic(null);
+                }
             }
-        });
-        combo.setButtonCell(new ListCell<>() {
-            @Override
-            protected void updateItem(StudyGoal goal, boolean empty) {
-                super.updateItem(goal, empty);
-                setText(empty || goal == null ? "" : formatDelayedGoal(goal, taskTitles));
-            }
-        });
+        };
+        combo.setCellFactory(cellFactory);
+        combo.setButtonCell(cellFactory.call(null));
         combo.setPromptText("Select a delayed goal to re-plan...");
 
-        Button replanBtn = new Button("\u21BA Re-plan for Today");
+        Button replanBtn = new Button("Re-plan for Today");
+        replanBtn.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 13));
         replanBtn.getStyleClass().addAll("btn-orange", "btn-small");
         replanBtn.setDisable(true);
 
@@ -559,8 +567,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         headerRow.setAlignment(Pos.CENTER_LEFT);
         headerRow.setStyle("-fx-cursor: hand;");
 
-        Label arrow = new Label("▶");
-        TaskStyleUtils.fontBold(arrow, 11);
+        Label arrow = new Label("\u25B6");
+        TaskStyleUtils.fontEmoji(arrow, 11);
         arrow.setTextFill(Color.web("#7f8c8d"));
 
         Label taskTitle = new Label(task.getTitle());
@@ -577,8 +585,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         statusBadge.setTextFill(TaskStyleUtils.statusTextColor(task.getStatus()));
 
         if (task.isRecurring()) {
-            Label recurBadge = new Label("\uD83D\uDD01");
-            TaskStyleUtils.fontNormal(recurBadge, 12);
+            Label recurBadge = TaskStyleUtils.iconLabel("\u21BA", 12);
             recurBadge.setTooltip(new Tooltip(task.getRecurringSummary()));
             headerRow.getChildren().add(recurBadge);
         }
@@ -607,7 +614,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         goalsPanel.setVisible(wasExpanded);
         goalsPanel.setManaged(wasExpanded);
         if (wasExpanded) {
-            arrow.setText("▼");
+            arrow.setText("\u25BC");
             populateGoalsPanel(goalsPanel, task);
         }
 
@@ -616,7 +623,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             boolean nowVisible = !goalsPanel.isVisible();
             goalsPanel.setVisible(nowVisible);
             goalsPanel.setManaged(nowVisible);
-            arrow.setText(nowVisible ? "▼" : "▶");
+            arrow.setText(nowVisible ? "\u25BC" : "\u25B6");
             if (nowVisible) {
                 expandedTaskIds.add(task.getId());
                 populateGoalsPanel(goalsPanel, task);
@@ -766,7 +773,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         itemsBox.setVisible(false);
         itemsBox.setManaged(false);
 
-        Label toggle = new Label("▶ Completed (" + completedGoals.size() + ")");
+        Label toggle = new Label("Completed (" + completedGoals.size() + ")");
+        toggle.setGraphic(TaskStyleUtils.iconLabel("\u25B6", 11));
         TaskStyleUtils.fontBold(toggle, 11);
         toggle.setTextFill(Color.web("#27ae60"));
         toggle.setStyle("-fx-cursor: hand;");
@@ -774,7 +782,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             boolean show = !itemsBox.isVisible();
             itemsBox.setVisible(show);
             itemsBox.setManaged(show);
-            toggle.setText((show ? "▼" : "▶") + " Completed (" + completedGoals.size() + ")");
+            toggle.setGraphic(TaskStyleUtils.iconLabel(show ? "\u25BC" : "\u25B6", 11));
         });
 
         for (StudyGoal goal : completedGoals) {
@@ -810,15 +818,23 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private void updateSessionsDisplay() {
         sessionsFlowPane.getChildren().clear();
         List<StudySession> sessions = studyService.getSessionsForDate(displayDate);
+        List<StudySession> completedSessions = sessions.stream()
+                .filter(StudySession::isCompleted)
+                .toList();
+        List<StudySession> incompleteSessions = sessions.stream()
+                .filter(session -> !session.isCompleted())
+                .toList();
 
-        for (StudySession session : sessions) {
-            if (session.isCompleted()) {
-                sessionsFlowPane.getChildren().add(buildSessionCard(session));
-            }
+        for (StudySession session : completedSessions) {
+            sessionsFlowPane.getChildren().add(buildSessionCard(session));
+        }
+
+        for (StudySession session : incompleteSessions) {
+            sessionsFlowPane.getChildren().add(buildIncompleteSessionCard(session));
         }
 
         if (sessionsFlowPane.getChildren().isEmpty()) {
-            Label none = new Label("No completed sessions yet.");
+            Label none = new Label("No sessions for this date.");
             TaskStyleUtils.fontNormal(none, 13);
             none.setTextFill(Color.web("#7f8c8d"));
             sessionsFlowPane.getChildren().add(none);
@@ -839,7 +855,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         String endStr = session.getEndTime() != null
                 ? session.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "?";
 
-        Label timeLabel = new Label("⏰ " + startStr + "–" + endStr);
+        Label timeLabel = new Label(startStr + "\u2013" + endStr);
+        timeLabel.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 12));
         TaskStyleUtils.fontBold(timeLabel, 12);
 
         Label durationLabel = new Label(session.getDurationMinutes() + " min");
@@ -848,12 +865,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         // Focus stars (compact)
         StringBuilder stars = new StringBuilder();
-        for (int i = 1; i <= 5; i++) stars.append(i <= session.getFocusLevel() ? "★" : "☆");
+        for (int i = 1; i <= 5; i++) stars.append(i <= session.getFocusLevel() ? "\u2605" : "\u2606");
         Label focusLabel = new Label(stars.toString());
-        TaskStyleUtils.fontNormal(focusLabel, 12);
+        TaskStyleUtils.fontEmoji(focusLabel, 12);
         focusLabel.setTextFill(Color.web("#f39c12"));
 
-        Label pointsLabel = new Label("♦ " + session.getPointsEarned() + " pts");
+        Label pointsLabel = new Label(session.getPointsEarned() + " pts");
+        pointsLabel.setGraphic(TaskStyleUtils.iconLabel("\u2666", 11));
         TaskStyleUtils.fontSemiBold(pointsLabel, 11);
         pointsLabel.setTextFill(Color.web("#27ae60"));
 
@@ -866,7 +884,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         detailsBtn.setStyle("-fx-padding: 3 7;");
         detailsBtn.setOnAction(e -> showSessionDetails(session));
 
-        Button deleteBtn = new Button("✕");
+        Button deleteBtn = new Button("\u2715");
+        TaskStyleUtils.fontEmoji(deleteBtn, 11);
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setStyle("-fx-padding: 3 7;");
         deleteBtn.setOnAction(e -> {
@@ -884,6 +903,70 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         btnRow.getChildren().addAll(detailsBtn, deleteBtn);
         card.getChildren().addAll(timeLabel, durationLabel, focusLabel, pointsLabel, btnRow);
+        return card;
+    }
+
+    private VBox buildIncompleteSessionCard(StudySession session) {
+        VBox card = new VBox(5);
+        card.setPadding(new Insets(10, 12, 10, 12));
+        card.setPrefWidth(220);
+        card.setStyle("-fx-background-color: #fff8ef; -fx-background-radius: 8;" +
+                      " -fx-border-color: #f39c12; -fx-border-radius: 8;" +
+                      " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 4, 0, 0, 1);");
+
+        String startStr = session.getStartTime() != null
+                ? session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "?";
+        String endStr = session.getEndTime() != null
+                ? session.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "?";
+
+        Label statusLabel = new Label(session.isActive() ? "Active, not completed" : "Incomplete session");
+        statusLabel.setGraphic(TaskStyleUtils.iconLabel(session.isActive() ? "\u23F3" : "\u26A0", 11));
+        TaskStyleUtils.fontBold(statusLabel, 11);
+        statusLabel.setTextFill(Color.web("#d35400"));
+
+        Label timeLabel = new Label(startStr + "\u2013" + endStr);
+        timeLabel.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 12));
+        TaskStyleUtils.fontBold(timeLabel, 12);
+
+        String durationText = session.getDurationMinutes() > 0
+                ? session.getDurationMinutes() + " min tracked"
+                : "Not completed";
+        Label durationLabel = new Label(durationText);
+        TaskStyleUtils.fontNormal(durationLabel, 11);
+        durationLabel.setTextFill(Color.web("#7f8c8d"));
+
+        Button detailsBtn = new Button("Details");
+        detailsBtn.getStyleClass().addAll("btn-primary", "btn-small");
+        detailsBtn.setStyle("-fx-padding: 3 7;");
+        detailsBtn.setOnAction(e -> showSessionDetails(session));
+
+        Button deleteBtn = new Button("\u2715");
+        TaskStyleUtils.fontEmoji(deleteBtn, 11);
+        deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
+        deleteBtn.setStyle("-fx-padding: 3 7;");
+        deleteBtn.setOnAction(e -> {
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                    "Delete this incomplete session?", ButtonType.OK, ButtonType.CANCEL);
+            alert.setHeaderText(null);
+            alert.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
+            alert.showAndWait().ifPresent(bt -> {
+                if (bt == ButtonType.OK) {
+                    studyService.deleteStudySession(session.getId());
+                    if (currentSession != null && currentSession.getId().equals(session.getId())) {
+                        currentSession = null;
+                        stopSessionTimer();
+                        sessionTextArea.clear();
+                        syncSessionControls();
+                    }
+                    updateSessionsDisplay();
+                }
+            });
+        });
+
+        HBox btnRow = new HBox(5, detailsBtn, deleteBtn);
+        btnRow.setAlignment(Pos.CENTER_RIGHT);
+
+        card.getChildren().addAll(statusLabel, timeLabel, durationLabel, btnRow);
         return card;
     }
 
@@ -1073,7 +1156,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     private void showInlineError(VBox form, String message) {
         form.getChildren().removeIf(n -> "error-label".equals(n.getUserData()));
-        Label err = new Label("⚠ " + message);
+        Label err = new Label(message);
+        err.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
         err.setUserData("error-label");
         TaskStyleUtils.fontNormal(err, 12);
         err.setTextFill(Color.web("#e74c3c"));
@@ -1181,7 +1265,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 updateTasksDisplay();
                 updateProgress();
             } catch (Exception ex) {
-                Label err = new Label("⚠ " + ex.getMessage());
+                Label err = new Label(ex.getMessage());
+                err.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
                 err.setTextFill(Color.web("#e74c3c"));
                 content.getChildren().add(err);
             }
@@ -1211,7 +1296,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         focusSlider.setMajorTickUnit(1);
         focusSlider.setSnapToTicks(true);
 
-        Label focusWarning = new Label("• Average focus.");
+        Label focusWarning = new Label("Average focus.");
         TaskStyleUtils.fontNormal(focusWarning, 11);
         focusWarning.setWrapText(true);
         focusWarning.setTextFill(Color.web("#f39c12"));
@@ -1219,13 +1304,16 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         focusSlider.valueProperty().addListener((obs, o, nv) -> {
             int lv = nv.intValue();
             if (lv <= 2) {
-                focusWarning.setText("[!] Low focus — point penalties will apply.");
+                focusWarning.setText("Low focus \u2014 point penalties will apply.");
+                focusWarning.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 11));
                 focusWarning.setTextFill(Color.web("#e74c3c"));
             } else if (lv == 3) {
-                focusWarning.setText("• Average focus.");
+                focusWarning.setText("Average focus.");
+                focusWarning.setGraphic(null);
                 focusWarning.setTextFill(Color.web("#f39c12"));
             } else {
-                focusWarning.setText("[✓] Great focus! Bonus points incoming.");
+                focusWarning.setText("Great focus! Bonus points incoming.");
+                focusWarning.setGraphic(TaskStyleUtils.iconLabel("\u2713", 11));
                 focusWarning.setTextFill(Color.web("#27ae60"));
             }
         });
@@ -1234,26 +1322,45 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         notesArea.setPromptText("What did you accomplish?");
         notesArea.setPrefRowCount(3);
 
+        Label errorLabel = new Label();
+        errorLabel.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
+        errorLabel.setTextFill(Color.web("#e74c3c"));
+        errorLabel.setWrapText(true);
+        errorLabel.setVisible(false);
+        errorLabel.setManaged(false);
+
         Button okBtn = new Button("OK");
         okBtn.getStyleClass().add("btn-primary");
         Button cancelBtn = new Button("Cancel");
         cancelBtn.getStyleClass().add("btn-cancel");
-        cancelBtn.setOnAction(e -> closeModal.run());
+        cancelBtn.setOnAction(e -> {
+            closeModal.run();
+            syncSessionControls();
+        });
 
         okBtn.setOnAction(e -> {
-            StudySessionEnd sessionEnd = new StudySessionEnd((int) focusSlider.getValue(), notesArea.getText());
-            studyService.endStudySession(currentSession, sessionEnd);
-            currentSession = null;
-            closeModal.run();
-            updateSessionsDisplay();
-            updateProgress();
+            try {
+                StudySessionEnd sessionEnd = new StudySessionEnd((int) focusSlider.getValue(), notesArea.getText());
+                studyService.endStudySession(currentSession, sessionEnd);
+                stopSessionTimer();
+                currentSession = null;
+                sessionTextArea.clear();
+                syncSessionControls();
+                closeModal.run();
+                updateSessionsDisplay();
+                updateProgress();
+            } catch (Exception ex) {
+                errorLabel.setText("Failed to save session: " + ex.getMessage());
+                errorLabel.setVisible(true);
+                errorLabel.setManaged(true);
+            }
         });
 
         HBox btnRow = new HBox(10, cancelBtn, okBtn);
         btnRow.setAlignment(Pos.CENTER_RIGHT);
 
         content.getChildren().addAll(headerLabel, focusLabel, focusSlider, focusWarning,
-                new Label("Notes:"), notesArea, btnRow);
+                new Label("Notes:"), notesArea, errorLabel, btnRow);
         showModal.accept(content);
     }
 
@@ -1269,11 +1376,15 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         TabPane detailsTabs = new TabPane();
         detailsTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        detailsTabs.getTabs().addAll(
-                new Tab("◎ Overview", createOverviewTab(session)),
-                new Tab("◎ Progress", createProgressTab(session)),
-                new Tab("▪ Notes", createNotesTab(session)),
-                new Tab("↯ Performance", createPerformanceTab(session))
+        Tab overviewTab = new Tab("Overview", createOverviewTab(session));
+        overviewTab.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 12));
+        Tab progressTab = new Tab("Progress", createProgressTab(session));
+        progressTab.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 12));
+        Tab notesTab = new Tab("Notes", createNotesTab(session));
+        notesTab.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 12));
+        Tab perfTab = new Tab("Performance", createPerformanceTab(session));
+        perfTab.setGraphic(TaskStyleUtils.iconLabel("\u21AF", 12));
+        detailsTabs.getTabs().addAll(overviewTab, progressTab, notesTab, perfTab
         );
         mainContent.getChildren().add(detailsTabs);
 
@@ -1301,7 +1412,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         header.setStyle("-fx-background-color: linear-gradient(to right, #667eea, #764ba2);" +
                         " -fx-background-radius: 10; -fx-padding: 20;");
 
-        Label sessionTitle = new Label("✎ Study Session");
+        Label sessionTitle = new Label("Study Session");
+        Label sessionIcon = TaskStyleUtils.iconLabel("\u270E", 24);
+        sessionIcon.setTextFill(Color.WHITE);
+        sessionTitle.setGraphic(sessionIcon);
         TaskStyleUtils.fontBold(sessionTitle, 24);
         sessionTitle.setTextFill(Color.WHITE);
 
@@ -1315,11 +1429,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox metrics = new HBox(30);
         metrics.setAlignment(Pos.CENTER_LEFT);
         metrics.getChildren().addAll(
-                createMetricBox("⌚", session.getDurationMinutes() + " min", "Duration"),
-                createMetricBox("◎",
-                        "★".repeat(session.getFocusLevel()) + "☆".repeat(5 - session.getFocusLevel()),
+                createMetricBox("\u231A", session.getDurationMinutes() + " min", "Duration"),
+                createMetricBox("\u25CE",
+                        "\u2605".repeat(session.getFocusLevel()) + "\u2606".repeat(5 - session.getFocusLevel()),
                         "Focus"),
-                createMetricBox("♦", session.getPointsEarned() + " pts", "Points")
+                createMetricBox("\u2666", session.getPointsEarned() + " pts", "Points")
         );
 
         header.getChildren().addAll(sessionTitle, dateTime, metrics);
@@ -1330,7 +1444,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         VBox box = new VBox(5);
         box.setAlignment(Pos.CENTER);
         Label iconL = new Label(icon);
-        TaskStyleUtils.fontNormal(iconL, 20);
+        TaskStyleUtils.fontEmoji(iconL, 20);
         Label valueL = new Label(value);
         TaskStyleUtils.fontBold(valueL, 18);
         valueL.setTextFill(Color.WHITE);
@@ -1347,7 +1461,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox timeSection = new VBox(10);
         timeSection.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 10; -fx-padding: 15;");
-        Label timeTitle = new Label("⏰ Time Breakdown");
+        Label timeTitle = new Label("Time Breakdown");
+        timeTitle.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 16));
         TaskStyleUtils.fontBold(timeTitle, 16);
 
         GridPane grid = new GridPane();
@@ -1373,13 +1488,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox focusSection = new VBox(15);
         focusSection.setStyle("-fx-background-color: #fff3cd; -fx-background-radius: 10; -fx-padding: 15;");
-        Label focusTitle = new Label("◎ Focus & Productivity");
+        Label focusTitle = new Label("Focus & Productivity");
+        focusTitle.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 16));
         TaskStyleUtils.fontBold(focusTitle, 16);
 
         HBox starsBox = new HBox(2);
         for (int i = 1; i <= 5; i++) {
-            Label star = new Label(i <= session.getFocusLevel() ? "★" : "☆");
-            TaskStyleUtils.fontNormal(star, 20);
+            Label star = new Label(i <= session.getFocusLevel() ? "\u2605" : "\u2606");
+            TaskStyleUtils.fontEmoji(star, 20);
             star.setTextFill(i <= session.getFocusLevel() ? Color.web("#f39c12") : Color.web("#bdc3c7"));
             starsBox.getChildren().add(star);
         }
@@ -1396,7 +1512,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private VBox createNotesTab(StudySession session) {
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
-        Label notesTitle = new Label("▪ Session Notes");
+        Label notesTitle = new Label("Session Notes");
+        notesTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 18));
         TaskStyleUtils.fontBold(notesTitle, 18);
 
         String text = session.getSessionText();
@@ -1416,7 +1533,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox compSection = new VBox(15);
         compSection.setStyle("-fx-background-color: #f0f8ff; -fx-background-radius: 10; -fx-padding: 15;");
-        Label compTitle = new Label("▪ Performance Analysis");
+        Label compTitle = new Label("Performance Analysis");
+        compTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 16));
         TaskStyleUtils.fontBold(compTitle, 16);
 
         List<StudySession> recent = studyService.getRecentStudySessions(7);
@@ -1458,12 +1576,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         progressLabel.setText("Daily Progress: " + progress + "%");
     }
 
-    private void startSessionTimer(Label statusLabel) {
+    private void startSessionTimer() {
         if (sessionTimer != null) sessionTimer.stop();
         sessionTimer = new Timeline(new KeyFrame(Duration.seconds(1),
-                e -> updateSessionTimer(statusLabel)));
+                e -> updateSessionTimer()));
         sessionTimer.setCycleCount(Timeline.INDEFINITE);
         sessionTimer.play();
+        updateSessionTimer();
     }
 
     private void stopSessionTimer() {
@@ -1473,18 +1592,70 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         }
     }
 
-    private void updateSessionTimer(Label statusLabel) {
+    private void updateSessionTimer() {
+        if (sessionStatusLabel == null) {
+            return;
+        }
         if (currentSession != null && currentSession.isActive()) {
             currentSession.updateRealTimeProgress();
             int elapsed = currentSession.getCurrentElapsedMinutes();
             int h = elapsed / 60, m = elapsed % 60;
-            statusLabel.setText(h > 0
+            sessionStatusLabel.setText(h > 0
                     ? String.format("⌚ Session running: %dh %02dm", h, m)
                     : String.format("⌚ Session running: %dm", m));
-            statusLabel.setTextFill(Color.web("#27ae60"));
+            sessionStatusLabel.setTextFill(Color.web("#27ae60"));
         } else {
-            statusLabel.setText("No active session");
-            statusLabel.setTextFill(Color.web("#2c3e50"));
+            sessionStatusLabel.setText("No active session");
+            sessionStatusLabel.setTextFill(Color.web("#2c3e50"));
+        }
+    }
+
+    private void syncSessionControls() {
+        if (startSessionBtn == null || endSessionBtn == null || sessionStatusLabel == null || sessionTextArea == null) {
+            return;
+        }
+
+        boolean hasActiveSession = currentSession != null && currentSession.isActive();
+        startSessionBtn.setDisable(hasActiveSession);
+        endSessionBtn.setDisable(!hasActiveSession);
+        sessionTextArea.setDisable(!hasActiveSession);
+
+        if (!hasActiveSession) {
+            updateSessionTimer();
+        }
+    }
+
+    private void restoreActiveSessionIfNeeded() {
+        if (currentSession != null || sessionTextArea == null) {
+            return;
+        }
+        if (!displayDate.equals(dateTimeService.getCurrentDate())) {
+            return;
+        }
+
+        StudySession activeSession = studyService.getActiveSession().orElse(null);
+
+        if (activeSession == null) {
+            if (currentSession != null) {
+                currentSession = null;
+                stopSessionTimer();
+                sessionTextArea.clear();
+            }
+            return;
+        }
+
+        boolean sameActiveSession = currentSession != null
+                && currentSession.getId() != null
+                && currentSession.getId().equals(activeSession.getId());
+        currentSession = activeSession;
+        if (!sameActiveSession) {
+            String sessionText = activeSession.getSessionText() != null ? activeSession.getSessionText() : "";
+            if (!sessionText.equals(sessionTextArea.getText())) {
+                sessionTextArea.setText(sessionText);
+            }
+        }
+        if (sessionTimer == null) {
+            startSessionTimer();
         }
     }
 
@@ -1529,8 +1700,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     @Override
     public void updateDisplay() {
+        restoreActiveSessionIfNeeded();
+        syncSessionControls();
         boolean isToday = displayDate.equals(dateTimeService.getCurrentDate());
-        String prefix = isToday ? "▦ Today — " : "▦ ";
+        String prefix = isToday ? "Today \u2014 " : "";
+        dateNavLabel.setGraphic(dateNavIcon);
         dateNavLabel.setText(prefix + displayDate.format(
                 DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")));
 

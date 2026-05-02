@@ -1,5 +1,6 @@
 package com.studysync.presentation.ui.components;
 
+import com.studysync.StudySyncApplication;
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.ProjectService;
 import com.studysync.domain.service.TaskService;
@@ -39,8 +40,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private final TaskService taskService;
     private final DateTimeService dateTimeService;
     private final GoogleDriveService googleDriveService;
-    private final Runnable dbShutdown;
-    private final Runnable dbReconnect;
+    private volatile GoogleDriveService.SyncStatus lastKnownSyncStatus = GoogleDriveService.SyncStatus.UNKNOWN;
     
     // UI Components for dynamic updates
     private VBox statsContainer;
@@ -55,17 +55,16 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private Button driveSignOutButton;
     private Button driveSyncButton;
     private Button driveDownloadButton;
+    private Button saveLocallyButton;
     
-    public ProfileViewPanel(StudyService studyService, ProjectService projectService, 
+    public ProfileViewPanel(StudyService studyService, ProjectService projectService,
                            TaskService taskService, DateTimeService dateTimeService,
-                           GoogleDriveService googleDriveService, Runnable dbShutdown, Runnable dbReconnect) {
+                           GoogleDriveService googleDriveService) {
         this.studyService = studyService;
         this.projectService = projectService;
         this.taskService = taskService;
         this.dateTimeService = dateTimeService;
         this.googleDriveService = googleDriveService;
-        this.dbShutdown = dbShutdown;
-        this.dbReconnect = dbReconnect;
         
         // Create main content container
         VBox mainContent = new VBox(20);
@@ -86,7 +85,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
 
     private void initializeComponents(VBox mainContent) {
         // Header
-        Label headerLabel = new Label("👤 Study Profile & Analytics");
+        Label headerLabel = new Label("Study Profile & Analytics");
+        headerLabel.setGraphic(TaskStyleUtils.iconLabel("\u2606", 24));
         TaskStyleUtils.fontBold(headerLabel, 24);
         
         VBox driveSyncSection = createDriveSyncSection();
@@ -110,7 +110,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         VBox section = new VBox(12);
         section.getStyleClass().add("section-card-light");
         
-        Label title = new Label("☁️ Google Drive Sync");
+        Label title = new Label("Google Drive Sync");
+        title.setGraphic(TaskStyleUtils.iconLabel("\u2601", 18));
         TaskStyleUtils.fontBold(title, 18);
         
         driveStatusLabel = new Label();
@@ -127,16 +128,18 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(driveActionStatusLabel, 12);
         driveActionStatusLabel.setTextFill(Color.web("#16a085"));
         
-        driveSignInButton = new Button("🔐 Sign in with Google");
+        driveSignInButton = new Button("Sign in with Google");
+        driveSignInButton.setGraphic(TaskStyleUtils.iconLabel("\u2192", 14));
         driveSignInButton.getStyleClass().add("btn-google");
         driveSignInButton.setOnAction(e -> runDriveAction(
             "Opening Google sign-in…",
             () -> googleDriveService.signInWithGoogle(),
-            "Signed in successfully. Restart the app on this device to load your Drive data.",
+            "Signed in successfully. Use the Drive controls below to upload or stage a download.",
             "Unable to sign in with Google. Please try again."
         ));
         
-        driveSignOutButton = new Button("\uD83D\uDD12 Sign out");
+        driveSignOutButton = new Button("Sign out");
+        driveSignOutButton.setGraphic(TaskStyleUtils.iconLabel("\u2716", 14));
         driveSignOutButton.getStyleClass().add("btn-gray");
         driveSignOutButton.setOnAction(e -> runDriveAction(
             "Signing out…",
@@ -148,7 +151,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Failed to sign out from Google."
         ));
         
-        driveSyncButton = new Button("⬆️ Sync to Drive now");
+        driveSyncButton = new Button("Sync to Drive now");
+        driveSyncButton.setGraphic(TaskStyleUtils.iconLabel("\u2191", 14));
         driveSyncButton.getStyleClass().add("btn-success");
         driveSyncButton.setOnAction(e -> runDriveAction(
             "Uploading database to Google Drive…",
@@ -157,16 +161,22 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             "Upload failed. Check your connection and credentials."
         ));
 
-        driveDownloadButton = new Button("⬇️ Download from Drive");
+        driveDownloadButton = new Button("Download from Drive");
+        driveDownloadButton.setGraphic(TaskStyleUtils.iconLabel("\u2193", 14));
         driveDownloadButton.getStyleClass().add("btn-orange-download");
-        driveDownloadButton.setOnAction(e -> runDriveAction(
-            "Downloading database from Google Drive…",
-            () -> googleDriveService.downloadAndReload(dbShutdown, dbReconnect),
-            "Download complete! Database reloaded.",
-            "Download failed. Check your connection and credentials."
+        driveDownloadButton.setOnAction(e -> beginStagedDownload());
+
+        saveLocallyButton = new Button("Save Locally");
+        saveLocallyButton.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
+        saveLocallyButton.getStyleClass().add("btn-primary");
+        saveLocallyButton.setOnAction(e -> runDriveAction(
+            "Saving database to disk…",
+            () -> googleDriveService.saveLocally(),
+            "Saved! Local checkpoint completed and the file looks fresh.",
+            "Save failed. Check logs for details."
         ));
-        
-        HBox buttonRow = new HBox(12, driveSignInButton, driveSignOutButton, driveSyncButton, driveDownloadButton);
+
+        HBox buttonRow = new HBox(12, driveSignInButton, driveSignOutButton, driveSyncButton, driveDownloadButton, saveLocallyButton);
         buttonRow.setAlignment(Pos.CENTER_LEFT);
         
         section.getChildren().addAll(title, driveStatusLabel, driveHintLabel, buttonRow, driveActionStatusLabel);
@@ -186,19 +196,25 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             return;
         }
         if (googleDriveService.isSignedIn()) {
-            String email = googleDriveService.getSignedInAccountEmail().orElse("Google Account");
-            String statusText = "Connected as " + email + ".";
-            if (googleDriveService.isLocalDbDirty()) {
-                statusText += " ⚠ Local changes not yet uploaded to Drive.";
-                driveHintLabel.setText("Upload your database to keep Drive up to date.");
-            } else {
-                driveHintLabel.setText("Your database uploads to Drive when you close the app.");
-            }
-            driveStatusLabel.setText(statusText);
+            driveDownloadButton.setText(googleDriveService.isRestartSupported()
+                    ? "Download from Drive & Restart"
+                    : "Download from Drive & Apply on Next Launch");
             driveSignInButton.setDisable(true);
             driveSignOutButton.setDisable(false);
             driveSyncButton.setDisable(false);
             driveDownloadButton.setDisable(false);
+            driveStatusLabel.setText("Connected as " + googleDriveService.getSignedInAccountEmail().orElse("Google Account") + ".");
+            driveStatusLabel.setGraphic(null);
+            driveHintLabel.setText("Checking Google Drive sync status…");
+            CompletableFuture.supplyAsync(googleDriveService::checkSyncStatus)
+                    .whenComplete((status, error) -> Platform.runLater(() -> {
+                        if (error != null) {
+                            lastKnownSyncStatus = GoogleDriveService.SyncStatus.UNKNOWN;
+                            driveHintLabel.setText("Unable to determine sync status right now.");
+                            return;
+                        }
+                        applySyncStatus(status);
+                    }));
         } else {
             driveStatusLabel.setText("Not signed in with Google yet.");
             driveHintLabel.setText("Sign in to store your StudySync H2 database in your private Google Drive for safe multi-device access.");
@@ -206,6 +222,49 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             driveSignOutButton.setDisable(true);
             driveSyncButton.setDisable(true);
             driveDownloadButton.setDisable(true);
+        }
+    }
+
+    private void applySyncStatus(GoogleDriveService.SyncStatus status) {
+        lastKnownSyncStatus = status;
+        String email = googleDriveService.getSignedInAccountEmail().orElse("Google Account");
+        switch (status) {
+            case CONFLICT -> {
+                driveStatusLabel.setText("Connected as " + email + ". Local unsaved changes conflict with a newer Drive database.");
+                driveStatusLabel.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 13));
+                driveHintLabel.setText("Download will stage the newer Drive database and preserve your current local DB in a backup on next launch.");
+                driveSyncButton.setDisable(true);
+            }
+            case DRIVE_NEWER -> {
+                driveStatusLabel.setText("Connected as " + email + ". Google Drive has a newer database.");
+                driveStatusLabel.setGraphic(TaskStyleUtils.iconLabel("\u2193", 13));
+                driveHintLabel.setText("Download it to stage the newer database for next launch.");
+                driveSyncButton.setDisable(false);
+            }
+            case LOCAL_NEWER -> {
+                driveStatusLabel.setText("Connected as " + email + ". This device has local changes not yet uploaded to Drive.");
+                driveStatusLabel.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 13));
+                driveHintLabel.setText("Upload your local database, or download from Drive to stage the remote DB and keep your current local copy in a backup.");
+                driveSyncButton.setDisable(false);
+            }
+            case UP_TO_DATE -> {
+                driveStatusLabel.setText("Connected as " + email + ". Local and Drive databases are in sync.");
+                driveStatusLabel.setGraphic(null);
+                driveHintLabel.setText("Uploads are explicit. Use Sync to Drive when you want to push this device's database.");
+                driveSyncButton.setDisable(false);
+            }
+            case UNKNOWN -> {
+                driveStatusLabel.setText("Connected as " + email + ". Sync status is currently unknown.");
+                driveStatusLabel.setGraphic(null);
+                driveHintLabel.setText("You can still save locally or retry the Drive actions.");
+                driveSyncButton.setDisable(false);
+            }
+            case DISABLED -> {
+                driveStatusLabel.setText("Google Drive sync is disabled.");
+                driveStatusLabel.setGraphic(null);
+                driveHintLabel.setText("Configure Google Drive settings to enable sync.");
+                driveSyncButton.setDisable(true);
+            }
         }
     }
     
@@ -227,19 +286,91 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
                 refreshDriveSyncState();
             }));
     }
+
+    private void beginStagedDownload() {
+        setDriveButtonsDisabled(true);
+        driveActionStatusLabel.setText("Checking Google Drive sync status…");
+        CompletableFuture.supplyAsync(googleDriveService::checkSyncStatus)
+                .whenComplete((status, error) -> Platform.runLater(() -> {
+                    if (error != null) {
+                        setDriveButtonsDisabled(false);
+                        driveActionStatusLabel.setText("Unable to check Drive status. Please try again.");
+                        refreshDriveSyncState();
+                        return;
+                    }
+
+                    if (!confirmDownload(status)) {
+                        setDriveButtonsDisabled(false);
+                        driveActionStatusLabel.setText("Drive download cancelled.");
+                        refreshDriveSyncState();
+                        return;
+                    }
+
+                    driveActionStatusLabel.setText("Staging database download from Google Drive…");
+                    CompletableFuture.supplyAsync(googleDriveService::stageDownloadFromDrive)
+                            .whenComplete((result, stageError) -> Platform.runLater(() -> {
+                                setDriveButtonsDisabled(false);
+                                if (stageError != null) {
+                                    logger.warn("Google Drive staging failed", stageError);
+                                    driveActionStatusLabel.setText("Download failed. Check your connection and credentials.");
+                                    refreshDriveSyncState();
+                                    return;
+                                }
+                                if (!Boolean.TRUE.equals(result)) {
+                                    driveActionStatusLabel.setText("Download failed. Check your connection and credentials.");
+                                    refreshDriveSyncState();
+                                    return;
+                                }
+
+                                if (googleDriveService.isRestartSupported()) {
+                                    driveActionStatusLabel.setText("Download staged. Restarting StudySync to apply it…");
+                                    StudySyncApplication.requestRestart();
+                                    Platform.exit();
+                                } else {
+                                    driveActionStatusLabel.setText("Download staged. Close and reopen StudySync to apply it.");
+                                    refreshDriveSyncState();
+                                }
+                            }));
+                }));
+    }
+
+    private boolean confirmDownload(GoogleDriveService.SyncStatus status) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(getScene() != null ? getScene().getWindow() : null);
+        alert.setTitle("Stage Drive Download");
+        alert.setHeaderText("Replace the local database on next launch?");
+        String restartClause = googleDriveService.isRestartSupported()
+                ? "StudySync will restart automatically after the download is staged."
+                : "You will need to restart StudySync manually after the download is staged.";
+
+        String body = switch (status) {
+            case CONFLICT -> "Google Drive has a newer database and this device also has unsaved local changes. "
+                    + "If you continue, the Drive copy will be staged now and your current local DB will be backed up on next launch. "
+                    + restartClause;
+            case LOCAL_NEWER -> "This device has local changes that are not on Drive. If you continue, the Drive copy will be staged "
+                    + "and your current local DB will be backed up on next launch. " + restartClause;
+            case DRIVE_NEWER -> "A newer database is available on Drive. Continuing will stage it for next launch. " + restartClause;
+            default -> "This will stage the current Drive database for next launch. " + restartClause;
+        };
+        alert.setContentText(body);
+        return alert.showAndWait().filter(ButtonType.OK::equals).isPresent();
+    }
     
     private void setDriveButtonsDisabled(boolean disabled) {
         driveSignInButton.setDisable(disabled || (googleDriveService != null && googleDriveService.isSignedIn()));
         driveSignOutButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
-        driveSyncButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
+        boolean conflict = lastKnownSyncStatus == GoogleDriveService.SyncStatus.CONFLICT;
+        driveSyncButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn() || conflict);
         driveDownloadButton.setDisable(disabled || googleDriveService == null || !googleDriveService.isSignedIn());
+        saveLocallyButton.setDisable(disabled);
     }
     
     private VBox createProfileSummarySection() {
         VBox section = new VBox(15);
         section.getStyleClass().add("section-card");
         
-        Label sectionTitle = new Label("▪ Overall Performance");
+        Label sectionTitle = new Label("Overall Performance");
+        sectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 18));
         TaskStyleUtils.fontBold(sectionTitle, 18);
         
         // Profile summary with dynamic content
@@ -286,7 +417,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         HBox header = new HBox(15);
         header.setAlignment(Pos.CENTER_LEFT);
         
-        Label sectionTitle = new Label("♦ Achieved Goals");
+        Label sectionTitle = new Label("Achieved Goals");
+        sectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u2666", 18));
         TaskStyleUtils.fontBold(sectionTitle, 18);
         
         // Get recent achieved goals count
@@ -349,8 +481,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         item.setPadding(new Insets(8, 12, 8, 12));
         item.setStyle("-fx-background-color: #e8f5e8; -fx-background-radius: 5; -fx-border-color: #27ae60; -fx-border-radius: 5;");
         
-        Label checkLabel = new Label("✅");
-        TaskStyleUtils.fontNormal(checkLabel, 14);
+        Label checkLabel = new Label("\u2713");
+        TaskStyleUtils.fontEmoji(checkLabel, 14);
         
         VBox textContainer = new VBox(2);
         
@@ -372,7 +504,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         Dialog<Void> dialog = new Dialog<>();
         dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         dialog.setTitle("All Achieved Goals");
-        dialog.setHeaderText("♦ Your Achievement History");
+        dialog.setHeaderText("\u2666 Your Achievement History");
         
         VBox content = new VBox(10);
         content.setPadding(new Insets(20));
@@ -430,8 +562,14 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         
         dialog.getDialogPane().setContent(content);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        dialog.getDialogPane().setMinSize(620, 540);
         dialog.setResizable(true);
-        
+
+        dialog.setOnShown(e -> {
+            dialog.setWidth(640);
+            dialog.setHeight(560);
+        });
+
         dialog.showAndWait();
     }
     
@@ -441,8 +579,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         item.setPadding(new Insets(10, 15, 10, 15));
         item.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 8; -fx-border-color: #27ae60; -fx-border-radius: 8; -fx-border-width: 1;");
         
-        Label checkLabel = new Label("✅");
-        TaskStyleUtils.fontNormal(checkLabel, 16);
+        Label checkLabel = new Label("\u2713");
+        TaskStyleUtils.fontEmoji(checkLabel, 16);
         
         VBox textContainer = new VBox(4);
         HBox.setHgrow(textContainer, Priority.ALWAYS);
@@ -517,15 +655,15 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
                     .filter(g -> g.getDate().isAfter(dateTimeService.getCurrentDate().minusDays(30)))
                     .collect(Collectors.toList());
             List<Task> allTasks = taskService.getTasks();
-            
+
             // Calculate statistics
             int totalSessions = recentSessions.size();
             int totalMinutes = recentSessions.stream().mapToInt(StudySession::getDurationMinutes).sum();
             int totalPoints = recentSessions.stream().mapToInt(StudySession::getPointsEarned).sum();
-            
-            double avgFocus = recentSessions.isEmpty() ? 0 : 
+
+            double avgFocus = recentSessions.isEmpty() ? 0 :
                 recentSessions.stream().mapToInt(StudySession::getFocusLevel).average().orElse(0);
-            
+
             int achievedGoals = (int) recentGoals.stream().filter(StudyGoal::isAchieved).count();
             int totalGoals = recentGoals.size();
             double goalCompletionRate = totalGoals > 0 ? (double) achievedGoals / totalGoals * 100 : 0;
@@ -577,7 +715,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             VBox focusChartBox = new VBox(10);
             focusChartBox.getStyleClass().add("section-card");
             focusChartBox.setPadding(new Insets(15));
-            Label focusChartTitle = new Label("↑ Focus Level Trend (Last 14 Days)");
+            Label focusChartTitle = new Label("Focus Level Trend (Last 14 Days)");
+            focusChartTitle.setGraphic(TaskStyleUtils.iconLabel("\u2191", 16));
             TaskStyleUtils.fontBold(focusChartTitle, 16);
             focusChartBox.getChildren().addAll(focusChartTitle, focusChart);
             
@@ -586,7 +725,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             VBox productivityChartBox = new VBox(10);
             productivityChartBox.getStyleClass().add("section-card");
             productivityChartBox.setPadding(new Insets(15));
-            Label productivityChartTitle = new Label("▪ Daily Study Time (Last 7 Days)");
+            Label productivityChartTitle = new Label("Daily Study Time (Last 7 Days)");
+            productivityChartTitle.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 16));
             TaskStyleUtils.fontBold(productivityChartTitle, 16);
             productivityChartBox.getChildren().addAll(productivityChartTitle, productivityChart);
             
@@ -735,7 +875,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         double avgMinutesPerDay = totalMinutes / 30.0;
         double volumeScore = Math.min(1.0, avgMinutesPerDay / 120.0) * 20; // 2 hours per day = max score
         
-        // Goal achievement score (10% weight)
+        // Goal achievement score (10% weight) — failed/delayed goals count against the rate
         List<StudyGoal> goals = studyService.getStudyGoals().stream()
             .filter(g -> g.getDate().isAfter(dateTimeService.getCurrentDate().minusDays(30)))
             .collect(Collectors.toList());

@@ -82,6 +82,25 @@ public class TaskService {
             googleDriveService.markLocalDbDirty();
         }
     }
+
+    private void markDirtyAndSaveLocally(final String operation) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    googleDriveService.markLocalDbDirty();
+                    if (!googleDriveService.saveLocally()) {
+                        logger.warn("Local checkpoint failed after {}", operation);
+                    }
+                }
+            });
+        } else {
+            googleDriveService.markLocalDbDirty();
+            if (!googleDriveService.saveLocally()) {
+                logger.warn("Local checkpoint failed after {}", operation);
+            }
+        }
+    }
     
     @Transactional(readOnly = true)
     public List<Task> getTasks() {
@@ -112,7 +131,7 @@ public class TaskService {
         
         logger.info("Successfully added task '{}' with priority {} and status {}", 
                    savedTask.getTitle(), savedTask.getPriority().stars(), savedTask.getStatus());
-        markDirty();
+        markDirtyAndSaveLocally("task creation");
         return savedTask;
     }
     
@@ -131,7 +150,7 @@ public class TaskService {
         }
         
         logger.info("Removed task: {}", task.getTitle());
-        markDirty();
+        markDirtyAndSaveLocally("task deletion");
     }
     
     @Transactional
@@ -142,7 +161,7 @@ public class TaskService {
         
         Task savedTask = finalTask.save();
         logger.info("Updated task: {}", savedTask.getTitle());
-        markDirty();
+        markDirtyAndSaveLocally("task update");
         return savedTask;
     }
     
@@ -158,7 +177,7 @@ public class TaskService {
         }
         
         logger.info("Updated task status for '{}' to {}", task.getTitle(), newStatus);
-        markDirty();
+        markDirtyAndSaveLocally("task status update");
     }
     
     @Transactional(readOnly = true)
@@ -190,7 +209,7 @@ public class TaskService {
         
         return Task.findAll().stream()
             .filter(task -> titleFilter.map(f -> f.test(task.getTitle())).orElse(true))
-            .filter(task -> categoryFilter.map(c -> c.equalsIgnoreCase(task.getCategory())).orElse(true))
+            .filter(task -> categoryFilter.map(c -> task.getCategory() != null && c.equalsIgnoreCase(task.getCategory())).orElse(true))
             .filter(task -> statusFilter.map(s -> s.equals(task.getStatus())).orElse(true))
             .filter(task -> priorityFilter.map(p -> task.getPriority() != null && task.getPriority().stars() == p).orElse(true))
             .collect(Collectors.toList());
@@ -226,7 +245,7 @@ public class TaskService {
 
         if (updatedCount > 0) {
             logger.info("Marked {} tasks as DELAYED", updatedCount);
-            markDirty();
+            markDirtyAndSaveLocally("delayed task processing");
         }
 
         return updatedCount;
@@ -297,6 +316,9 @@ public class TaskService {
         
         int deletedCount = Task.deleteByIds(taskIds);
         logger.info("Batch deleted {} tasks", deletedCount);
+        if (deletedCount > 0) {
+            markDirtyAndSaveLocally("batch task deletion");
+        }
         return deletedCount;
     }
     
@@ -447,8 +469,8 @@ public class TaskService {
     }
     
     private boolean matchesCategory(Task task, String category) {
-        return category == null || category.isBlank() || 
-               task.getCategory().equalsIgnoreCase(category);
+        return category == null || category.isBlank() ||
+               category.equalsIgnoreCase(task.getCategory());
     }
     
     private boolean matchesPriority(Task task, Integer priorityStars) {

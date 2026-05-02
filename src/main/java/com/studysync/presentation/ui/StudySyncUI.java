@@ -1,6 +1,5 @@
 package com.studysync.presentation.ui;
 
-import com.studysync.config.DatabaseReloadService;
 import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.service.DateTimeService;
 import com.studysync.domain.service.ProjectService;
@@ -9,24 +8,32 @@ import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskService;
 import com.studysync.integration.drive.GoogleDriveService;
 import com.studysync.presentation.ui.components.CalendarViewPanel;
-import com.studysync.presentation.ui.components.ProjectManagementPanel;
 import com.studysync.presentation.ui.components.ProfileViewPanel;
+import com.studysync.presentation.ui.components.ProjectManagementPanel;
 import com.studysync.presentation.ui.components.RefreshablePanel;
 import com.studysync.presentation.ui.components.ReflectionDiaryPanel;
 import com.studysync.presentation.ui.components.StudyPlannerPanel;
 import com.studysync.presentation.ui.components.TaskManagementPanel;
 import com.studysync.presentation.ui.components.TaskStyleUtils;
-import javafx.scene.Node;
-import javafx.scene.Scene;
-import javafx.scene.control.*;
-import javafx.scene.layout.*;
-import javafx.scene.image.Image;
-import javafx.scene.input.*;
-import javafx.scene.paint.Color;
-import javafx.geometry.Insets;
-import javafx.geometry.Pos;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.Scene;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Label;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
+import javafx.scene.image.Image;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
+import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,15 +45,16 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 
 @Component
 @DependsOn("activeRecordConfig")
 public class StudySyncUI {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(StudySyncUI.class);
     private static final double DEFAULT_WINDOW_WIDTH = 1200;
     private static final double DEFAULT_WINDOW_HEIGHT = 800;
-    
+
     private final TaskService taskService;
     private final CategoryService categoryService;
     private final ReminderService reminderService;
@@ -54,16 +62,18 @@ public class StudySyncUI {
     private final ProjectService projectService;
     private final DateTimeService dateTimeService;
     private final GoogleDriveService googleDriveService;
-    private final DatabaseReloadService databaseReloadService;
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
     private StackPane overlayLayer;
 
     @Autowired
-    public StudySyncUI(TaskService taskService, CategoryService categoryService, ReminderService reminderService,
-                       StudyService studyService, ProjectService projectService,
-                       DateTimeService dateTimeService, GoogleDriveService googleDriveService,
-                       DatabaseReloadService databaseReloadService) {
+    public StudySyncUI(TaskService taskService,
+                       CategoryService categoryService,
+                       ReminderService reminderService,
+                       StudyService studyService,
+                       ProjectService projectService,
+                       DateTimeService dateTimeService,
+                       GoogleDriveService googleDriveService) {
         this.taskService = Objects.requireNonNull(taskService, "taskService");
         this.categoryService = Objects.requireNonNull(categoryService, "categoryService");
         this.reminderService = Objects.requireNonNull(reminderService, "reminderService");
@@ -71,75 +81,64 @@ public class StudySyncUI {
         this.projectService = Objects.requireNonNull(projectService, "projectService");
         this.dateTimeService = Objects.requireNonNull(dateTimeService, "dateTimeService");
         this.googleDriveService = Objects.requireNonNull(googleDriveService, "googleDriveService");
-        this.databaseReloadService = Objects.requireNonNull(databaseReloadService, "databaseReloadService");
 
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
-        panels.put(new Tab("▦ Calendar View"), new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
-        panels.put(new Tab("✎ Study Planner"), new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService,
+        Tab calendarTab = new Tab("Calendar View");
+        calendarTab.setGraphic(TaskStyleUtils.iconLabel("\u25A6", 14));
+        panels.put(calendarTab, new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
+        Tab plannerTab = new Tab("Study Planner");
+        plannerTab.setGraphic(TaskStyleUtils.iconLabel("\u270E", 14));
+        panels.put(plannerTab, new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService,
                 this.categoryService, this::showModal, this::closeModal));
-        panels.put(new Tab("★ Reflection Diary"), new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
-        panels.put(new Tab("≡ Projects"), new ProjectManagementPanel(this.projectService, this.categoryService,
+        Tab reflectionTab = new Tab("Reflection Diary");
+        reflectionTab.setGraphic(TaskStyleUtils.iconLabel("\u2605", 14));
+        panels.put(reflectionTab, new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
+        Tab projectsTab = new Tab("Projects");
+        projectsTab.setGraphic(TaskStyleUtils.iconLabel("\u2261", 14));
+        panels.put(projectsTab, new ProjectManagementPanel(this.projectService, this.categoryService,
                 this::showModal, this::closeModal));
-        panels.put(new Tab("☑ Tasks"), new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService,
+        Tab tasksTab = new Tab("Tasks");
+        tasksTab.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
+        panels.put(tasksTab, new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService,
                 this::showModal, this::closeModal));
         panelMap = Collections.unmodifiableMap(panels);
     }
 
     public void start(Stage primaryStage) {
-        // Force light Modena theme regardless of OS dark mode setting.
-        // JavaFX 21 auto-detects OS dark mode and adjusts Modena colors (white label text),
-        // which clashes with our hard-coded light backgrounds.
         Application.setUserAgentStylesheet(Application.STYLESHEET_MODENA);
 
         this.tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        
         panelMap.forEach((tab, panel) -> tab.setContent(panel.getView()));
-        
-        // Initialize tabs in the default order
         restoreTabOrder();
-        
-        // Setup drag and drop functionality for tabs (delayed to allow tab rendering)
         Platform.runLater(this::setupTabDragAndDrop);
-        
+
         tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
             if (newTab != null && panelMap.containsKey(newTab)) {
                 panelMap.get(newTab).updateDisplay();
             }
         });
-        
-        // Create main layout with header
+
         BorderPane mainLayout = new BorderPane();
-        
-        // Create header with profile button
         HBox header = createHeader();
         mainLayout.setTop(header);
-        
-        // Add tabPane to center
         mainLayout.setCenter(tabPane);
-        
-        // Create root stack pane for overlays
+
         StackPane rootDataPane = new StackPane();
         rootDataPane.getChildren().add(mainLayout);
-        
-        // Setup overlay layer
+
         overlayLayer = new StackPane();
         overlayLayer.setStyle("-fx-background-color: rgba(0, 0, 0, 0.4);");
         overlayLayer.setVisible(false);
         overlayLayer.setAlignment(Pos.CENTER);
-        
-        // Prevent clicks from passing through
-        overlayLayer.setOnMouseClicked(e -> e.consume());
-        
+        overlayLayer.setOnMouseClicked(event -> event.consume());
         rootDataPane.getChildren().add(overlayLayer);
-        
+
         Scene scene = new Scene(rootDataPane, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
         scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
-        
+
         primaryStage.setTitle("StudySync");
-        
-        try {
-            var iconStream = getClass().getResourceAsStream("/icon.png");
+        try (var iconStream = getClass().getResourceAsStream("/icon.png")) {
             if (iconStream != null) {
                 primaryStage.getIcons().add(new Image(iconStream));
             } else {
@@ -148,103 +147,124 @@ public class StudySyncUI {
         } catch (Exception e) {
             logger.warn("Failed to load application icon: {}", e.getMessage());
         }
-        
+
         primaryStage.setScene(scene);
         primaryStage.setWidth(DEFAULT_WINDOW_WIDTH);
         primaryStage.setHeight(DEFAULT_WINDOW_HEIGHT);
         primaryStage.setMinWidth(900);
         primaryStage.setMinHeight(600);
         primaryStage.centerOnScreen();
-
         primaryStage.show();
-        
-        // Mark overdue non-recurring tasks as DELAYED
-        markDelayedTasksOnStartup();
 
-        // Process yesterday's unachieved goals automatically
-        processDelayedGoalsOnStartup();
-        
-        // Check Google Drive sync status in background
-        checkDriveSyncOnStartup();
-        
-        // Register pre-reload listener to show a blocking overlay during DB reload
-        googleDriveService.addPreReloadListener(() -> Platform.runLater(this::showReloadOverlay));
+        resolveDriveSyncOnStartup();
 
-        // Register reload listener to reset service caches and refresh all panels
-        // when the DB is reloaded from Drive.
-        googleDriveService.addReloadListener(() -> Platform.runLater(() -> {
-            // Clear once-per-day processing guards so delay logic re-runs
-            // against the freshly loaded database.
-            taskService.resetAfterReload();
-            studyService.resetAfterReload();
-
-            hideReloadOverlay();
-            refreshAllPanels();
-        }));
-        
-        // Initialize the default tab after showing the window (to ensure Spring context is fully loaded)
         Tab selectedTab = tabPane.getSelectionModel().getSelectedItem();
         if (selectedTab != null && panelMap.containsKey(selectedTab)) {
             panelMap.get(selectedTab).updateDisplay();
         }
     }
-    
+
     private void restoreTabOrder() {
         tabPane.getTabs().addAll(panelMap.keySet());
     }
-    
+
     private void setupTabDragAndDrop() {
-        // For simplicity, we'll implement a basic version using mouse events
-        // This approach detects clicks on tab headers and allows reordering via keyboard shortcuts
-        tabPane.setOnKeyPressed(event -> {
+        tabPane.setOnKeyPressed((KeyEvent event) -> {
             Tab selectedTab = tabPane.getSelectionModel().getSelectedItem();
-            if (selectedTab != null && event.isControlDown()) {
-                int currentIndex = tabPane.getTabs().indexOf(selectedTab);
-                int newIndex = -1;
-                
-                if (event.getCode() == KeyCode.LEFT && currentIndex > 0) {
-                    newIndex = currentIndex - 1;
-                } else if (event.getCode() == KeyCode.RIGHT && currentIndex < tabPane.getTabs().size() - 1) {
-                    newIndex = currentIndex + 1;
-                }
-                
-                if (newIndex != -1) {
-                    tabPane.getTabs().remove(currentIndex);
-                    tabPane.getTabs().add(newIndex, selectedTab);
-                    tabPane.getSelectionModel().select(selectedTab);
-                    event.consume();
-                }
+            if (selectedTab == null || !event.isControlDown()) {
+                return;
+            }
+
+            int currentIndex = tabPane.getTabs().indexOf(selectedTab);
+            int newIndex = -1;
+            if (event.getCode() == KeyCode.LEFT && currentIndex > 0) {
+                newIndex = currentIndex - 1;
+            } else if (event.getCode() == KeyCode.RIGHT && currentIndex < tabPane.getTabs().size() - 1) {
+                newIndex = currentIndex + 1;
+            }
+
+            if (newIndex != -1) {
+                tabPane.getTabs().remove(currentIndex);
+                tabPane.getTabs().add(newIndex, selectedTab);
+                tabPane.getSelectionModel().select(selectedTab);
+                event.consume();
             }
         });
     }
-    
+
     private HBox createHeader() {
         HBox header = new HBox();
         header.setPadding(new Insets(10, 15, 10, 15));
         header.setAlignment(Pos.CENTER_LEFT);
-        header.setStyle("-fx-background-color: linear-gradient(to right, #3498db, #2980b9); -fx-border-color: #2980b9; -fx-border-width: 0 0 2 0;");
-        
-        // App title/logo area
+        header.setStyle("-fx-background-color: linear-gradient(to right, #3498db, #2980b9); "
+                + "-fx-border-color: #2980b9; -fx-border-width: 0 0 2 0;");
+
         Label appTitle = new Label("StudySync");
         appTitle.setTextFill(Color.WHITE);
         TaskStyleUtils.fontBold(appTitle, 20);
-        
-        // Spacer to push profile button to the right
+
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        
-        // Profile button
-        Button profileButton = new Button("☻ Profile");
-        profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;");
-        profileButton.setOnMouseEntered(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.3); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.7); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;"));
-        profileButton.setOnMouseExited(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-weight: bold;"));
-        
+
+        javafx.scene.control.Button profileButton = new javafx.scene.control.Button("Profile");
+        profileButton.setGraphic(TaskStyleUtils.iconLabel("\u263B", 14));
+        profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; "
+                + "-fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; "
+                + "-fx-font-weight: bold;");
+        profileButton.setOnMouseEntered(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.3); "
+                + "-fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.7); -fx-border-radius: 5; "
+                + "-fx-background-radius: 5; -fx-font-weight: bold;"));
+        profileButton.setOnMouseExited(e -> profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); "
+                + "-fx-text-fill: white; -fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; "
+                + "-fx-background-radius: 5; -fx-font-weight: bold;"));
         profileButton.setOnAction(e -> showProfileWindow());
-        
+
         header.getChildren().addAll(appTitle, spacer, profileButton);
         return header;
     }
-    
+
+    private void resolveDriveSyncOnStartup() {
+        if (googleDriveService.hasPendingDownload() || googleDriveService.hasFailedPendingDownload()) {
+            showStartupAlert("Google Drive Sync",
+                    "A staged Drive download could not be fully applied. "
+                            + "Resolve it from the Profile window before StudySync mutates delayed tasks or goals.");
+            return;
+        }
+
+        if (!googleDriveService.isIntegrationEnabled() || !googleDriveService.isSignedIn()) {
+            runStartupMaintenance();
+            return;
+        }
+
+        CompletableFuture.supplyAsync(googleDriveService::checkSyncStatus)
+                .whenComplete((status, error) -> Platform.runLater(() -> {
+                    if (error != null) {
+                        logger.warn("Failed to resolve startup Drive sync state", error);
+                        handleStartupSyncStatus(GoogleDriveService.SyncStatus.UNKNOWN);
+                        return;
+                    }
+                    handleStartupSyncStatus(status);
+                }));
+    }
+
+    private void handleStartupSyncStatus(GoogleDriveService.SyncStatus status) {
+        switch (status) {
+            case DRIVE_NEWER -> showStartupAlert("Google Drive Sync",
+                    "A newer database is available on Google Drive. Download it from the Profile window before "
+                            + "StudySync updates delayed tasks or goals.");
+            case CONFLICT -> showStartupAlert("Google Drive Sync Conflict",
+                    "Google Drive has newer data while this device also has unsaved local changes. Resolve the "
+                            + "conflict from the Profile window before StudySync updates delayed tasks or goals.");
+            case UP_TO_DATE, LOCAL_NEWER, UNKNOWN, DISABLED -> runStartupMaintenance();
+        }
+    }
+
+    private void runStartupMaintenance() {
+        markDelayedTasksOnStartup();
+        processDelayedGoalsOnStartup();
+        refreshAllPanels();
+    }
+
     private void markDelayedTasksOnStartup() {
         try {
             int count = taskService.markDelayedTasks();
@@ -262,99 +282,54 @@ public class StudySyncUI {
             if (result.updatedGoals() > 0) {
                 logger.info("Updated delay status for {} study goals carried over from previous days", result.updatedGoals());
             }
-            if (result.removedGoals() > 0) {
-                logger.info("Auto-removed {} study goals overdue by at least two weeks", result.removedGoals());
+            if (result.failedGoals() > 0) {
+                logger.info("Marked {} study goals as FAILED (overdue by at least two weeks)", result.failedGoals());
             }
         } catch (Exception e) {
             logger.error("Failed to process delayed goals on startup", e);
         }
     }
 
-    /**
-     * Checks the Google Drive sync status in a background thread and shows a
-     * non-blocking notification if the remote copy is newer than the local database.
-     */
-    private void checkDriveSyncOnStartup() {
-        if (!googleDriveService.isIntegrationEnabled() || !googleDriveService.isSignedIn()) {
-            return;
-        }
-        java.util.concurrent.CompletableFuture.supplyAsync(googleDriveService::checkSyncStatus)
-            .thenAccept(status -> Platform.runLater(() -> {
-                switch (status) {
-                    case DRIVE_NEWER -> {
-                        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                        alert.initOwner(tabPane.getScene() != null ? tabPane.getScene().getWindow() : null);
-                        alert.setTitle("Google Drive Sync");
-                        alert.setHeaderText("A newer database is available on Google Drive");
-                        alert.setContentText("Open your Profile to download and apply it — no restart required.");
-                        alert.show();
-                    }
-                    case UP_TO_DATE -> logger.info("Google Drive sync check: local database is up to date");
-                    case LOCAL_NEWER -> logger.info("Google Drive sync check: local DB has unsaved changes");
-                    default -> logger.debug("Google Drive sync check returned: {}", status);
-                }
-            }));
+    private void showStartupAlert(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.initOwner(tabPane.getScene() != null ? tabPane.getScene().getWindow() : null);
+        alert.setTitle(title);
+        alert.setHeaderText(title);
+        alert.setContentText(message);
+        alert.show();
     }
 
-    /**
-     * Shows a blocking overlay on the main window during a database reload.
-     */
-    private void showReloadOverlay() {
-        if (overlayLayer != null) {
-            Label reloadLabel = new Label("⚙ Reloading database from Google Drive…");
-            reloadLabel.setTextFill(Color.WHITE);
-            reloadLabel.setStyle("-fx-background-color: rgba(0,0,0,0.7); -fx-padding: 30 50; -fx-background-radius: 10;");
-            TaskStyleUtils.fontBold(reloadLabel, 18);
-            overlayLayer.getChildren().clear();
-            overlayLayer.getChildren().add(reloadLabel);
-            overlayLayer.setVisible(true);
-        }
-    }
-
-    /**
-     * Hides the reload overlay after DB reconnect completes.
-     */
-    private void hideReloadOverlay() {
-        if (overlayLayer != null) {
-            overlayLayer.setVisible(false);
-            overlayLayer.getChildren().clear();
-        }
-    }
-
-    /**
-     * Refreshes every panel after a database reload (e.g. Drive download).
-     */
     private void refreshAllPanels() {
         for (RefreshablePanel panel : panelMap.values()) {
             try {
                 panel.updateDisplay();
             } catch (Exception e) {
-                logger.warn("Failed to refresh panel after DB reload", e);
+                logger.warn("Failed to refresh panel {}", panel.getClass().getSimpleName(), e);
             }
         }
     }
-    
+
     private void showProfileWindow() {
-        // Create a new stage for the profile window
         Stage profileStage = new Stage();
         profileStage.setTitle("Study Profile & Analytics");
         profileStage.initOwner(tabPane.getScene().getWindow());
-        
-        // Create the profile panel
-        ProfileViewPanel profilePanel = new ProfileViewPanel(studyService, projectService, taskService, dateTimeService, googleDriveService, databaseReloadService::shutdown, databaseReloadService::reconnect);
-        
+
+        ProfileViewPanel profilePanel = new ProfileViewPanel(
+                studyService, projectService, taskService, dateTimeService, googleDriveService);
+
         Scene profileScene = new Scene(profilePanel, 1000, 700);
         profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
-        
+
         profileStage.setScene(profileScene);
+        profileStage.setMinWidth(900);
+        profileStage.setMinHeight(600);
+        profileStage.setWidth(1000);
+        profileStage.setHeight(700);
         profileStage.show();
-        
-        // Update the profile display
+
         profilePanel.updateDisplay();
     }
-    
-    // Modal Overlay Methods
-    
+
     private void showModal(Node content) {
         if (overlayLayer != null) {
             overlayLayer.getChildren().clear();
@@ -362,7 +337,7 @@ public class StudySyncUI {
             overlayLayer.setVisible(true);
         }
     }
-    
+
     private void closeModal() {
         if (overlayLayer != null) {
             overlayLayer.setVisible(false);

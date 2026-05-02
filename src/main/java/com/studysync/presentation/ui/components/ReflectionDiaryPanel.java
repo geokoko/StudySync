@@ -57,7 +57,8 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
 
     private void initializeComponents(VBox mainContent) {
         // Header
-        Label headerLabel = new Label("📔 Daily Reflection Diary");
+        Label headerLabel = new Label("Daily Reflection Diary");
+        headerLabel.setGraphic(TaskStyleUtils.iconLabel("\u270E", 24));
         TaskStyleUtils.fontBold(headerLabel, 24);
         
         // Create main layout with sidebar and content
@@ -166,7 +167,8 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
         TaskStyleUtils.fontBold(dateHeaderLabel, 18);
         
         // Reflection text area
-        Label reflectionLabel = new Label("💭 Daily Reflection:");
+        Label reflectionLabel = new Label("Daily Reflection:");
+        reflectionLabel.setGraphic(TaskStyleUtils.iconLabel("\u2605", 14));
         TaskStyleUtils.fontSemiBold(reflectionLabel, 14);
         
         reflectionTextArea = new TextArea();
@@ -179,11 +181,13 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
         HBox buttonBox = new HBox(10);
         buttonBox.setAlignment(Pos.CENTER_RIGHT);
         
-        saveButton = new Button("💾 Save Reflection");
+        saveButton = new Button("Save Reflection");
+        saveButton.setGraphic(TaskStyleUtils.iconLabel("\u2713", 12));
         saveButton.getStyleClass().add("btn-success");
         saveButton.setOnAction(e -> saveCurrentReflection());
         
-        Button newReflectionBtn = new Button("▪ New Entry");
+        Button newReflectionBtn = new Button("New Entry");
+        newReflectionBtn.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 12));
         newReflectionBtn.getStyleClass().add("btn-primary");
         newReflectionBtn.setOnAction(e -> createNewReflection());
         
@@ -222,10 +226,10 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
             if (reflectionOpt.isPresent()) {
                 DailyReflection reflection = reflectionOpt.get();
                 reflectionTextArea.setText(reflection.getReflectionText() != null ? reflection.getReflectionText() : "");
-                saveButton.setText("💾 Update Reflection");
+                saveButton.setText("Update Reflection");
             } else {
                 reflectionTextArea.setText("");
-                saveButton.setText("💾 Save Reflection");
+                saveButton.setText("Save Reflection");
             }
         } catch (Exception e) {
             reflectionTextArea.setText("");
@@ -306,8 +310,9 @@ public class ReflectionDiaryPanel extends ScrollPane implements RefreshablePanel
     }
     
     private void onDateChanged(LocalDate newDate) {
-        // Auto-navigate to the new date if currently viewing today
-        if (datePicker.getValue().equals(dateTimeService.getCurrentDate().minusDays(1))) {
+        // Auto-navigate to the new date if currently viewing yesterday
+        LocalDate pickerValue = datePicker.getValue();
+        if (pickerValue != null && pickerValue.equals(dateTimeService.getCurrentDate().minusDays(1))) {
             navigateToDate(newDate);
         }
     }

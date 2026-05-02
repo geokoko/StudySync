@@ -17,7 +17,10 @@ public final class GoogleDriveBootstrap {
     }
 
     public static GoogleDriveSettings initialize() {
-        GoogleDriveSettings settings = GoogleDriveSettingsLoader.load();
+        return initialize(GoogleDriveSettingsLoader.load());
+    }
+
+    public static GoogleDriveSettings initialize(GoogleDriveSettings settings) {
         GoogleDriveContextHolder.set(settings);
 
         if (!settings.isReady()) {

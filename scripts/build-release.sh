@@ -25,14 +25,14 @@ resolve_version() {
         version_value=$(cd "$PROJECT_ROOT" && ./gradlew -q properties --property version 2>/dev/null | awk -F': ' '/^version:/ {print $2; exit}')
     fi
 
-    # 2) Fallback to build.gradle line parsing (single/double quotes)
+    # 2) Fallback to the top-level build.gradle project version (single/double quotes)
     if [[ -z "$version_value" && -f "$PROJECT_ROOT/build.gradle" ]]; then
-        version_value=$(sed -nE "s/^[[:space:]]*version[[:space:]]*=[[:space:]]*['\"]([^'\"]+)['\"].*$/\1/p" "$PROJECT_ROOT/build.gradle" | head -1)
+        version_value=$(sed -nE "s/^version[[:space:]]*=[[:space:]]*['\"]([^'\"]+)['\"].*$/\1/p" "$PROJECT_ROOT/build.gradle" | head -1)
     fi
 
-    # 3) Fallback to gradle.properties (version=...)
+    # 3) Fallback to gradle.properties (project.version=... or version=...)
     if [[ -z "$version_value" && -f "$PROJECT_ROOT/gradle.properties" ]]; then
-        version_value=$(sed -nE "s/^[[:space:]]*version[[:space:]]*=[[:space:]]*([^[:space:]]+).*$/\1/p" "$PROJECT_ROOT/gradle.properties" | head -1)
+        version_value=$(sed -nE "s/^[[:space:]]*(project\.)?version[[:space:]]*=[[:space:]]*([^[:space:]]+).*$/\2/p" "$PROJECT_ROOT/gradle.properties" | head -1)
     fi
 
     # 4) Final safe default
