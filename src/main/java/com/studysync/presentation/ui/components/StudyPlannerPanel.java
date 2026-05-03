@@ -80,6 +80,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private VBox tasksContainer;
     private FlowPane attemptOverviewContainer;
     private Label taskSectionTitle;
+    private List<StudyGoal> displayDateAttempts = List.of();
+    private Map<String, List<StudyGoal>> displayDateAttemptsByTaskId = Map.of();
+    private Set<String> taskIdsWithAttemptsOnDisplayDate = Set.of();
     private FlowPane sessionsFlowPane;
     private TextArea reflectionArea;
     private ProgressBar dailyProgressBar;
@@ -364,6 +367,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                     ? "Today's Tasks & Goal Attempts" : "All Active Tasks");
         }
 
+        refreshDisplayDateAttemptCache();
         List<Task> tasks = new ArrayList<>(tasksForCurrentView());
         LocalDate today = dateTimeService.getCurrentDate();
         boolean dateScopedView = currentTaskView == PlannerTaskView.TODAY;
@@ -482,7 +486,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         }
         attemptOverviewContainer.getChildren().clear();
 
-        List<StudyGoal> attempts = getAllAttemptsForDisplayDate();
+        List<StudyGoal> attempts = displayDateAttempts;
         long pending = attempts.stream()
                 .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING)
                 .count();
@@ -532,6 +536,17 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             return studyService.getAllGoalsForFutureDate(displayDate);
         }
         return studyService.getAllGoalsForDate(displayDate);
+    }
+
+    private void refreshDisplayDateAttemptCache() {
+        displayDateAttempts = getAllAttemptsForDisplayDate();
+        displayDateAttemptsByTaskId = displayDateAttempts.stream()
+                .filter(goal -> goal.getTaskId() != null && !goal.getTaskId().isBlank())
+                .collect(Collectors.groupingBy(
+                        StudyGoal::getTaskId,
+                        LinkedHashMap::new,
+                        Collectors.toList()));
+        taskIdsWithAttemptsOnDisplayDate = new HashSet<>(displayDateAttemptsByTaskId.keySet());
     }
 
     private List<Task> tasksForCurrentView() {
@@ -585,10 +600,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private boolean hasGoalOnDisplayDate(Task task) {
-        return task != null
-                && StudyGoal.findByTaskIdForDate(task.getId(), displayDate).stream()
-                        .findAny()
-                        .isPresent();
+        return task != null && taskIdsWithAttemptsOnDisplayDate.contains(task.getId());
     }
 
     /** Returns a comparator based on the user's current sort choice. */
@@ -741,9 +753,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private List<Label> createTaskAttemptBadges(Task task) {
-        List<StudyGoal> attempts = StudyGoal.findByTaskId(task.getId()).stream()
-                .filter(goal -> displayDate.equals(goal.getDate()))
-                .toList();
+        List<StudyGoal> attempts = displayDateAttemptsByTaskId.getOrDefault(task.getId(), List.of());
         if (attempts.isEmpty()) {
             return List.of();
         }

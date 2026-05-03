@@ -279,11 +279,11 @@ public class StudySyncUI {
     private void processDelayedGoalsOnStartup() {
         try {
             StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
-            if (result.updatedGoals() > 0) {
-                logger.info("Marked {} overdue study goal attempt(s) as missed", result.updatedGoals());
+            if (result.missedAttempts() > 0) {
+                logger.info("Marked {} overdue study goal attempt(s) as missed", result.missedAttempts());
             }
-            if (result.failedGoals() > 0) {
-                logger.info("Abandoned {} study goal(s)", result.failedGoals());
+            if (result.abandonedGoals() > 0) {
+                logger.info("Abandoned {} study goal(s)", result.abandonedGoals());
             }
         } catch (Exception e) {
             logger.error("Failed to process delayed goals on startup", e);

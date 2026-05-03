@@ -176,8 +176,8 @@ class StudyServicePersistenceTest {
 
         StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
 
-        assertEquals(1, result.updatedGoals());
-        assertEquals(0, result.failedGoals());
+        assertEquals(1, result.missedAttempts());
+        assertEquals(0, result.abandonedGoals());
         assertEquals(1, StudyGoal.findDelayedAndNotReplanned().size());
 
         studyService.replanGoalForToday(goal.getId());

@@ -442,12 +442,12 @@ public class StudyService {
     // ================================================================
     
     /**
-     * Process all goals and update delay penalties for overdue goals.
-     * Only unachieved goals with dates in the past are considered delayed.
-     * Goals overdue by two weeks or more are marked as FAILED (never deleted).
-     * This should be called daily (e.g., via scheduled task or on app startup).
+     * Marks pending goal attempts planned before today as missed.
+     * This should be called daily, such as during startup, so overdue attempts
+     * become retryable without deleting the parent goal or applying legacy delay
+     * penalties.
      *
-     * @return summary of how many goals were updated or marked failed
+     * @return summary of how many pending attempts were marked missed
      */
     public GoalDelayProcessingResult processAllDelayedGoals() {
         LocalDate today = dateTimeService.getCurrentDate();
@@ -462,27 +462,14 @@ public class StudyService {
     }
 
     /**
-     * Summary of delayed-goal processing.
-     * @param updatedGoals number of existing goals updated with delay metadata
-     * @param failedGoals number of goals marked as failed because they exceeded the delay threshold
+     * Summary of overdue attempt processing.
+     * @param missedAttempts number of pending attempts marked as missed
+     * @param abandonedGoals number of goals abandoned by this processing run
      */
-    public record GoalDelayProcessingResult(int updatedGoals, int failedGoals) {
+    public record GoalDelayProcessingResult(int missedAttempts, int abandonedGoals) {
         public boolean hasChanges() {
-            return updatedGoals > 0 || failedGoals > 0;
+            return missedAttempts > 0 || abandonedGoals > 0;
         }
-    }
-    
-    /**
-     * Calculate accumulated penalty for delayed goals.
-     * Formula: 5 points for first delay, then 2 points per additional day.
-     * 
-     * @param totalDaysDelayed total days the goal has been delayed
-     * @return total penalty points
-     */
-    private int calculateAccumulatedPenalty(int totalDaysDelayed) {
-        if (totalDaysDelayed <= 0) return 0;
-        if (totalDaysDelayed == 1) return 5; // First delay
-        return 5 + (totalDaysDelayed - 1) * 2; // Additional days
     }
     
     /**
@@ -501,11 +488,20 @@ public class StudyService {
         return StudyGoal.findDelayed();
     }
     
+    @Transactional(readOnly = true)
+    public int getMissedGoalAttemptCount() {
+        return StudyGoal.findDelayed().size();
+    }
+
     /**
-     * Calculate total points deducted from delayed goals.
+     * Returns the number of missed goal attempts.
+     *
+     * @deprecated Use {@link #getMissedGoalAttemptCount()}. The attempt-based
+     *             goal model no longer calculates delay penalty points.
      */
+    @Deprecated
     @Transactional(readOnly = true)
     public int getTotalDelayPenaltyPoints() {
-        return StudyGoal.findDelayed().size();
+        return getMissedGoalAttemptCount();
     }
 }
