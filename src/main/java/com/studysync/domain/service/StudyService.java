@@ -216,8 +216,13 @@ public class StudyService {
      * @return list of goals the user can choose to retry today
      */
     @Transactional(readOnly = true)
-    public List<StudyGoal> getDelayedGoalsForReplanning() {
-        return StudyGoal.findDelayedAndNotReplanned();
+    public List<StudyGoal> getDelayedGoalsForReplanning(final String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            return List.of();
+        }
+        return StudyGoal.findDelayedAndNotReplanned().stream()
+                .filter(goal -> taskId.equals(goal.getTaskId()))
+                .toList();
     }
 
     /**

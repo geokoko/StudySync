@@ -2,6 +2,9 @@ package com.studysync.domain.service;
 
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
+import com.studysync.domain.entity.Task;
+import com.studysync.domain.valueobject.TaskPriority;
+import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.integration.drive.GoogleDriveService;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -30,6 +33,7 @@ class StudyServicePersistenceTest {
     private GoogleDriveService googleDriveService;
     private DateTimeService dateTimeService;
     private StudyService studyService;
+    private TaskService taskService;
 
     @BeforeEach
     void setUp() {
@@ -44,9 +48,11 @@ class StudyServicePersistenceTest {
         jdbcTemplate = new JdbcTemplate(dataSource);
 
         createStudySessionsTable();
+        createTasksTable();
         createStudyGoalsTable();
 
         StudySession.setJdbcTemplate(jdbcTemplate);
+        Task.setJdbcTemplate(jdbcTemplate);
         StudyGoal.setJdbcTemplate(jdbcTemplate);
 
         googleDriveService = mock(GoogleDriveService.class);
@@ -56,11 +62,13 @@ class StudyServicePersistenceTest {
         when(dateTimeService.getCurrentDate()).thenReturn(LocalDate.of(2026, 3, 28));
 
         studyService = new StudyService(googleDriveService, dateTimeService);
+        taskService = new TaskService(mock(CategoryService.class), googleDriveService, dateTimeService);
     }
 
     @AfterEach
     void tearDown() {
         StudySession.setJdbcTemplate(null);
+        Task.setJdbcTemplate(null);
         StudyGoal.setJdbcTemplate(null);
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
@@ -204,6 +212,90 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void getDelayedGoalsForReplanningReturnsOnlyRetryableGoalsForRequestedTask() {
+        StudyGoal retryable = missedGoal("Retry for requested task", "task-1", LocalDate.of(2026, 3, 24));
+        StudyGoal otherTask = missedGoal("Retry for another task", "task-2", LocalDate.of(2026, 3, 24));
+        StudyGoal alreadyReplanned = missedGoal("Already has pending retry", "task-1", LocalDate.of(2026, 3, 25));
+        StudyGoal abandoned = missedGoal("Abandoned requested task goal", "task-1", LocalDate.of(2026, 3, 26));
+        StudyGoal achieved = missedGoal("Achieved requested task goal", "task-1", LocalDate.of(2026, 3, 27));
+
+        assertTrue(StudyGoal.createReplanAttempt(alreadyReplanned.getId(), LocalDate.of(2026, 3, 28)));
+        assertTrue(studyService.markGoalAsFailed(abandoned.getId()));
+        jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET outcome = 'ACHIEVED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ?
+                """, achieved.getId());
+        jdbcTemplate.update("""
+                UPDATE study_goals
+                SET status = 'ACHIEVED', achieved = TRUE, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """, achieved.getId());
+
+        List<StudyGoal> taskOneRetries = studyService.getDelayedGoalsForReplanning("task-1");
+
+        assertEquals(1, taskOneRetries.size());
+        assertEquals(retryable.getId(), taskOneRetries.getFirst().getId());
+        assertEquals(List.of(otherTask.getId()),
+                studyService.getDelayedGoalsForReplanning("task-2").stream()
+                        .map(StudyGoal::getId)
+                        .toList());
+        assertTrue(studyService.getDelayedGoalsForReplanning(null).isEmpty());
+        assertTrue(studyService.getDelayedGoalsForReplanning(" ").isEmpty());
+    }
+
+    @Test
+    void completedRetryHandlesOriginalMissedRecurringTaskOccurrence() {
+        LocalDate occurrenceDate = LocalDate.of(2026, 3, 30);
+        LocalDate retryDate = LocalDate.of(2026, 3, 31);
+        Task task = recurringMondayTask("recurring-task", occurrenceDate.minusWeeks(1));
+        StudyGoal goal = missedGoal("Retry original occurrence", task.getId(), occurrenceDate);
+
+        assertEquals(List.of(task.getId()), missedTaskIdsFor(retryDate));
+
+        assertTrue(StudyGoal.createReplanAttempt(goal.getId(), retryDate));
+        assertTrue(StudyGoal.markCurrentAttemptAchieved(goal.getId(), null));
+
+        assertTrue(taskService.getMissedRecurringOccurrences(retryDate).isEmpty());
+        assertTrue(taskService.isOccurrenceHandled(task, occurrenceDate));
+        assertTrue(StudyGoal.findHandledTaskDatePairs(occurrenceDate, retryDate)
+                .contains(task.getId() + "|" + occurrenceDate));
+    }
+
+    @Test
+    void unrelatedLaterAchievedGoalDoesNotHandleMissedRecurringTaskOccurrence() {
+        LocalDate occurrenceDate = LocalDate.of(2026, 3, 30);
+        LocalDate laterDate = LocalDate.of(2026, 3, 31);
+        Task task = recurringMondayTask("recurring-task", occurrenceDate.minusWeeks(1));
+        missedGoal("Missed original occurrence", task.getId(), occurrenceDate);
+        StudyGoal unrelated = new StudyGoal("Unrelated later goal");
+        unrelated.setTaskId(task.getId());
+        unrelated.setDate(laterDate);
+        unrelated.save();
+
+        assertTrue(StudyGoal.markCurrentAttemptAchieved(unrelated.getId(), null));
+
+        assertEquals(List.of(task.getId()), missedTaskIdsFor(laterDate));
+        assertFalse(taskService.isOccurrenceHandled(task, occurrenceDate));
+    }
+
+    @Test
+    void directAchievedGoalHandlesRecurringTaskOccurrence() {
+        LocalDate occurrenceDate = LocalDate.of(2026, 3, 30);
+        LocalDate nextDate = LocalDate.of(2026, 3, 31);
+        Task task = recurringMondayTask("recurring-task", occurrenceDate.minusWeeks(1));
+        StudyGoal goal = new StudyGoal("Complete scheduled occurrence");
+        goal.setTaskId(task.getId());
+        goal.setDate(occurrenceDate);
+        goal.save();
+
+        assertTrue(StudyGoal.markCurrentAttemptAchieved(goal.getId(), null));
+
+        assertTrue(taskService.getMissedRecurringOccurrences(nextDate).isEmpty());
+        assertTrue(taskService.isOccurrenceHandled(task, occurrenceDate));
+    }
+
+    @Test
     void taskGoalDetailsCanBeEditedAndRetriedForChosenDate() {
         studyService.addStudyGoal("Read chapter", LocalDate.of(2026, 3, 27), "task-1");
 
@@ -287,6 +379,25 @@ class StudyServicePersistenceTest {
                 """);
     }
 
+    private void createTasksTable() {
+        jdbcTemplate.execute("""
+                CREATE TABLE tasks (
+                    id VARCHAR(50) PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    category VARCHAR(100),
+                    priority INTEGER DEFAULT 1,
+                    deadline DATE,
+                    status VARCHAR(20) DEFAULT 'OPEN',
+                    points INTEGER DEFAULT 0,
+                    recurring_pattern VARCHAR(100),
+                    start_date DATE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+    }
+
     private void createStudyGoalsTable() {
         jdbcTemplate.execute("""
                 CREATE TABLE study_goals (
@@ -321,5 +432,30 @@ class StudyServicePersistenceTest {
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
+    }
+
+    private StudyGoal missedGoal(final String description, final String taskId, final LocalDate date) {
+        StudyGoal goal = new StudyGoal(description);
+        goal.setTaskId(taskId);
+        goal.setDate(date);
+        goal.save();
+        jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET outcome = 'MISSED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ?
+                """, goal.getId());
+        return StudyGoal.findById(goal.getId()).orElseThrow();
+    }
+
+    private Task recurringMondayTask(final String taskId, final LocalDate startDate) {
+        Task task = new Task(taskId, "Recurring task", "", "Study", new TaskPriority(3),
+                null, TaskStatus.OPEN, 0, "1:1", startDate);
+        return task.save();
+    }
+
+    private List<String> missedTaskIdsFor(final LocalDate today) {
+        return taskService.getMissedRecurringOccurrences(today).stream()
+                .map(occurrence -> occurrence.task().getId())
+                .toList();
     }
 }

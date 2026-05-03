@@ -234,15 +234,15 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         int row = 0;
         int col = startCol;
 
-        // Batch-query all achieved (task, date) pairs for the visible month
+        // Batch-query all handled (task, date) pairs for the visible month
         // to avoid an N+1 SQL query per recurring task per day cell.
         LocalDate monthStart = currentMonth.atDay(1);
         LocalDate monthEnd = currentMonth.atEndOfMonth();
-        java.util.Set<String> achievedPairs = StudyGoal.findAchievedTaskDatePairs(monthStart, monthEnd);
+        java.util.Set<String> handledPairs = StudyGoal.findHandledTaskDatePairs(monthStart, monthEnd);
 
         for (int day = 1; day <= daysInMonth; day++) {
             LocalDate date = currentMonth.atDay(day);
-            VBox dayCell = createDayCell(date, achievedPairs);
+            VBox dayCell = createDayCell(date, handledPairs);
 
             calendarGrid.add(dayCell, col, row);
 
@@ -254,7 +254,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         }
     }
 
-    private VBox createDayCell(LocalDate date, java.util.Set<String> achievedPairs) {
+    private VBox createDayCell(LocalDate date, java.util.Set<String> handledPairs) {
         VBox dayCell = new VBox(5);
         dayCell.setPrefSize(CELL_WIDTH, CELL_HEIGHT);
         dayCell.setPadding(new Insets(8));
@@ -346,7 +346,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             if (date.isBefore(today)) {
                 missedCount = dayData.tasks.stream()
                         .filter(Task::isRecurring)
-                        .filter(t -> !achievedPairs.contains(t.getId() + "|" + date))
+                        .filter(t -> !handledPairs.contains(t.getId() + "|" + date))
                         .count();
             }
             long handledRecurring = dayData.tasks.stream().filter(Task::isRecurring).count() - missedCount;
@@ -861,7 +861,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             } else if (TaskStyleUtils.isDueToday(task, date)) {
                 headerRow.getChildren().add(TaskStyleUtils.createDueTodayBadge());
             } else if (task.isRecurring() && date.isBefore(LocalDate.now())
-                       && !StudyGoal.hasAchievedGoalForTask(task.getId(), date)) {
+                       && !StudyGoal.hasHandledGoalForTaskOccurrence(task.getId(), date)) {
                 headerRow.getChildren().add(TaskStyleUtils.createMissedBadge());
                 // Red border for missed recurring occurrence
                 taskBox.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +

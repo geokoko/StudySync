@@ -651,7 +651,7 @@ public class TaskService {
             }
 
             if (recurringTaskAppliesTo(task, yesterday, anchorMonday)
-                    && !StudyGoal.hasAchievedGoalForTask(task.getId(), yesterday)) {
+                    && !StudyGoal.hasHandledGoalForTaskOccurrence(task.getId(), yesterday)) {
                 result.add(new MissedOccurrence(task, yesterday));
             }
         }
@@ -668,6 +668,6 @@ public class TaskService {
      * @return {@code true} if the occurrence was handled
      */
     public boolean isOccurrenceHandled(Task task, LocalDate date) {
-        return StudyGoal.hasAchievedGoalForTask(task.getId(), date);
+        return StudyGoal.hasHandledGoalForTaskOccurrence(task.getId(), date);
     }
 }

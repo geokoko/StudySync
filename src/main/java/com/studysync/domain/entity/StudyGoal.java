@@ -527,6 +527,40 @@ public class StudyGoal {
         return result;
     }
 
+    public static Set<String> findHandledTaskDatePairs(LocalDate rangeStart, LocalDate rangeEnd) {
+        if (jdbcTemplate == null || rangeStart == null || rangeEnd == null) {
+            return Set.of();
+        }
+        String sql = """
+            WITH RECURSIVE handled_attempts (
+                task_id, attempt_id, planned_for_date, outcome, replanned_from_attempt_id, depth
+            ) AS (
+                SELECT g.task_id, a.id, a.planned_for_date, a.outcome, a.replanned_from_attempt_id, 0
+                FROM study_goals g
+                JOIN study_goal_attempts a ON a.goal_id = g.id
+                WHERE g.task_id IS NOT NULL
+                  AND a.outcome = 'ACHIEVED'
+                UNION ALL
+                SELECT h.task_id, parent.id, parent.planned_for_date, parent.outcome,
+                       parent.replanned_from_attempt_id, h.depth + 1
+                FROM study_goal_attempts parent
+                JOIN handled_attempts h ON h.replanned_from_attempt_id = parent.id
+                WHERE h.depth < 20
+            )
+            SELECT DISTINCT task_id, planned_for_date
+            FROM handled_attempts
+            WHERE planned_for_date >= ?
+              AND planned_for_date <= ?
+              AND outcome IN ('ACHIEVED', 'MISSED')
+            """;
+        Set<String> result = new HashSet<>();
+        jdbcTemplate.query(sql, (rs, rowNum) -> {
+            result.add(rs.getString("task_id") + "|" + rs.getDate("planned_for_date").toLocalDate());
+            return null;
+        }, rangeStart, rangeEnd);
+        return result;
+    }
+
     public static boolean hasAchievedGoalForTask(String taskId, LocalDate date) {
         if (jdbcTemplate == null || taskId == null || taskId.isBlank() || date == null) {
             return false;
@@ -540,6 +574,35 @@ public class StudyGoal {
               AND a.outcome = 'ACHIEVED'
             """;
         Integer count = jdbcTemplate.queryForObject(sql, Integer.class, taskId, date);
+        return count != null && count > 0;
+    }
+
+    public static boolean hasHandledGoalForTaskOccurrence(String taskId, LocalDate occurrenceDate) {
+        if (jdbcTemplate == null || taskId == null || taskId.isBlank() || occurrenceDate == null) {
+            return false;
+        }
+        String sql = """
+            WITH RECURSIVE handled_attempts (
+                attempt_id, planned_for_date, outcome, replanned_from_attempt_id, depth
+            ) AS (
+                SELECT a.id, a.planned_for_date, a.outcome, a.replanned_from_attempt_id, 0
+                FROM study_goals g
+                JOIN study_goal_attempts a ON a.goal_id = g.id
+                WHERE g.task_id = ?
+                  AND a.outcome = 'ACHIEVED'
+                UNION ALL
+                SELECT parent.id, parent.planned_for_date, parent.outcome,
+                       parent.replanned_from_attempt_id, h.depth + 1
+                FROM study_goal_attempts parent
+                JOIN handled_attempts h ON h.replanned_from_attempt_id = parent.id
+                WHERE h.depth < 20
+            )
+            SELECT COUNT(*)
+            FROM handled_attempts
+            WHERE planned_for_date = ?
+              AND outcome IN ('ACHIEVED', 'MISSED')
+            """;
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, taskId, occurrenceDate);
         return count != null && count > 0;
     }
 
