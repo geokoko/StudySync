@@ -512,6 +512,20 @@
     -fx-background-radius: 4;
 }
 
+.planner-view-toggle {
+    -fx-background-color: #ecf0f1;
+    -fx-text-fill: #2c3e50;
+    -fx-background-radius: 4;
+    -fx-border-color: #bdc3c7;
+    -fx-border-radius: 4;
+}
+
+.planner-view-toggle:selected {
+    -fx-background-color: #3498db;
+    -fx-text-fill: white;
+    -fx-border-color: #2980b9;
+}
+
 /* MODAL CONTENT */
 .modal-content {
     -fx-background-color: white;

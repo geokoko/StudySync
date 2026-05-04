@@ -1,6 +1,7 @@
 package com.studysync.presentation.ui.components;
 
 import com.studysync.domain.entity.Task;
+import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.valueobject.TaskStatus;
 import javafx.geometry.Insets;
 import javafx.scene.control.Label;
@@ -29,6 +30,21 @@ import java.util.Locale;
 public final class TaskStyleUtils {
 
     private TaskStyleUtils() { /* utility class */ }
+
+    public static final String COLOR_PRIMARY = "#3498db";
+    public static final String COLOR_SUCCESS = "#27ae60";
+    public static final String COLOR_DANGER = "#e74c3c";
+    public static final String COLOR_PURPLE = "#9b59b6";
+    public static final String COLOR_ORANGE = "#e67e22";
+    public static final String COLOR_MUTED = "#7f8c8d";
+    public static final String COLOR_TEXT = "#2c3e50";
+
+    public static final String TINT_PRIMARY = "#e3f2fd";
+    public static final String TINT_SUCCESS = "#e8f5e9";
+    public static final String TINT_DANGER = "#ffebee";
+    public static final String TINT_PURPLE = "#f3e5f5";
+    public static final String TINT_ORANGE = "#fff3e0";
+    public static final String TINT_NEUTRAL = "#f8f9fa";
 
     // ── CSS-safe font helpers ───────────────────────────────────
 
@@ -99,12 +115,12 @@ public final class TaskStyleUtils {
     /** Border colour keyed directly by status. */
     public static String taskBorderColor(TaskStatus s) {
         return switch (s) {
-            case COMPLETED   -> "#27ae60";
-            case DELAYED     -> "#e74c3c";
+            case COMPLETED   -> COLOR_SUCCESS;
+            case DELAYED     -> COLOR_DANGER;
             case IN_PROGRESS -> "#f39c12";
             case CANCELLED   -> "#bdc3c7";
             case POSTPONED   -> "#9c27b0";
-            default          -> "#3498db";
+            default          -> COLOR_PRIMARY;
         };
     }
 
@@ -141,12 +157,12 @@ public final class TaskStyleUtils {
     /** Text colour for status badges — dark shades for readability. */
     public static Color statusTextColor(TaskStatus s) {
         return switch (s) {
-            case COMPLETED   -> Color.web("#1b5e20");
-            case DELAYED     -> Color.web("#b71c1c");
+            case COMPLETED   -> Color.web(COLOR_SUCCESS);
+            case DELAYED     -> Color.web(COLOR_DANGER);
             case IN_PROGRESS -> Color.web("#8a4b00");
             case CANCELLED   -> Color.web("#37474f");
             case POSTPONED   -> Color.web("#5e35b1");
-            default          -> Color.web("#0d47a1");
+            default          -> Color.web(COLOR_PRIMARY);
         };
     }
 
@@ -244,6 +260,45 @@ public final class TaskStyleUtils {
 
     /** Red used for missed recurring-task occurrence accents. */
     public static final String MISSED_COLOR = "#e74c3c";
+
+    public static String attemptTextColor(StudyGoal goal) {
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
+            return COLOR_DANGER;
+        }
+        return switch (goal.getAttemptOutcome()) {
+            case ACHIEVED -> COLOR_SUCCESS;
+            case MISSED -> COLOR_DANGER;
+            case PENDING -> COLOR_PRIMARY;
+        };
+    }
+
+    public static String attemptBackgroundColor(StudyGoal goal) {
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
+            return TINT_DANGER;
+        }
+        return switch (goal.getAttemptOutcome()) {
+            case ACHIEVED -> TINT_SUCCESS;
+            case MISSED -> TINT_DANGER;
+            case PENDING -> TINT_PRIMARY;
+        };
+    }
+
+    public static String retryTextColor() {
+        return COLOR_ORANGE;
+    }
+
+    public static String retryBackgroundColor() {
+        return TINT_ORANGE;
+    }
+
+    public static Label createAttemptBadge(String text, String textColor, String backgroundColor) {
+        Label badge = new Label(text);
+        fontBold(badge, 10);
+        badge.setTextFill(Color.web(textColor));
+        badge.setPadding(new Insets(2, 7, 2, 7));
+        badge.setStyle("-fx-background-color: " + backgroundColor + "; -fx-background-radius: 10;");
+        return badge;
+    }
 
     /**
      * Creates a small red "Missed" badge for a past calendar date where

@@ -451,7 +451,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             .collect(Collectors.toList());
         
         if (recentGoals.isEmpty()) {
-            Label noGoalsLabel = new Label("No goal attempts recorded yet.");
+            Label noGoalsLabel = new Label("No goals recorded yet.");
             TaskStyleUtils.fontNormal(noGoalsLabel, 12);
             noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
             noGoalsLabel.setPadding(new Insets(10, 0, 0, 0));
@@ -533,7 +533,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         List<StudyGoal> allGoals = studyService.getStudyGoals();
         
         if (allGoals.isEmpty()) {
-            Label noGoalsLabel = new Label("No goal attempts recorded yet.");
+            Label noGoalsLabel = new Label("No goals recorded yet.");
             TaskStyleUtils.fontNormal(noGoalsLabel, 14);
             noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
             noGoalsLabel.setWrapText(true);
@@ -782,7 +782,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             HBox row2 = new HBox(15);
             row2.setAlignment(Pos.CENTER);
             
-            VBox goalsCard = createStatCard("Goal Score", String.format("%+d", goalAttemptScore), "Achieved minus missed attempts", "#27ae60");
+            VBox goalsCard = createStatCard("Lifetime net", String.format("%+d", goalAttemptScore), "Achieved minus missed goals", "#27ae60");
             VBox tasksCard = createStatCard("Tasks Done", String.valueOf(completedTasks), "Completed tasks", "#16a085");
             VBox efficiencyCard = createStatCard("Efficiency", 
                 totalMinutes > 0 ? String.format("%.1f", (double) totalPoints / totalMinutes * 60) : "0", 

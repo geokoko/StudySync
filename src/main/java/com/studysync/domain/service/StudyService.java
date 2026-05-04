@@ -226,23 +226,41 @@ public class StudyService {
     }
 
     /**
-     * Reschedules a delayed goal to appear on today's date exactly once.
-     * The goal's achieved status is not changed. If the user does not complete
-     * it today it will not carry forward again — it is a one-shot reschedule.
+     * Returns active unlinked goals whose latest attempt was missed and which
+     * do not already have a pending attempt.
      *
-     * @param goalId ID of the goal to reschedule
+     * @return list of unlinked goals the user can choose to retry today
      */
-    public void replanGoalForToday(String goalId) {
-        StudyGoal.findById(goalId).ifPresent(goal -> {
-            if (goal.isAchieved()) {
-                return; // Already done
-            }
-            boolean created = StudyGoal.createReplanAttempt(goalId, dateTimeService.getCurrentDate());
-            if (created) {
-                markDirtyAndSaveLocally("study goal replan");
-                logger.info("Created new attempt for goal '{}' on {}", goal.getDescription(), dateTimeService.getCurrentDate());
-            }
-        });
+    @Transactional(readOnly = true)
+    public List<StudyGoal> getUnlinkedDelayedGoalsForReplanning() {
+        return StudyGoal.findDelayedAndNotReplanned().stream()
+                .filter(goal -> goal.getTaskId() == null || goal.getTaskId().isBlank())
+                .toList();
+    }
+
+    /**
+     * Creates a new pending attempt for an active missed goal on today's date.
+     * Achieved and abandoned goals are not retryable.
+     *
+     * @param goalId ID of the goal to retry
+     * @return {@code true} when a new pending retry attempt was created
+     */
+    public boolean replanGoalForToday(String goalId) {
+        Optional<StudyGoal> goalOpt = StudyGoal.findById(goalId);
+        if (goalOpt.isEmpty()) {
+            logger.warn("Requested retry for study goal '{}' but it did not exist", goalId);
+            return false;
+        }
+        StudyGoal goal = goalOpt.get();
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED || goal.isAchieved()) {
+            return false;
+        }
+        boolean created = StudyGoal.createReplanAttempt(goalId, dateTimeService.getCurrentDate());
+        if (created) {
+            markDirtyAndSaveLocally("study goal replan");
+            logger.info("Created new attempt for goal '{}' on {}", goal.getDescription(), dateTimeService.getCurrentDate());
+        }
+        return created;
     }
 
     public boolean planGoalAttempt(String goalId, LocalDate plannedForDate) {
@@ -302,8 +320,8 @@ public class StudyService {
     }
 
     /**
-     * Soft-deletes a study goal by marking it as failed.
-     * The goal is preserved for historical display on its planned date.
+     * Abandons a study goal while preserving its attempt history for display.
+     * Abandoned goals are excluded from future retry planning.
      */
     public boolean markGoalAsFailed(String goalId) {
         if (goalId == null || goalId.isBlank()) {
@@ -458,17 +476,16 @@ public class StudyService {
             logger.info("Marked {} overdue study goal attempt(s) as MISSED", missedAttempts);
         }
 
-        return new GoalDelayProcessingResult(missedAttempts, 0);
+        return new GoalDelayProcessingResult(missedAttempts);
     }
 
     /**
      * Summary of overdue attempt processing.
      * @param missedAttempts number of pending attempts marked as missed
-     * @param abandonedGoals number of goals abandoned by this processing run
      */
-    public record GoalDelayProcessingResult(int missedAttempts, int abandonedGoals) {
+    public record GoalDelayProcessingResult(int missedAttempts) {
         public boolean hasChanges() {
-            return missedAttempts > 0 || abandonedGoals > 0;
+            return missedAttempts > 0;
         }
     }
     
@@ -486,22 +503,5 @@ public class StudyService {
     @Transactional(readOnly = true)
     public List<StudyGoal> getAllDelayedGoals() {
         return StudyGoal.findDelayed();
-    }
-    
-    @Transactional(readOnly = true)
-    public int getMissedGoalAttemptCount() {
-        return StudyGoal.findDelayed().size();
-    }
-
-    /**
-     * Returns the number of missed goal attempts.
-     *
-     * @deprecated Use {@link #getMissedGoalAttemptCount()}. The attempt-based
-     *             goal model no longer calculates delay penalty points.
-     */
-    @Deprecated
-    @Transactional(readOnly = true)
-    public int getTotalDelayPenaltyPoints() {
-        return getMissedGoalAttemptCount();
     }
 }

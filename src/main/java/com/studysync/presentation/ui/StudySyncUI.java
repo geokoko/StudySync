@@ -282,9 +282,6 @@ public class StudySyncUI {
             if (result.missedAttempts() > 0) {
                 logger.info("Marked {} overdue study goal attempt(s) as missed", result.missedAttempts());
             }
-            if (result.abandonedGoals() > 0) {
-                logger.info("Abandoned {} study goal(s)", result.abandonedGoals());
-            }
         } catch (Exception e) {
             logger.error("Failed to process delayed goals on startup", e);
         }

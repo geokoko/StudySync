@@ -366,8 +366,9 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         Button goalHistoryBtn = new Button("Goal History");
         goalHistoryBtn.getStyleClass().addAll("btn-small");
-        goalHistoryBtn.setStyle("-fx-font-size: 11px; -fx-padding: 3 10; -fx-background-color: #e8eaf6;" +
-                                " -fx-background-radius: 4; -fx-text-fill: #3949ab; -fx-cursor: hand;");
+        goalHistoryBtn.setStyle("-fx-font-size: 11px; -fx-padding: 3 10; -fx-background-color: "
+                + TaskStyleUtils.TINT_PRIMARY + "; -fx-background-radius: 4; -fx-text-fill: "
+                + TaskStyleUtils.COLOR_PRIMARY + "; -fx-cursor: hand;");
         goalHistoryBtn.setOnAction(e -> {
             boolean showing = goalHistoryPane.isVisible();
             if (!showing) {
@@ -399,7 +400,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         Label heading = new Label("Goal history");
         TaskStyleUtils.fontBold(heading, 12);
-        heading.setTextFill(Color.web("#3949ab"));
+        heading.setTextFill(Color.web(TaskStyleUtils.COLOR_PRIMARY));
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -435,20 +436,25 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                 .count();
         int score = (int) (achieved - missed);
 
-        Label statsLabel = new Label("Goals: " + attemptsByGoal.size()
-                + "  |  Attempts: " + attempts.size()
-                + "  |  Achieved: " + achieved
-                + "  |  Missed: " + missed
-                + "  |  Active: " + active
-                + "  |  Score: " + String.format("%+d", score));
-        TaskStyleUtils.fontSemiBold(statsLabel, 11);
-        statsLabel.setTextFill(Color.web("#495057"));
-        statsLabel.setPadding(new Insets(0, 0, 4, 0));
-        pane.getChildren().add(statsLabel);
+        FlowPane stats = new FlowPane(6, 4);
+        stats.setPadding(new Insets(0, 0, 4, 0));
+        stats.getChildren().addAll(
+                createStatChip("Goals " + attemptsByGoal.size(), TaskStyleUtils.COLOR_PRIMARY),
+                createStatChip("Attempts " + attempts.size(), TaskStyleUtils.COLOR_PRIMARY),
+                createStatChip("Done " + achieved, TaskStyleUtils.COLOR_SUCCESS),
+                createStatChip("Missed " + missed, TaskStyleUtils.COLOR_DANGER),
+                createStatChip("Active " + active, TaskStyleUtils.COLOR_PRIMARY),
+                createStatChip("Lifetime net " + String.format("%+d", score), TaskStyleUtils.COLOR_PURPLE)
+        );
+        pane.getChildren().add(stats);
 
         for (List<StudyGoal> goalAttempts : attemptsByGoal.values()) {
             pane.getChildren().add(createGoalAttemptTimeline(task, goalAttempts, pane));
         }
+    }
+
+    private Label createStatChip(String text, String textColor) {
+        return TaskStyleUtils.createAttemptBadge(text, textColor, TaskStyleUtils.TINT_NEUTRAL);
     }
 
     private VBox createGoalAttemptTimeline(Task task, List<StudyGoal> attempts, VBox ownerPane) {
@@ -542,7 +548,9 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         HBox row = new HBox(8);
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(4, 6, 4, 6));
-        row.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 4;");
+        row.setStyle("-fx-background-color: " + TaskStyleUtils.TINT_NEUTRAL + "; -fx-background-radius: 4;"
+                + " -fx-border-color: transparent transparent transparent " + attemptStatusColor(attempt) + ";"
+                + " -fx-border-width: 0 0 0 4; -fx-border-radius: 4;");
 
         Label marker = TaskStyleUtils.iconLabel(attemptIcon(attempt), 11);
         marker.setTextFill(Color.web(attemptStatusColor(attempt)));
@@ -579,22 +587,24 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
     private String parentStatusColor(StudyGoal goal) {
         if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
-            return "#1b5e20";
+            return TaskStyleUtils.COLOR_SUCCESS;
         }
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
-            return "#7f1d1d";
+            return TaskStyleUtils.COLOR_DANGER;
         }
-        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING ? "#0d47a1" : "#e65100";
+        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
+                ? TaskStyleUtils.COLOR_PRIMARY : TaskStyleUtils.retryTextColor();
     }
 
     private String parentStatusBackground(StudyGoal goal) {
         if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
-            return "#e8f5e9";
+            return TaskStyleUtils.TINT_SUCCESS;
         }
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
-            return "#ffebee";
+            return TaskStyleUtils.TINT_DANGER;
         }
-        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING ? "#e3f2fd" : "#fff3e0";
+        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
+                ? TaskStyleUtils.TINT_PRIMARY : TaskStyleUtils.retryBackgroundColor();
     }
 
     private String attemptIcon(StudyGoal attempt) {
@@ -618,19 +628,11 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     }
 
     private String attemptStatusColor(StudyGoal attempt) {
-        return switch (attempt.getAttemptOutcome()) {
-            case ACHIEVED -> "#1b5e20";
-            case MISSED -> "#b71c1c";
-            case PENDING -> "#0d47a1";
-        };
+        return TaskStyleUtils.attemptTextColor(attempt);
     }
 
     private String attemptStatusBackground(StudyGoal attempt) {
-        return switch (attempt.getAttemptOutcome()) {
-            case ACHIEVED -> "#e8f5e9";
-            case MISSED -> "#ffebee";
-            case PENDING -> "#e3f2fd";
-        };
+        return TaskStyleUtils.attemptBackgroundColor(attempt);
     }
 
     private String shorten(String text, int maxLength) {
@@ -723,7 +725,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         form.setMaxWidth(460);
         form.setMaxHeight(Region.USE_PREF_SIZE);
 
-        Label title = new Label("Plan Goal Attempt");
+        Label title = new Label("Plan Goal");
         TaskStyleUtils.fontBold(title, 18);
 
         Label description = new Label(goal.getDescription());
@@ -733,7 +735,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         DatePicker datePicker = new DatePicker(LocalDate.now());
         datePicker.setMaxWidth(Double.MAX_VALUE);
 
-        Button planBtn = new Button("Plan Attempt");
+        Button planBtn = new Button("Plan Goal");
         planBtn.getStyleClass().add("btn-orange");
         Button cancelBtn = new Button("Cancel");
         cancelBtn.getStyleClass().add("btn-cancel");
@@ -762,7 +764,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         buttons.setAlignment(Pos.CENTER_RIGHT);
 
         form.getChildren().addAll(title, new Label("Goal:"), description,
-                new Label("Attempt date:"), datePicker, buttons);
+                new Label("Date:"), datePicker, buttons);
         showModal.accept(wrapGoalModal(form));
     }
 

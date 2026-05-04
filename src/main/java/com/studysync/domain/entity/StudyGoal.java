@@ -286,6 +286,7 @@ public class StudyGoal {
         if (attemptId == null || attemptId.isBlank()) {
             attemptId = UUID.randomUUID().toString();
         }
+        // Parent lifecycle mirrors the current attempt outcome on write.
         if (attemptOutcome == AttemptOutcome.ACHIEVED) {
             status = GoalStatus.ACHIEVED;
             achievedAttemptId = attemptId;
@@ -660,6 +661,14 @@ public class StudyGoal {
         if (jdbcTemplate == null || goalId == null || goalId.isBlank() || plannedForDate == null) {
             return false;
         }
+        Integer activeGoalCount = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*) FROM study_goals
+            WHERE id = ? AND status = 'ACTIVE'
+            """, Integer.class, goalId);
+        if (activeGoalCount == null || activeGoalCount == 0) {
+            return false;
+        }
+
         Integer pendingCount = jdbcTemplate.queryForObject("""
             SELECT COUNT(*) FROM study_goal_attempts
             WHERE goal_id = ? AND outcome = 'PENDING'

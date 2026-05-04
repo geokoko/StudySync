@@ -177,10 +177,9 @@ class StudyServicePersistenceTest {
         StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
 
         assertEquals(1, result.missedAttempts());
-        assertEquals(0, result.abandonedGoals());
         assertEquals(1, StudyGoal.findDelayedAndNotReplanned().size());
 
-        studyService.replanGoalForToday(goal.getId());
+        assertTrue(studyService.replanGoalForToday(goal.getId()));
 
         List<StudyGoal> todayGoals = studyService.getStudyGoalsForDate(LocalDate.of(2026, 3, 28));
         assertEquals(1, todayGoals.size());
@@ -209,6 +208,24 @@ class StudyServicePersistenceTest {
         assertEquals(StudyGoal.GoalStatus.ABANDONED, stored.getStatus());
         assertTrue(stored.isAbandonedExplicitly());
         assertTrue(StudyGoal.findDelayedAndNotReplanned().isEmpty());
+    }
+
+    @Test
+    void abandonedGoalCannotBeReplannedThroughServiceOrEntity() {
+        StudyGoal abandoned = missedGoal("Abandoned retry guard", null, LocalDate.of(2026, 3, 24));
+
+        assertTrue(studyService.markGoalAsFailed(abandoned.getId()));
+        Integer beforeAttempts = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?
+                """, Integer.class, abandoned.getId());
+
+        assertFalse(studyService.replanGoalForToday(abandoned.getId()));
+        assertFalse(StudyGoal.createReplanAttempt(abandoned.getId(), LocalDate.of(2026, 3, 28)));
+
+        Integer afterAttempts = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?
+                """, Integer.class, abandoned.getId());
+        assertEquals(beforeAttempts, afterAttempts);
     }
 
     @Test
@@ -242,6 +259,33 @@ class StudyServicePersistenceTest {
                         .toList());
         assertTrue(studyService.getDelayedGoalsForReplanning(null).isEmpty());
         assertTrue(studyService.getDelayedGoalsForReplanning(" ").isEmpty());
+    }
+
+    @Test
+    void getUnlinkedDelayedGoalsForReplanningReturnsOnlyRetryableUnlinkedGoals() {
+        StudyGoal retryable = missedGoal("Retry without task", null, LocalDate.of(2026, 3, 24));
+        StudyGoal linked = missedGoal("Linked retry", "task-1", LocalDate.of(2026, 3, 24));
+        StudyGoal alreadyReplanned = missedGoal("Unlinked already replanned", null, LocalDate.of(2026, 3, 25));
+        StudyGoal abandoned = missedGoal("Unlinked abandoned", null, LocalDate.of(2026, 3, 26));
+        StudyGoal achieved = missedGoal("Unlinked achieved", null, LocalDate.of(2026, 3, 27));
+
+        assertTrue(StudyGoal.createReplanAttempt(alreadyReplanned.getId(), LocalDate.of(2026, 3, 28)));
+        assertTrue(studyService.markGoalAsFailed(abandoned.getId()));
+        jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET outcome = 'ACHIEVED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ?
+                """, achieved.getId());
+        jdbcTemplate.update("""
+                UPDATE study_goals
+                SET status = 'ACHIEVED', achieved = TRUE, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """, achieved.getId());
+
+        List<StudyGoal> retries = studyService.getUnlinkedDelayedGoalsForReplanning();
+
+        assertEquals(List.of(retryable.getId()), retries.stream().map(StudyGoal::getId).toList());
+        assertFalse(retries.stream().map(StudyGoal::getId).toList().contains(linked.getId()));
     }
 
     @Test
