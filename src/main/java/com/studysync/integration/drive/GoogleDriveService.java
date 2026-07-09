@@ -161,20 +161,23 @@ public class GoogleDriveService {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
         }
+        // Fence against writes that land any time after this point (during the
+        // checkpoint, the upload, or after the UI timed out waiting): only clear
+        // the dirty flag if no local mutation happened since. Captured BEFORE
+        // saveLocally() so a mutation racing the checkpoint keeps dirty=true —
+        // at worst a redundant re-upload, never a silently lost edit. The read
+        // and the compare-and-clear are atomic w.r.t. markLocalDbDirty() via
+        // dirtyStateLock; the checkpoint and network call stay outside the lock.
+        long mutationAtUploadStart;
+        synchronized (dirtyStateLock) {
+            mutationAtUploadStart = lastLocalMutationAt;
+        }
+
         if (!saveLocally()) {
             logger.warn("Aborting Drive upload because the local database could not be verified as fresh");
             return false;
         }
 
-        // Fence against writes that land while the upload is in flight (or after
-        // the UI has already timed out waiting for it): only clear the dirty flag
-        // if no local mutation happened since the checkpoint we uploaded. The
-        // read and the compare-and-clear are atomic w.r.t. markLocalDbDirty()
-        // via dirtyStateLock; the network call stays outside the lock.
-        long mutationAtUploadStart;
-        synchronized (dirtyStateLock) {
-            mutationAtUploadStart = lastLocalMutationAt;
-        }
         boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
         if (uploaded) {
             synchronized (dirtyStateLock) {
