@@ -1,6 +1,7 @@
 
 package com.studysync.domain.entity;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.slf4j.Logger;
@@ -129,6 +130,37 @@ public class StudySession {
                                       is_active, last_update_time, current_elapsed_minutes, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
+        try {
+            executeSaveMerge(sql);
+        } catch (DataIntegrityViolationException e) {
+            if (this.goalId == null && this.taskId == null) {
+                throw e;
+            }
+            // A linked goal/task was deleted while this session was held in
+            // memory (the DB row's FK was SET NULL, but this instance still
+            // carries the stale id). Drop only the dead link and retry rather
+            // than fail — otherwise an active session could never be ended.
+            logger.warn("Session {} link target no longer exists; dropping dead link ({})",
+                    this.id, e.getMessage());
+            if (this.goalId != null && !rowExists("study_goals", this.goalId)) {
+                this.goalId = null;
+            }
+            if (this.taskId != null && !rowExists("tasks", this.taskId)) {
+                this.taskId = null;
+            }
+            executeSaveMerge(sql);
+        }
+
+        logger.debug("Study session saved: {}", this.id);
+    }
+
+    private static boolean rowExists(String table, String id) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM " + table + " WHERE id = ?", Integer.class, id);
+        return count != null && count > 0;
+    }
+
+    private void executeSaveMerge(String sql) {
         jdbcTemplate.update(sql,
             this.id, this.date, this.startTime, this.endTime,
             this.durationMinutes, this.completed, this.focusLevel,
@@ -139,8 +171,6 @@ public class StudySession {
             this.goalId, this.taskId,
             this.isActive, this.lastUpdateTime, this.currentElapsedMinutes
         );
-        
-        logger.debug("Study session saved: {}", this.id);
     }
     
     /**

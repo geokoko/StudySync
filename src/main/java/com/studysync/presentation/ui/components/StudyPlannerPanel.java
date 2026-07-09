@@ -302,11 +302,24 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         linkCombo.setOnShowing(e -> populateSessionLinkCombo(linkCombo));
 
         startSessionBtn.setOnAction(e -> {
+            // Re-validate the selection against the DB: the goal/task may have
+            // been deleted since the combo was populated, and a stale id would
+            // violate the session's FK. Fall back to an unlinked session.
             Object link = linkCombo.getValue();
-            String goalId = link instanceof StudyGoal goal ? goal.getId() : null;
-            String taskId = link instanceof StudyGoal goal ? goal.getTaskId()
-                    : link instanceof Task task ? task.getId() : null;
+            String goalId = null;
+            String taskId = null;
+            if (link instanceof StudyGoal goal) {
+                goalId = StudyGoal.findById(goal.getId()).map(StudyGoal::getId).orElse(null);
+                String linkedTaskId = goal.getTaskId();
+                if (goalId != null && linkedTaskId != null && !linkedTaskId.isBlank()
+                        && Task.findById(linkedTaskId).isPresent()) {
+                    taskId = linkedTaskId;
+                }
+            } else if (link instanceof Task task) {
+                taskId = Task.findById(task.getId()).map(Task::getId).orElse(null);
+            }
             currentSession = studyService.startStudySession(goalId, taskId);
+            linkCombo.setValue(null);
             sessionTextArea.clear();
             startSessionTimer();
             syncSessionControls();
@@ -1227,9 +1240,21 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         taskService.getTasksForDate(today).stream()
                 .filter(t -> !linkedTaskIds.contains(t.getId()))
                 .forEach(combo.getItems()::add);
-        if (selected != null && combo.getItems().contains(selected)) {
-            combo.setValue(selected);
+        // Re-select by id: StudyGoal has no equals(), and the previously
+        // selected instance is never in the freshly loaded list.
+        combo.setValue(combo.getItems().stream()
+                .filter(item -> sameLinkTarget(item, selected))
+                .findFirst().orElse(null));
+    }
+
+    private static boolean sameLinkTarget(Object item, Object selected) {
+        if (item instanceof StudyGoal goal && selected instanceof StudyGoal prev) {
+            return goal.getId().equals(prev.getId());
         }
+        if (item instanceof Task task && selected instanceof Task prev) {
+            return task.getId().equals(prev.getId());
+        }
+        return false;
     }
 
     /** Small muted label describing the session's goal/task link, or null when unlinked. */
