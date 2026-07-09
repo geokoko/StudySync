@@ -63,11 +63,15 @@ CREATE TABLE IF NOT EXISTS study_sessions (
     improvement_note TEXT,
     points_earned INTEGER DEFAULT 0,
     session_text TEXT,
+    goal_id VARCHAR(50),
+    task_id VARCHAR(50),
     is_active BOOLEAN DEFAULT FALSE,
     last_update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     current_elapsed_minutes INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    -- goal_id/task_id FKs are added in the migrations section below, after
+    -- the study_goals table exists.
 );
 
 -- ===================================
@@ -206,6 +210,15 @@ ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS replanned_for_date DATE;
 -- Add failed flag to study_goals. Failed goals are kept for historical logging
 -- but excluded from active planner views.
 ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS failed BOOLEAN DEFAULT FALSE;
+
+-- Link study sessions to an optional goal/task (issue #17). Named constraints
+-- keep the ALTERs idempotent for both fresh and migrated databases.
+ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS goal_id VARCHAR(50);
+ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS task_id VARCHAR(50);
+ALTER TABLE study_sessions ADD CONSTRAINT IF NOT EXISTS fk_study_sessions_goal
+    FOREIGN KEY (goal_id) REFERENCES study_goals(id) ON DELETE SET NULL;
+ALTER TABLE study_sessions ADD CONSTRAINT IF NOT EXISTS fk_study_sessions_task
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL;
 
 -- Add per-attempt goal lifecycle columns. Legacy columns remain intentionally:
 -- schema.sql is re-run on every startup, so destructive DROP COLUMN migrations

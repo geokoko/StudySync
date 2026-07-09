@@ -96,6 +96,21 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void startStudySessionPersistsOptionalGoalAndTaskLink() {
+        StudyGoal goal = new StudyGoal("Linked session goal", "task-1");
+        goal.setDate(LocalDate.of(2026, 3, 28));
+        goal.save();
+
+        StudySession session = studyService.startStudySession(goal.getId(), goal.getTaskId());
+
+        StudySession stored = StudySession.findByDate(session.getDate()).stream()
+                .filter(s -> s.getId().equals(session.getId()))
+                .findFirst().orElseThrow();
+        assertEquals(goal.getId(), stored.getGoalId());
+        assertEquals("task-1", stored.getTaskId());
+    }
+
+    @Test
     void endStudySessionUpdatesExistingRowToCompletedAndFlushesLocally() {
         StudySession session = studyService.startStudySession();
         session.setSessionText("Recovered notes");
@@ -448,6 +463,8 @@ class StudyServicePersistenceTest {
                     improvement_note TEXT,
                     points_earned INTEGER DEFAULT 0,
                     session_text TEXT,
+                    goal_id VARCHAR(50),
+                    task_id VARCHAR(50),
                     is_active BOOLEAN DEFAULT FALSE,
                     last_update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     current_elapsed_minutes INTEGER DEFAULT 0,

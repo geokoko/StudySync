@@ -42,7 +42,11 @@ public class StudySession {
     private String improvementNote;
     private int pointsEarned;
     private String sessionText;
-    
+
+    /** Optional links to the goal/task this session works on. */
+    private String goalId;
+    private String taskId;
+
     // Real-time tracking fields
     private boolean isActive;
     private LocalDateTime lastUpdateTime;
@@ -121,9 +125,9 @@ public class StudySession {
             MERGE INTO study_sessions (id, date, start_time, end_time, duration_minutes, completed,
                                       focus_level, confidence_level, notes, subject, topic, location,
                                       outcome_expected, actual_work, what_helped, what_distracted,
-                                      improvement_note, points_earned, session_text, is_active,
-                                      last_update_time, current_elapsed_minutes, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                      improvement_note, points_earned, session_text, goal_id, task_id,
+                                      is_active, last_update_time, current_elapsed_minutes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         jdbcTemplate.update(sql,
             this.id, this.date, this.startTime, this.endTime,
@@ -132,6 +136,7 @@ public class StudySession {
             this.topic, this.location, this.outcomeExpected,
             this.actualWork, this.whatHelped, this.whatDistracted,
             this.improvementNote, this.pointsEarned, this.sessionText,
+            this.goalId, this.taskId,
             this.isActive, this.lastUpdateTime, this.currentElapsedMinutes
         );
         
@@ -303,6 +308,8 @@ public class StudySession {
                 rs.getInt("points_earned"),
                 rs.getString("session_text")
             );
+            session.setGoalId(rs.getString("goal_id"));
+            session.setTaskId(rs.getString("task_id"));
             session.setActive(rs.getBoolean("is_active"));
             session.setLastUpdateTime(rs.getObject("last_update_time", LocalDateTime.class));
             session.setCurrentElapsedMinutes(rs.getInt("current_elapsed_minutes"));
@@ -521,6 +528,12 @@ public class StudySession {
         this.sessionText = sessionText; 
         this.lastUpdateTime = LocalDateTime.now();
     }
+
+    public String getGoalId() { return goalId; }
+    public void setGoalId(String goalId) { this.goalId = goalId; }
+
+    public String getTaskId() { return taskId; }
+    public void setTaskId(String taskId) { this.taskId = taskId; }
 
     public boolean isActive() { return isActive; }
     public void setActive(boolean isActive) { this.isActive = isActive; }
