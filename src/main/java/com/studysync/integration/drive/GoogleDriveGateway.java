@@ -41,7 +41,8 @@ public class GoogleDriveGateway {
 
     public Optional<String> fetchAccountEmail(Credential credential) {
         try {
-            Oauth2 oauth2 = new Oauth2.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(), timeoutInitializer(credential))
+            Oauth2 oauth2 = new Oauth2.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(),
+                    timeoutInitializer(credential))
                     .setApplicationName(settings.applicationName())
                     .build();
             Userinfo info = oauth2.userinfo().get().execute();
@@ -154,7 +155,8 @@ public class GoogleDriveGateway {
     }
 
     private Drive buildDriveClient(Credential credential) {
-        return new Drive.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(), timeoutInitializer(credential))
+        return new Drive.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(),
+                timeoutInitializer(credential))
                 .setApplicationName(settings.applicationName())
                 .build();
     }

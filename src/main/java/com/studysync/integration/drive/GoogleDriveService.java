@@ -159,8 +159,12 @@ public class GoogleDriveService {
             return false;
         }
 
+        // Fence against writes that land while the upload is in flight (or after
+        // the UI has already timed out waiting for it): only clear the dirty flag
+        // if no local mutation happened since the checkpoint we uploaded.
+        long mutationAtUploadStart = lastLocalMutationAt;
         boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
-        if (uploaded) {
+        if (uploaded && lastLocalMutationAt == mutationAtUploadStart) {
             localDbDirty = false;
             lastLocalMutationAt = 0L;
         }
