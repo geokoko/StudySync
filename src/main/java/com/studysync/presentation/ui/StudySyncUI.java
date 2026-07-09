@@ -22,9 +22,11 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
@@ -65,6 +67,9 @@ public class StudySyncUI {
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
     private StackPane overlayLayer;
+    private Button syncStatusBadge;
+    /** Bumped on every badge update; stale async checks compare against it. FX thread only. */
+    private int syncBadgeGeneration;
 
     @Autowired
     public StudySyncUI(TaskService taskService,
@@ -206,7 +211,7 @@ public class StudySyncUI {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        javafx.scene.control.Button profileButton = new javafx.scene.control.Button("Profile");
+        Button profileButton = new Button("Profile");
         profileButton.setGraphic(TaskStyleUtils.iconLabel("\u263B", 14));
         profileButton.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; "
                 + "-fx-border-color: rgba(255,255,255,0.5); -fx-border-radius: 5; -fx-background-radius: 5; "
@@ -219,12 +224,77 @@ public class StudySyncUI {
                 + "-fx-background-radius: 5; -fx-font-weight: bold;"));
         profileButton.setOnAction(e -> showProfileWindow());
 
-        header.getChildren().addAll(appTitle, spacer, profileButton);
+        syncStatusBadge = new Button();
+        syncStatusBadge.setStyle(syncBadgeStyle("white"));
+        syncStatusBadge.setTooltip(new Tooltip(
+                "Shows whether this device or Google Drive holds the most up-to-date database. Click to re-check."));
+        syncStatusBadge.setOnAction(e -> refreshSyncStatusBadge());
+        setSyncBadgeVisible(false);
+
+        header.setSpacing(12);
+        header.getChildren().addAll(appTitle, spacer, syncStatusBadge, profileButton);
         return header;
+    }
+
+    private static String syncBadgeStyle(String textColor) {
+        return "-fx-background-color: rgba(255,255,255,0.15); -fx-background-radius: 12; "
+                + "-fx-padding: 4 10 4 10; -fx-font-weight: bold; -fx-font-size: 12px; "
+                + "-fx-text-fill: " + textColor + ";";
+    }
+
+    /** Re-checks Drive sync state off the FX thread and updates the header badge. */
+    private void refreshSyncStatusBadge() {
+        // Stale-result fence: only the newest in-flight check may update the
+        // badge, so a check started before sign-out can't resurface it.
+        int generation = ++syncBadgeGeneration;
+        syncStatusBadge.setText("Checking sync…");
+        syncStatusBadge.setGraphic(null);
+        setSyncBadgeVisible(true);
+        CompletableFuture.supplyAsync(googleDriveService::checkSyncStatus)
+                .whenComplete((status, error) -> Platform.runLater(() -> {
+                    if (generation != syncBadgeGeneration) {
+                        return;
+                    }
+                    applySyncStatusBadge(error != null
+                            ? GoogleDriveService.SyncStatus.UNKNOWN : status);
+                }));
+    }
+
+    private void applySyncStatusBadge(GoogleDriveService.SyncStatus status) {
+        // Direct applies are authoritative: invalidate any in-flight check.
+        syncBadgeGeneration++;
+        if (status == GoogleDriveService.SyncStatus.DISABLED
+                || !googleDriveService.isIntegrationEnabled()
+                || !googleDriveService.isSignedIn()) {
+            setSyncBadgeVisible(false);
+            return;
+        }
+        String icon;
+        String text;
+        String color;
+        switch (status) {
+            case UP_TO_DATE -> { icon = "\u2713"; text = "In sync"; color = "#b9f6ca"; }
+            case LOCAL_NEWER -> { icon = "\u2191"; text = "Local is newer"; color = "white"; }
+            case DRIVE_NEWER -> { icon = "\u2193"; text = "Drive is newer"; color = "white"; }
+            case CONFLICT -> { icon = "\u26A0"; text = "Sync conflict"; color = "#ffe082"; }
+            default -> { icon = "?"; text = "Sync unknown"; color = "white"; }
+        }
+        Label iconLabel = TaskStyleUtils.iconLabel(icon, 12);
+        iconLabel.setTextFill(Color.web(color.equals("white") ? "#ffffff" : color));
+        syncStatusBadge.setGraphic(iconLabel);
+        syncStatusBadge.setText(text);
+        syncStatusBadge.setStyle(syncBadgeStyle(color));
+        setSyncBadgeVisible(true);
+    }
+
+    private void setSyncBadgeVisible(boolean visible) {
+        syncStatusBadge.setVisible(visible);
+        syncStatusBadge.setManaged(visible);
     }
 
     private void resolveDriveSyncOnStartup() {
         if (googleDriveService.hasPendingDownload() || googleDriveService.hasFailedPendingDownload()) {
+            refreshSyncStatusBadge();
             showStartupAlert("Google Drive Sync",
                     "A staged Drive download could not be fully applied. "
                             + "Resolve it from the Profile window before StudySync mutates delayed tasks or goals.");
@@ -232,6 +302,7 @@ public class StudySyncUI {
         }
 
         if (!googleDriveService.isIntegrationEnabled() || !googleDriveService.isSignedIn()) {
+            applySyncStatusBadge(GoogleDriveService.SyncStatus.DISABLED);
             runStartupMaintenance();
             return;
         }
@@ -248,6 +319,7 @@ public class StudySyncUI {
     }
 
     private void handleStartupSyncStatus(GoogleDriveService.SyncStatus status) {
+        applySyncStatusBadge(status);
         switch (status) {
             case DRIVE_NEWER -> showStartupAlert("Google Drive Sync",
                     "A newer database is available on Google Drive. Download it from the Profile window before "
@@ -318,6 +390,9 @@ public class StudySyncUI {
         profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
 
         profileStage.setScene(profileScene);
+        // Drive actions (upload/download/sign-in) happen in the Profile window,
+        // so the header badge re-checks once it closes.
+        profileStage.setOnHidden(e -> refreshSyncStatusBadge());
         profileStage.setMinWidth(900);
         profileStage.setMinHeight(600);
         profileStage.setWidth(1000);
