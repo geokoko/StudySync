@@ -10,6 +10,7 @@ import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.domain.service.TaskService;
 import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.service.ReminderService;
+import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskUpdate;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -34,6 +35,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private final TaskService taskService;
     private final CategoryService categoryService;
     private final ReminderService reminderService;
+    private final StudyService studyService;
     private final Consumer<Node> showModal;
     private final Runnable closeModal;
 
@@ -47,11 +49,12 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private TabPane statusTabPane;
 
     public TaskManagementPanel(TaskService taskService, CategoryService categoryService,
-                               ReminderService reminderService,
+                               ReminderService reminderService, StudyService studyService,
                                Consumer<Node> showModal, Runnable closeModal) {
         this.taskService = taskService;
         this.categoryService = categoryService;
         this.reminderService = reminderService;
+        this.studyService = studyService;
         this.showModal = showModal;
         this.closeModal = closeModal;
 
@@ -363,8 +366,9 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         Button goalHistoryBtn = new Button("Goal History");
         goalHistoryBtn.getStyleClass().addAll("btn-small");
-        goalHistoryBtn.setStyle("-fx-font-size: 11px; -fx-padding: 3 10; -fx-background-color: #e8eaf6;" +
-                                " -fx-background-radius: 4; -fx-text-fill: #3949ab; -fx-cursor: hand;");
+        goalHistoryBtn.setStyle("-fx-font-size: 11px; -fx-padding: 3 10; -fx-background-color: "
+                + TaskStyleUtils.TINT_PRIMARY + "; -fx-background-radius: 4; -fx-text-fill: "
+                + TaskStyleUtils.COLOR_PRIMARY + "; -fx-cursor: hand;");
         goalHistoryBtn.setOnAction(e -> {
             boolean showing = goalHistoryPane.isVisible();
             if (!showing) {
@@ -391,106 +395,400 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private void populateGoalHistory(VBox pane, Task task) {
         pane.getChildren().clear();
 
-        List<StudyGoal> goals = StudyGoal.findByTaskId(task.getId());
+        HBox toolbar = new HBox(8);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
 
-        if (goals.isEmpty()) {
-            Label empty = new Label("No goals have been planned for this task yet.");
+        Label heading = new Label("Goal history");
+        TaskStyleUtils.fontBold(heading, 12);
+        heading.setTextFill(Color.web(TaskStyleUtils.COLOR_PRIMARY));
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button addGoalBtn = new Button("+ Plan Goal");
+        addGoalBtn.getStyleClass().addAll("btn-purple", "btn-small");
+        addGoalBtn.setOnAction(e -> showTaskGoalForm(task, null, pane));
+        toolbar.getChildren().addAll(heading, spacer, addGoalBtn);
+        pane.getChildren().add(toolbar);
+
+        List<StudyGoal> attempts = StudyGoal.findByTaskId(task.getId());
+
+        if (attempts.isEmpty()) {
+            Label empty = new Label("No attempts have been planned for this task yet.");
             TaskStyleUtils.fontNormal(empty, 12);
             empty.setTextFill(Color.web("#7f8c8d"));
             pane.getChildren().add(empty);
             return;
         }
 
-        // Summary stats
-        long achieved = goals.stream().filter(StudyGoal::isAchieved).count();
-        long failed = goals.stream().filter(StudyGoal::isFailed).count();
-        long active = goals.stream().filter(g -> !g.isAchieved() && !g.isFailed()).count();
+        Map<String, List<StudyGoal>> attemptsByGoal = attempts.stream()
+                .collect(Collectors.groupingBy(StudyGoal::getId, LinkedHashMap::new, Collectors.toList()));
+        attemptsByGoal.values().forEach(goalAttempts ->
+                goalAttempts.sort(Comparator.comparingInt(StudyGoal::getAttemptNumber)));
 
-        Label statsLabel = new Label("Total: " + goals.size()
-                + "  |  Achieved: " + achieved
-                + "  |  Failed: " + failed
-                + "  |  Active: " + active);
-        TaskStyleUtils.fontSemiBold(statsLabel, 11);
-        statsLabel.setTextFill(Color.web("#495057"));
-        statsLabel.setPadding(new Insets(0, 0, 4, 0));
-        pane.getChildren().add(statsLabel);
+        long achieved = attempts.stream().filter(StudyGoal::isAchieved).count();
+        long missed = attempts.stream()
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED)
+                .count();
+        long active = attempts.stream()
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
+                        && goal.getStatus() == StudyGoal.GoalStatus.ACTIVE)
+                .count();
+        int score = (int) (achieved - missed);
 
-        // Goal list
-        for (StudyGoal goal : goals) {
-            HBox row = new HBox(8);
-            row.setAlignment(Pos.CENTER_LEFT);
-            row.setPadding(new Insets(4, 8, 4, 8));
+        FlowPane stats = new FlowPane(6, 4);
+        stats.setPadding(new Insets(0, 0, 4, 0));
+        stats.getChildren().addAll(
+                createStatChip("Goals " + attemptsByGoal.size(), TaskStyleUtils.COLOR_PRIMARY),
+                createStatChip("Attempts " + attempts.size(), TaskStyleUtils.COLOR_PRIMARY),
+                createStatChip("Done " + achieved, TaskStyleUtils.COLOR_SUCCESS),
+                createStatChip("Missed " + missed, TaskStyleUtils.COLOR_DANGER),
+                createStatChip("Active " + active, TaskStyleUtils.COLOR_PRIMARY),
+                createStatChip("Lifetime net " + String.format("%+d", score), TaskStyleUtils.COLOR_PURPLE)
+        );
+        pane.getChildren().add(stats);
 
-            // Status indicator
-            String statusIcon;
-            String statusColor;
-            if (goal.isAchieved()) {
-                statusIcon = "\u2713"; // checkmark
-                statusColor = "#27ae60";
-            } else if (goal.isFailed()) {
-                statusIcon = "\u2715"; // X
-                statusColor = "#e74c3c";
-            } else if (goal.isDelayed()) {
-                statusIcon = "\u231B"; // hourglass
-                statusColor = "#f39c12";
-            } else {
-                statusIcon = "\u25CB"; // circle
-                statusColor = "#3498db";
-            }
-
-            Label icon = TaskStyleUtils.iconLabel(statusIcon, 11);
-            icon.setTextFill(Color.web(statusColor));
-
-            // Date
-            Label dateLabel = new Label(goal.getDate().toString());
-            TaskStyleUtils.fontNormal(dateLabel, 11);
-            dateLabel.setTextFill(Color.web("#6c757d"));
-            dateLabel.setMinWidth(80);
-
-            // Description
-            String descText = goal.getDescription() != null ? goal.getDescription() : "";
-            if (descText.length() > 80) descText = descText.substring(0, 80) + "...";
-            Label descLabel = new Label(descText);
-            TaskStyleUtils.fontNormal(descLabel, 11);
-            descLabel.setWrapText(true);
-            HBox.setHgrow(descLabel, Priority.ALWAYS);
-            if (goal.isFailed()) {
-                descLabel.setTextFill(Color.web("#999"));
-            } else if (goal.isAchieved()) {
-                descLabel.setTextFill(Color.web("#2d6a4f"));
-            } else {
-                descLabel.setTextFill(Color.web("#333"));
-            }
-
-            // Status badge
-            Label badge;
-            if (goal.isAchieved()) {
-                badge = new Label("Achieved");
-                badge.setStyle("-fx-background-color: #e8f5e9; -fx-background-radius: 8; -fx-padding: 1 6;");
-                badge.setTextFill(Color.web("#1b5e20"));
-            } else if (goal.isFailed()) {
-                badge = new Label("Failed");
-                badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 8; -fx-padding: 1 6;");
-                badge.setTextFill(Color.web("#b71c1c"));
-            } else if (goal.isDelayed()) {
-                badge = new Label("Delayed (" + goal.getDaysDelayed() + "d)");
-                badge.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 8; -fx-padding: 1 6;");
-                badge.setTextFill(Color.web("#e65100"));
-            } else {
-                badge = new Label("Active");
-                badge.setStyle("-fx-background-color: #e3f2fd; -fx-background-radius: 8; -fx-padding: 1 6;");
-                badge.setTextFill(Color.web("#0d47a1"));
-            }
-            TaskStyleUtils.fontBold(badge, 10);
-
-            row.getChildren().addAll(icon, dateLabel, descLabel, badge);
-
-            // Alternate row background
-            row.setStyle("-fx-background-color: " + (pane.getChildren().size() % 2 == 0 ? "#f0f0f0" : "transparent") +
-                         "; -fx-background-radius: 4;");
-
-            pane.getChildren().add(row);
+        for (List<StudyGoal> goalAttempts : attemptsByGoal.values()) {
+            pane.getChildren().add(createGoalAttemptTimeline(task, goalAttempts, pane));
         }
+    }
+
+    private Label createStatChip(String text, String textColor) {
+        return TaskStyleUtils.createAttemptBadge(text, textColor, TaskStyleUtils.TINT_NEUTRAL);
+    }
+
+    private VBox createGoalAttemptTimeline(Task task, List<StudyGoal> attempts, VBox ownerPane) {
+        StudyGoal latest = attempts.get(attempts.size() - 1);
+
+        VBox card = new VBox(8);
+        card.setPadding(new Insets(10));
+        card.setStyle("-fx-background-color: white; -fx-background-radius: 6; -fx-border-color: #dee2e6;"
+                + " -fx-border-radius: 6;");
+
+        HBox header = new HBox(8);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Label title = new Label(shorten(latest.getDescription(), 90));
+        TaskStyleUtils.fontSemiBold(title, 12);
+        title.setTextFill(Color.web("#2c3e50"));
+        title.setWrapText(true);
+        HBox.setHgrow(title, Priority.ALWAYS);
+
+        Label parentBadge = new Label(parentStatusLabel(latest));
+        TaskStyleUtils.fontBold(parentBadge, 10);
+        parentBadge.setTextFill(Color.web(parentStatusColor(latest)));
+        parentBadge.setStyle("-fx-background-color: " + parentStatusBackground(latest)
+                + "; -fx-background-radius: 8; -fx-padding: 2 8;");
+
+        HBox actions = new HBox(6);
+        actions.setAlignment(Pos.CENTER_RIGHT);
+
+        Button editBtn = new Button("Edit");
+        editBtn.getStyleClass().addAll("btn-primary", "btn-small");
+        editBtn.setOnAction(e -> showTaskGoalForm(task, latest, ownerPane));
+        actions.getChildren().add(editBtn);
+
+        if (canPlanAnotherAttempt(latest)) {
+            Button planBtn = new Button("Plan");
+            planBtn.getStyleClass().addAll("btn-orange", "btn-small");
+            planBtn.setOnAction(e -> showPlanGoalAttemptForm(task, latest, ownerPane));
+            actions.getChildren().add(planBtn);
+        }
+
+        if (canAbandonGoal(latest)) {
+            Button abandonBtn = new Button("Abandon");
+            abandonBtn.getStyleClass().addAll("btn-danger", "btn-small");
+            abandonBtn.setOnAction(e -> confirmAbandonGoal(task, latest, ownerPane));
+            actions.getChildren().add(abandonBtn);
+        }
+
+        header.getChildren().addAll(title, parentBadge, actions);
+
+        Label summary = new Label("Latest attempt " + latest.getAttemptNumber()
+                + " | " + attempts.size() + " total attempt" + (attempts.size() == 1 ? "" : "s"));
+        TaskStyleUtils.fontNormal(summary, 11);
+        summary.setTextFill(Color.web("#6c757d"));
+
+        VBox timeline = new VBox(4);
+        for (StudyGoal attempt : attempts) {
+            timeline.getChildren().add(createAttemptTimelineRow(attempt));
+        }
+        timeline.setVisible(false);
+        timeline.setManaged(false);
+
+        Button toggleAttemptsBtn = new Button("Show attempts");
+        toggleAttemptsBtn.getStyleClass().addAll("btn-gray", "btn-small");
+        toggleAttemptsBtn.setOnAction(e -> {
+            boolean show = !timeline.isManaged();
+            timeline.setVisible(show);
+            timeline.setManaged(show);
+            toggleAttemptsBtn.setText(show ? "Hide attempts" : "Show attempts");
+        });
+
+        Region summarySpacer = new Region();
+        HBox.setHgrow(summarySpacer, Priority.ALWAYS);
+        HBox summaryRow = new HBox(8, summary, summarySpacer, toggleAttemptsBtn);
+        summaryRow.setAlignment(Pos.CENTER_LEFT);
+
+        card.getChildren().addAll(header, summaryRow, timeline);
+        return card;
+    }
+
+    private boolean canPlanAnotherAttempt(StudyGoal goal) {
+        return goal.getStatus() == StudyGoal.GoalStatus.ACTIVE
+                && goal.getAttemptOutcome() != StudyGoal.AttemptOutcome.PENDING
+                && !goal.isAchieved();
+    }
+
+    private boolean canAbandonGoal(StudyGoal goal) {
+        return goal.getStatus() == StudyGoal.GoalStatus.ACTIVE && !goal.isAchieved();
+    }
+
+    private HBox createAttemptTimelineRow(StudyGoal attempt) {
+        HBox row = new HBox(8);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(4, 6, 4, 6));
+        row.setStyle("-fx-background-color: " + TaskStyleUtils.TINT_NEUTRAL + "; -fx-background-radius: 4;"
+                + " -fx-border-color: transparent transparent transparent " + attemptStatusColor(attempt) + ";"
+                + " -fx-border-width: 0 0 0 4; -fx-border-radius: 4;");
+
+        Label marker = TaskStyleUtils.iconLabel(attemptIcon(attempt), 11);
+        marker.setTextFill(Color.web(attemptStatusColor(attempt)));
+
+        Label attemptLabel = new Label("Attempt " + attempt.getAttemptNumber());
+        TaskStyleUtils.fontSemiBold(attemptLabel, 11);
+        attemptLabel.setMinWidth(72);
+        attemptLabel.setTextFill(Color.web("#495057"));
+
+        Label dateLabel = new Label(attempt.getDate().toString());
+        TaskStyleUtils.fontNormal(dateLabel, 11);
+        dateLabel.setMinWidth(82);
+        dateLabel.setTextFill(Color.web("#6c757d"));
+
+        Label status = new Label(attemptStatusLabel(attempt));
+        TaskStyleUtils.fontBold(status, 10);
+        status.setTextFill(Color.web(attemptStatusColor(attempt)));
+        status.setStyle("-fx-background-color: " + attemptStatusBackground(attempt)
+                + "; -fx-background-radius: 8; -fx-padding: 1 7;");
+
+        row.getChildren().addAll(marker, attemptLabel, dateLabel, status);
+        return row;
+    }
+
+    private String parentStatusLabel(StudyGoal goal) {
+        if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
+            return "Achieved";
+        }
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
+            return "Abandoned";
+        }
+        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING ? "Active" : "Needs retry";
+    }
+
+    private String parentStatusColor(StudyGoal goal) {
+        if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
+            return TaskStyleUtils.COLOR_SUCCESS;
+        }
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
+            return TaskStyleUtils.COLOR_DANGER;
+        }
+        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
+                ? TaskStyleUtils.COLOR_PRIMARY : TaskStyleUtils.retryTextColor();
+    }
+
+    private String parentStatusBackground(StudyGoal goal) {
+        if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
+            return TaskStyleUtils.TINT_SUCCESS;
+        }
+        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
+            return TaskStyleUtils.TINT_DANGER;
+        }
+        return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
+                ? TaskStyleUtils.TINT_PRIMARY : TaskStyleUtils.retryBackgroundColor();
+    }
+
+    private String attemptIcon(StudyGoal attempt) {
+        return switch (attempt.getAttemptOutcome()) {
+            case ACHIEVED -> "\u2713";
+            case MISSED -> "\u2715";
+            case PENDING -> "\u25CB";
+        };
+    }
+
+    private String attemptStatusLabel(StudyGoal attempt) {
+        if (attempt.getStatus() == StudyGoal.GoalStatus.ABANDONED
+                && attempt.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING) {
+            return "Abandoned";
+        }
+        return switch (attempt.getAttemptOutcome()) {
+            case ACHIEVED -> "Achieved";
+            case MISSED -> "Missed";
+            case PENDING -> "Pending";
+        };
+    }
+
+    private String attemptStatusColor(StudyGoal attempt) {
+        return TaskStyleUtils.attemptTextColor(attempt);
+    }
+
+    private String attemptStatusBackground(StudyGoal attempt) {
+        return TaskStyleUtils.attemptBackgroundColor(attempt);
+    }
+
+    private String shorten(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() > maxLength ? text.substring(0, maxLength - 3) + "..." : text;
+    }
+
+    private void showTaskGoalForm(Task task, StudyGoal existingGoal, VBox ownerPane) {
+        boolean isNew = existingGoal == null;
+
+        VBox form = new VBox(12);
+        form.setPadding(new Insets(24));
+        form.getStyleClass().add("modal-content-light");
+        form.setMaxWidth(500);
+        form.setMaxHeight(Region.USE_PREF_SIZE);
+
+        Label title = new Label(isNew ? "Plan Goal for Task" : "Edit Goal");
+        TaskStyleUtils.fontBold(title, 18);
+
+        Label taskLabel = new Label(task.getTitle());
+        TaskStyleUtils.fontSemiBold(taskLabel, 12);
+        taskLabel.setTextFill(Color.web("#495057"));
+        taskLabel.setWrapText(true);
+
+        TextArea descriptionArea = new TextArea(isNew ? "" : nvl(existingGoal.getDescription()));
+        descriptionArea.setPromptText("Goal description");
+        descriptionArea.setPrefRowCount(3);
+        descriptionArea.setWrapText(true);
+
+        boolean canEditDate = isNew || existingGoal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING;
+        DatePicker datePicker = new DatePicker(isNew ? LocalDate.now() : existingGoal.getDate());
+        datePicker.setMaxWidth(Double.MAX_VALUE);
+        datePicker.setDisable(!canEditDate);
+
+        Label dateHint = new Label(canEditDate
+                ? "Choose when this attempt should appear in the planner."
+                : "Only pending attempts can be rescheduled. Use Plan to create a new dated attempt.");
+        TaskStyleUtils.fontNormal(dateHint, 11);
+        dateHint.setTextFill(Color.web("#6c757d"));
+        dateHint.setWrapText(true);
+
+        Button saveBtn = new Button(isNew ? "Plan Goal" : "Save Goal");
+        saveBtn.getStyleClass().add("btn-primary");
+        Button cancelBtn = new Button("Cancel");
+        cancelBtn.getStyleClass().add("btn-cancel");
+        cancelBtn.setOnAction(e -> closeModal.run());
+
+        saveBtn.setOnAction(e -> {
+            String description = descriptionArea.getText().trim();
+            LocalDate plannedDate = datePicker.getValue();
+            if (description.isEmpty()) {
+                showInlineError(form, "Description is required.");
+                return;
+            }
+            if (canEditDate && plannedDate == null) {
+                showInlineError(form, "Planned date is required.");
+                return;
+            }
+
+            try {
+                if (isNew) {
+                    studyService.addStudyGoal(description, plannedDate, task.getId());
+                } else {
+                    studyService.updateStudyGoalDetails(existingGoal.getId(), description,
+                            canEditDate ? plannedDate : null);
+                }
+                closeModal.run();
+                populateGoalHistory(ownerPane, task);
+            } catch (Exception ex) {
+                showInlineError(form, ex.getMessage());
+            }
+        });
+
+        HBox buttons = new HBox(10, saveBtn, cancelBtn);
+        buttons.setAlignment(Pos.CENTER_RIGHT);
+
+        form.getChildren().addAll(title, new Label("Task:"), taskLabel,
+                new Label("Description:"), descriptionArea,
+                new Label("Planned date:"), datePicker, dateHint, buttons);
+
+        showModal.accept(wrapGoalModal(form));
+    }
+
+    private void showPlanGoalAttemptForm(Task task, StudyGoal goal, VBox ownerPane) {
+        VBox form = new VBox(12);
+        form.setPadding(new Insets(24));
+        form.getStyleClass().add("modal-content-light");
+        form.setMaxWidth(460);
+        form.setMaxHeight(Region.USE_PREF_SIZE);
+
+        Label title = new Label("Plan Goal");
+        TaskStyleUtils.fontBold(title, 18);
+
+        Label description = new Label(goal.getDescription());
+        TaskStyleUtils.fontNormal(description, 13);
+        description.setWrapText(true);
+
+        DatePicker datePicker = new DatePicker(LocalDate.now());
+        datePicker.setMaxWidth(Double.MAX_VALUE);
+
+        Button planBtn = new Button("Plan Goal");
+        planBtn.getStyleClass().add("btn-orange");
+        Button cancelBtn = new Button("Cancel");
+        cancelBtn.getStyleClass().add("btn-cancel");
+        cancelBtn.setOnAction(e -> closeModal.run());
+
+        planBtn.setOnAction(e -> {
+            LocalDate plannedDate = datePicker.getValue();
+            if (plannedDate == null) {
+                showInlineError(form, "Planned date is required.");
+                return;
+            }
+            try {
+                boolean created = studyService.planGoalAttempt(goal.getId(), plannedDate);
+                if (!created) {
+                    showInlineError(form, "This goal already has a pending attempt or cannot be replanned.");
+                    return;
+                }
+                closeModal.run();
+                populateGoalHistory(ownerPane, task);
+            } catch (Exception ex) {
+                showInlineError(form, ex.getMessage());
+            }
+        });
+
+        HBox buttons = new HBox(10, planBtn, cancelBtn);
+        buttons.setAlignment(Pos.CENTER_RIGHT);
+
+        form.getChildren().addAll(title, new Label("Goal:"), description,
+                new Label("Date:"), datePicker, buttons);
+        showModal.accept(wrapGoalModal(form));
+    }
+
+    private void confirmAbandonGoal(Task task, StudyGoal goal, VBox ownerPane) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "Abandon \"" + shorten(goal.getDescription(), 80) + "\"?",
+                ButtonType.OK, ButtonType.CANCEL);
+        confirm.setTitle("Abandon Goal");
+        confirm.setHeaderText(null);
+        confirm.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
+        confirm.showAndWait().ifPresent(button -> {
+            if (button == ButtonType.OK && studyService.markGoalAsFailed(goal.getId())) {
+                populateGoalHistory(ownerPane, task);
+            }
+        });
+    }
+
+    private ScrollPane wrapGoalModal(VBox form) {
+        ScrollPane wrapper = new ScrollPane(form);
+        wrapper.setFitToWidth(true);
+        wrapper.getStyleClass().add("transparent-bg");
+        wrapper.setMaxWidth(520);
+        wrapper.setMaxHeight(560);
+        return wrapper;
     }
 
     // ──────────────────────────────────────────────

@@ -375,6 +375,11 @@
     -fx-min-height: 100px;
 }
 
+/* ComboBox popups must fit their items, not inherit page-level ListView sizing. */
+.combo-box-popup .list-view {
+    -fx-min-height: 0;
+}
+
 /*
  * ============================================================
  * CONTEXT MENUS
@@ -505,6 +510,20 @@
     -fx-font-size: 11px;
     -fx-padding: 4 10;
     -fx-background-radius: 4;
+}
+
+.planner-view-toggle {
+    -fx-background-color: #ecf0f1;
+    -fx-text-fill: #2c3e50;
+    -fx-background-radius: 4;
+    -fx-border-color: #bdc3c7;
+    -fx-border-radius: 4;
+}
+
+.planner-view-toggle:selected {
+    -fx-background-color: #3498db;
+    -fx-text-fill: white;
+    -fx-border-color: #2980b9;
 }
 
 /* MODAL CONTENT */

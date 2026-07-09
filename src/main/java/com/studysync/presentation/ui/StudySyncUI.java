@@ -100,7 +100,7 @@ public class StudySyncUI {
         Tab tasksTab = new Tab("Tasks");
         tasksTab.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
         panels.put(tasksTab, new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService,
-                this::showModal, this::closeModal));
+                this.studyService, this::showModal, this::closeModal));
         panelMap = Collections.unmodifiableMap(panels);
     }
 
@@ -279,11 +279,8 @@ public class StudySyncUI {
     private void processDelayedGoalsOnStartup() {
         try {
             StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
-            if (result.updatedGoals() > 0) {
-                logger.info("Updated delay status for {} study goals carried over from previous days", result.updatedGoals());
-            }
-            if (result.failedGoals() > 0) {
-                logger.info("Marked {} study goals as FAILED (overdue by at least two weeks)", result.failedGoals());
+            if (result.missedAttempts() > 0) {
+                logger.info("Marked {} overdue study goal attempt(s) as missed", result.missedAttempts());
             }
         } catch (Exception e) {
             logger.error("Failed to process delayed goals on startup", e);

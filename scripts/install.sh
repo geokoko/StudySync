@@ -109,6 +109,12 @@ install_files() {
     mkdir -p "$BIN_DIR"
     mkdir -p "$APPLICATIONS_DIR"
     mkdir -p "$ICONS_DIR"
+
+    # Remove previous application jars before copying the newly built release.
+    # Dependency jars are kept; only StudySync's own versioned jars are replaced.
+    find "$INSTALL_DIR/lib" -maxdepth 1 -type f \
+        \( -name "StudySync-*.jar" -o -name "studysync-*.jar" \) \
+        -delete
     
     if [[ "$RELEASE_MODE" == true ]]; then
         # Copy from release tarball
@@ -130,7 +136,10 @@ install_files() {
         
         # Copy dependencies
         local install_lib_dir
-        install_lib_dir=$(find "$PROJECT_ROOT/build/install" -mindepth 2 -maxdepth 2 -type d -name lib | head -1)
+        install_lib_dir=""
+        if [[ -d "$PROJECT_ROOT/build/install" ]]; then
+            install_lib_dir=$(find "$PROJECT_ROOT/build/install" -mindepth 2 -maxdepth 2 -type d -name lib | head -1)
+        fi
         if [[ -n "$install_lib_dir" && -d "$install_lib_dir" ]]; then
             cp "$install_lib_dir/"*.jar "$INSTALL_DIR/lib/" 2>/dev/null || true
         fi
@@ -160,12 +169,22 @@ create_launcher() {
     # Prefer executable jar when available; otherwise use classpath mode with plain jar
     local main_jar
     local launch_mode
-    main_jar=$(find "$INSTALL_DIR/lib" \( -name "StudySync-*.jar" -o -name "studysync-*.jar" \) | grep -v "\-plain.jar" | head -1)
+    main_jar=$(find "$INSTALL_DIR/lib" -maxdepth 1 -type f \
+        \( -name "StudySync-*.jar" -o -name "studysync-*.jar" \) \
+        ! -name "*-plain.jar" -printf "%T@ %p\n" \
+        | sort -nr \
+        | head -1 \
+        | cut -d' ' -f2-)
 
     if [[ -n "$main_jar" ]]; then
         launch_mode="jar"
     else
-        main_jar=$(find "$INSTALL_DIR/lib" \( -name "StudySync-*-plain.jar" -o -name "studysync-*-plain.jar" \) | head -1)
+        main_jar=$(find "$INSTALL_DIR/lib" -maxdepth 1 -type f \
+            \( -name "StudySync-*-plain.jar" -o -name "studysync-*-plain.jar" \) \
+            -printf "%T@ %p\n" \
+            | sort -nr \
+            | head -1 \
+            | cut -d' ' -f2-)
         if [[ -z "$main_jar" ]]; then
             print_error "Application JAR not found in $INSTALL_DIR/lib"
             exit 1

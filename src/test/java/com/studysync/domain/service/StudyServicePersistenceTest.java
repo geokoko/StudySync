@@ -2,6 +2,10 @@ package com.studysync.domain.service;
 
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
+import com.studysync.domain.entity.Task;
+import com.studysync.domain.exception.ValidationException;
+import com.studysync.domain.valueobject.TaskPriority;
+import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.integration.drive.GoogleDriveService;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -17,6 +21,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -30,6 +35,7 @@ class StudyServicePersistenceTest {
     private GoogleDriveService googleDriveService;
     private DateTimeService dateTimeService;
     private StudyService studyService;
+    private TaskService taskService;
 
     @BeforeEach
     void setUp() {
@@ -44,9 +50,11 @@ class StudyServicePersistenceTest {
         jdbcTemplate = new JdbcTemplate(dataSource);
 
         createStudySessionsTable();
+        createTasksTable();
         createStudyGoalsTable();
 
         StudySession.setJdbcTemplate(jdbcTemplate);
+        Task.setJdbcTemplate(jdbcTemplate);
         StudyGoal.setJdbcTemplate(jdbcTemplate);
 
         googleDriveService = mock(GoogleDriveService.class);
@@ -56,11 +64,13 @@ class StudyServicePersistenceTest {
         when(dateTimeService.getCurrentDate()).thenReturn(LocalDate.of(2026, 3, 28));
 
         studyService = new StudyService(googleDriveService, dateTimeService);
+        taskService = new TaskService(mock(CategoryService.class), googleDriveService, dateTimeService);
     }
 
     @AfterEach
     void tearDown() {
         StudySession.setJdbcTemplate(null);
+        Task.setJdbcTemplate(null);
         StudyGoal.setJdbcTemplate(null);
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
@@ -147,8 +157,248 @@ class StudyServicePersistenceTest {
         StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
         assertTrue(stored.isAchieved());
 
+        Integer achievedAttempts = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ? AND outcome = 'ACHIEVED'",
+                Integer.class,
+                goal.getId());
+        assertEquals(1, achievedAttempts);
+
         verify(googleDriveService).markLocalDbDirty();
         verify(googleDriveService).saveLocally();
+    }
+
+    @Test
+    void overdueGoalAttemptBecomesMissedAndCanBeReplanned() {
+        StudyGoal goal = new StudyGoal("Review missed topic");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.save();
+
+        reset(googleDriveService);
+        when(googleDriveService.saveLocally()).thenReturn(true);
+
+        StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
+
+        assertEquals(1, result.missedAttempts());
+        assertEquals(1, StudyGoal.findDelayedAndNotReplanned().size());
+
+        assertTrue(studyService.replanGoalForToday(goal.getId()));
+
+        List<StudyGoal> todayGoals = studyService.getStudyGoalsForDate(LocalDate.of(2026, 3, 28));
+        assertEquals(1, todayGoals.size());
+        assertEquals(2, todayGoals.getFirst().getAttemptNumber());
+        assertEquals(1, todayGoals.getFirst().getMissedAttemptCount());
+
+        Integer attempts = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?",
+                Integer.class,
+                goal.getId());
+        assertEquals(2, attempts);
+    }
+
+    @Test
+    void explicitlyAbandonedGoalIsNotOfferedForRetry() {
+        StudyGoal goal = new StudyGoal("Drop this goal");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.save();
+
+        studyService.processAllDelayedGoals();
+        assertEquals(1, StudyGoal.findDelayedAndNotReplanned().size());
+
+        assertTrue(studyService.markGoalAsFailed(goal.getId()));
+
+        StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
+        assertEquals(StudyGoal.GoalStatus.ABANDONED, stored.getStatus());
+        assertTrue(stored.isAbandonedExplicitly());
+        assertTrue(StudyGoal.findDelayedAndNotReplanned().isEmpty());
+    }
+
+    @Test
+    void abandonedGoalCannotBeReplannedThroughServiceOrEntity() {
+        StudyGoal abandoned = missedGoal("Abandoned retry guard", null, LocalDate.of(2026, 3, 24));
+
+        assertTrue(studyService.markGoalAsFailed(abandoned.getId()));
+        Integer beforeAttempts = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?
+                """, Integer.class, abandoned.getId());
+
+        assertFalse(studyService.replanGoalForToday(abandoned.getId()));
+        assertFalse(StudyGoal.createReplanAttempt(abandoned.getId(), LocalDate.of(2026, 3, 28)));
+
+        Integer afterAttempts = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?
+                """, Integer.class, abandoned.getId());
+        assertEquals(beforeAttempts, afterAttempts);
+    }
+
+    @Test
+    void achievedGoalCannotBeAbandoned() {
+        StudyGoal goal = new StudyGoal("Achieved abandon guard");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.save();
+        studyService.updateStudyGoalAchievement(goal.getId(), true, null);
+
+        assertFalse(studyService.markGoalAsFailed(goal.getId()));
+
+        StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
+        assertEquals(StudyGoal.GoalStatus.ACHIEVED, stored.getStatus());
+        Integer achievedAttempts = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ? AND outcome = 'ACHIEVED'",
+                Integer.class,
+                goal.getId());
+        assertEquals(1, achievedAttempts);
+    }
+
+    @Test
+    void planGoalAttemptRejectsPastDates() {
+        StudyGoal goal = missedGoal("Past retry guard", null, LocalDate.of(2026, 3, 24));
+
+        assertThrows(ValidationException.class,
+                () -> studyService.planGoalAttempt(goal.getId(), LocalDate.of(2026, 3, 27)));
+
+        Integer attempts = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?",
+                Integer.class,
+                goal.getId());
+        assertEquals(1, attempts);
+    }
+
+    @Test
+    void getDelayedGoalsForReplanningReturnsOnlyRetryableGoalsForRequestedTask() {
+        StudyGoal retryable = missedGoal("Retry for requested task", "task-1", LocalDate.of(2026, 3, 24));
+        StudyGoal otherTask = missedGoal("Retry for another task", "task-2", LocalDate.of(2026, 3, 24));
+        StudyGoal alreadyReplanned = missedGoal("Already has pending retry", "task-1", LocalDate.of(2026, 3, 25));
+        StudyGoal abandoned = missedGoal("Abandoned requested task goal", "task-1", LocalDate.of(2026, 3, 26));
+        StudyGoal achieved = missedGoal("Achieved requested task goal", "task-1", LocalDate.of(2026, 3, 27));
+
+        assertTrue(StudyGoal.createReplanAttempt(alreadyReplanned.getId(), LocalDate.of(2026, 3, 28)));
+        assertTrue(studyService.markGoalAsFailed(abandoned.getId()));
+        jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET outcome = 'ACHIEVED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ?
+                """, achieved.getId());
+        jdbcTemplate.update("""
+                UPDATE study_goals
+                SET status = 'ACHIEVED', achieved = TRUE, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """, achieved.getId());
+
+        List<StudyGoal> taskOneRetries = studyService.getDelayedGoalsForReplanning("task-1");
+
+        assertEquals(1, taskOneRetries.size());
+        assertEquals(retryable.getId(), taskOneRetries.getFirst().getId());
+        assertEquals(List.of(otherTask.getId()),
+                studyService.getDelayedGoalsForReplanning("task-2").stream()
+                        .map(StudyGoal::getId)
+                        .toList());
+        assertTrue(studyService.getDelayedGoalsForReplanning(null).isEmpty());
+        assertTrue(studyService.getDelayedGoalsForReplanning(" ").isEmpty());
+    }
+
+    @Test
+    void getUnlinkedDelayedGoalsForReplanningReturnsOnlyRetryableUnlinkedGoals() {
+        StudyGoal retryable = missedGoal("Retry without task", null, LocalDate.of(2026, 3, 24));
+        StudyGoal linked = missedGoal("Linked retry", "task-1", LocalDate.of(2026, 3, 24));
+        StudyGoal alreadyReplanned = missedGoal("Unlinked already replanned", null, LocalDate.of(2026, 3, 25));
+        StudyGoal abandoned = missedGoal("Unlinked abandoned", null, LocalDate.of(2026, 3, 26));
+        StudyGoal achieved = missedGoal("Unlinked achieved", null, LocalDate.of(2026, 3, 27));
+
+        assertTrue(StudyGoal.createReplanAttempt(alreadyReplanned.getId(), LocalDate.of(2026, 3, 28)));
+        assertTrue(studyService.markGoalAsFailed(abandoned.getId()));
+        jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET outcome = 'ACHIEVED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ?
+                """, achieved.getId());
+        jdbcTemplate.update("""
+                UPDATE study_goals
+                SET status = 'ACHIEVED', achieved = TRUE, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """, achieved.getId());
+
+        List<StudyGoal> retries = studyService.getUnlinkedDelayedGoalsForReplanning();
+
+        assertEquals(List.of(retryable.getId()), retries.stream().map(StudyGoal::getId).toList());
+        assertFalse(retries.stream().map(StudyGoal::getId).toList().contains(linked.getId()));
+    }
+
+    @Test
+    void completedRetryHandlesOriginalMissedRecurringTaskOccurrence() {
+        LocalDate occurrenceDate = LocalDate.of(2026, 3, 30);
+        LocalDate retryDate = LocalDate.of(2026, 3, 31);
+        Task task = recurringMondayTask("recurring-task", occurrenceDate.minusWeeks(1));
+        StudyGoal goal = missedGoal("Retry original occurrence", task.getId(), occurrenceDate);
+
+        assertEquals(List.of(task.getId()), missedTaskIdsFor(retryDate));
+
+        assertTrue(StudyGoal.createReplanAttempt(goal.getId(), retryDate));
+        assertTrue(StudyGoal.markCurrentAttemptAchieved(goal.getId(), null));
+
+        assertTrue(taskService.getMissedRecurringOccurrences(retryDate).isEmpty());
+        assertTrue(taskService.isOccurrenceHandled(task, occurrenceDate));
+        assertTrue(StudyGoal.findHandledTaskDatePairs(occurrenceDate, retryDate)
+                .contains(task.getId() + "|" + occurrenceDate));
+    }
+
+    @Test
+    void unrelatedLaterAchievedGoalDoesNotHandleMissedRecurringTaskOccurrence() {
+        LocalDate occurrenceDate = LocalDate.of(2026, 3, 30);
+        LocalDate laterDate = LocalDate.of(2026, 3, 31);
+        Task task = recurringMondayTask("recurring-task", occurrenceDate.minusWeeks(1));
+        missedGoal("Missed original occurrence", task.getId(), occurrenceDate);
+        StudyGoal unrelated = new StudyGoal("Unrelated later goal");
+        unrelated.setTaskId(task.getId());
+        unrelated.setDate(laterDate);
+        unrelated.save();
+
+        assertTrue(StudyGoal.markCurrentAttemptAchieved(unrelated.getId(), null));
+
+        assertEquals(List.of(task.getId()), missedTaskIdsFor(laterDate));
+        assertFalse(taskService.isOccurrenceHandled(task, occurrenceDate));
+    }
+
+    @Test
+    void directAchievedGoalHandlesRecurringTaskOccurrence() {
+        LocalDate occurrenceDate = LocalDate.of(2026, 3, 30);
+        LocalDate nextDate = LocalDate.of(2026, 3, 31);
+        Task task = recurringMondayTask("recurring-task", occurrenceDate.minusWeeks(1));
+        StudyGoal goal = new StudyGoal("Complete scheduled occurrence");
+        goal.setTaskId(task.getId());
+        goal.setDate(occurrenceDate);
+        goal.save();
+
+        assertTrue(StudyGoal.markCurrentAttemptAchieved(goal.getId(), null));
+
+        assertTrue(taskService.getMissedRecurringOccurrences(nextDate).isEmpty());
+        assertTrue(taskService.isOccurrenceHandled(task, occurrenceDate));
+    }
+
+    @Test
+    void taskGoalDetailsCanBeEditedAndRetriedForChosenDate() {
+        studyService.addStudyGoal("Read chapter", LocalDate.of(2026, 3, 27), "task-1");
+
+        StudyGoal pending = StudyGoal.findByTaskId("task-1").getFirst();
+        assertTrue(studyService.updateStudyGoalDetails(
+                pending.getId(), "Read chapter and write notes", LocalDate.of(2026, 3, 29)));
+
+        StudyGoal edited = StudyGoal.findById(pending.getId()).orElseThrow();
+        assertEquals("Read chapter and write notes", edited.getDescription());
+        assertEquals(LocalDate.of(2026, 3, 29), edited.getDate());
+
+        jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET outcome = 'MISSED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ?
+                """, edited.getId());
+
+        assertTrue(studyService.planGoalAttempt(edited.getId(), LocalDate.of(2026, 4, 2)));
+
+        List<StudyGoal> attempts = StudyGoal.findByTaskId("task-1");
+        assertEquals(2, attempts.size());
+        StudyGoal latest = StudyGoal.findById(edited.getId()).orElseThrow();
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, latest.getAttemptOutcome());
+        assertEquals(LocalDate.of(2026, 4, 2), latest.getDate());
+        assertEquals(2, latest.getAttemptNumber());
     }
 
     @Test
@@ -207,6 +457,25 @@ class StudyServicePersistenceTest {
                 """);
     }
 
+    private void createTasksTable() {
+        jdbcTemplate.execute("""
+                CREATE TABLE tasks (
+                    id VARCHAR(50) PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    category VARCHAR(100),
+                    priority INTEGER DEFAULT 1,
+                    deadline DATE,
+                    status VARCHAR(20) DEFAULT 'OPEN',
+                    points INTEGER DEFAULT 0,
+                    recurring_pattern VARCHAR(100),
+                    start_date DATE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+    }
+
     private void createStudyGoalsTable() {
         jdbcTemplate.execute("""
                 CREATE TABLE study_goals (
@@ -221,9 +490,50 @@ class StudyServicePersistenceTest {
                     task_id VARCHAR(50),
                     replanned_for_date DATE,
                     failed BOOLEAN DEFAULT FALSE,
+                    status VARCHAR(20) DEFAULT 'ACTIVE',
+                    abandoned_explicitly BOOLEAN DEFAULT FALSE,
+                    achieved_attempt_id VARCHAR(50),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
+        jdbcTemplate.execute("""
+                CREATE TABLE study_goal_attempts (
+                    id VARCHAR(50) PRIMARY KEY,
+                    goal_id VARCHAR(50) NOT NULL,
+                    planned_for_date DATE NOT NULL,
+                    replanned_from_attempt_id VARCHAR(50),
+                    outcome VARCHAR(20) DEFAULT 'PENDING',
+                    reason_if_not_achieved TEXT,
+                    outcome_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+    }
+
+    private StudyGoal missedGoal(final String description, final String taskId, final LocalDate date) {
+        StudyGoal goal = new StudyGoal(description);
+        goal.setTaskId(taskId);
+        goal.setDate(date);
+        goal.save();
+        jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET outcome = 'MISSED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ?
+                """, goal.getId());
+        return StudyGoal.findById(goal.getId()).orElseThrow();
+    }
+
+    private Task recurringMondayTask(final String taskId, final LocalDate startDate) {
+        Task task = new Task(taskId, "Recurring task", "", "Study", new TaskPriority(3),
+                null, TaskStatus.OPEN, 0, "1:1", startDate);
+        return task.save();
+    }
+
+    private List<String> missedTaskIdsFor(final LocalDate today) {
+        return taskService.getMissedRecurringOccurrences(today).stream()
+                .map(occurrence -> occurrence.task().getId())
+                .toList();
     }
 }

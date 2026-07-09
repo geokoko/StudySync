@@ -1,205 +1,158 @@
-
 package com.studysync.domain.entity;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 
 /**
- * Domain entity representing a study goal in the StudySync personal development system.
- * 
- * <p>StudyGoal enables users to set daily learning objectives and track their achievement over time.
- * This supports habit formation, progress tracking, and reflection on learning outcomes. Goals can
- * be simple daily objectives or more complex learning targets.</p>
- * 
- * <p><strong>Goal Lifecycle:</strong>
- * <ol>
- *   <li><strong>Creation:</strong> Goal is set with a description and current date</li>
- *   <li><strong>Tracking:</strong> User works toward achieving the goal throughout the day</li>
- *   <li><strong>Evaluation:</strong> At day's end, goal is marked achieved or not achieved</li>
- *   <li><strong>Reflection:</strong> If not achieved, user can record reasons for learning</li>
- * </ol></p>
- * 
- * <p><strong>Usage Examples:</strong>
- * <pre>
- * // Create a simple daily goal
- * StudyGoal goal = new StudyGoal("Complete 2 hours of focused study");
- * 
- * // Mark goal as achieved
- * goal.setAchieved(true);
- * 
- * // Record reason if not achieved
- * goal.setAchieved(false);
- * goal.setReasonIfNotAchieved("Had unexpected meeting that ran long");
- * </pre></p>
- * 
- * <p><strong>Business Rules:</strong>
- * <ul>
- *   <li>Each goal is automatically assigned a unique ID and current date</li>
- *   <li>Goals default to not achieved until explicitly marked</li>
- *   <li>Reasons for non-achievement are optional but encouraged for reflection</li>
- *   <li>Goals cannot be modified once created (description is immutable)</li>
- * </ul></p>
- * 
- * <p><strong>Integration:</strong> StudyGoals integrate with the daily reflection system
- * and analytics to provide insights into learning patterns and goal achievement rates.</p>
- * 
- * @author StudySync Development Team
- * @version 0.1.2
- * @since 0.1.0
- * @see DailyReflection
+ * Domain entity representing a study goal.
+ *
+ * <p>The database model separates a goal's intent from its scheduled attempts:
+ * {@code study_goals} is the parent intent, while {@code study_goal_attempts}
+ * stores every planned try and outcome. This class intentionally keeps the old
+ * view-style API used by the UI: each queried {@code StudyGoal} instance is a
+ * parent goal plus one selected attempt context.</p>
  */
 public class StudyGoal {
     private static final Logger logger = LoggerFactory.getLogger(StudyGoal.class);
     private static JdbcTemplate jdbcTemplate;
-    
+
+    public enum GoalStatus {
+        ACTIVE,
+        ACHIEVED,
+        ABANDONED
+    }
+
+    public enum AttemptOutcome {
+        PENDING,
+        ACHIEVED,
+        MISSED
+    }
+
+    private static final String SELECT_ATTEMPT_VIEW = """
+        SELECT
+            g.id,
+            g.description,
+            g.task_id,
+            COALESCE(g.status, 'ACTIVE') AS status,
+            COALESCE(g.abandoned_explicitly, FALSE) AS abandoned_explicitly,
+            g.achieved_attempt_id,
+            g.created_at AS goal_created_at,
+            g.updated_at AS goal_updated_at,
+            a.id AS attempt_id,
+            a.planned_for_date,
+            a.replanned_from_attempt_id,
+            COALESCE(a.outcome, 'PENDING') AS attempt_outcome,
+            a.reason_if_not_achieved,
+            a.outcome_at,
+            a.created_at AS attempt_created_at,
+            a.updated_at AS attempt_updated_at,
+            (
+                SELECT COUNT(*)
+                FROM study_goal_attempts x
+                WHERE x.goal_id = g.id
+                  AND (x.created_at < a.created_at OR (x.created_at = a.created_at AND x.id <= a.id))
+            ) AS attempt_number,
+            (
+                SELECT COUNT(*)
+                FROM study_goal_attempts m
+                WHERE m.goal_id = g.id
+                  AND m.outcome = 'MISSED'
+                  AND (m.created_at < a.created_at OR (m.created_at = a.created_at AND m.id <= a.id))
+            ) AS missed_attempt_count
+        FROM study_goals g
+        JOIN study_goal_attempts a ON a.goal_id = g.id
+        """;
+
+    private String id;
+    private LocalDate date;
+    private String description;
+    private boolean achieved;
+    private String reasonIfNotAchieved;
+    private int daysDelayed;
+    private boolean isDelayed;
+    private int pointsDeducted;
+    private String taskId;
+    private LocalDate replannedForDate;
+    private boolean failed;
+
+    private GoalStatus status = GoalStatus.ACTIVE;
+    private boolean abandonedExplicitly;
+    private String achievedAttemptId;
+    private String attemptId;
+    private String replannedFromAttemptId;
+    private AttemptOutcome attemptOutcome = AttemptOutcome.PENDING;
+    private LocalDateTime outcomeAt;
+    private int attemptNumber = 1;
+    private int missedAttemptCount = 0;
+
     public static void setJdbcTemplate(JdbcTemplate template) {
         jdbcTemplate = template;
     }
-    
-    /** Unique identifier for this study goal. */
-    private String id;
-    
-    /** The date this goal was created for (target achievement date). */
-    private LocalDate date;
-    
-    /** Description of what the user wants to achieve. */
-    private String description;
-    
-    /** Whether this goal has been achieved. */
-    private boolean achieved;
-    
-    /** Optional explanation of why the goal was not achieved (for reflection). */
-    private String reasonIfNotAchieved;
-    
-    /** Number of days this goal has been delayed (0 for goals on original date). */
-    private int daysDelayed;
-    
-    /** Whether this goal is a transferred goal from a previous day. */
-    private boolean isDelayed;
-    
-    /** Points deducted due to delays (accumulates over time). */
-    private int pointsDeducted;
-    
-    /** Optional ID of the task this goal is linked to. */
-    private String taskId;
 
-    /**
-     * When non-null, this goal has been manually rescheduled to appear on this specific date.
-     * It is excluded from automatic delay carry-forward and only surfaces on this date.
-     */
-    private LocalDate replannedForDate;
-
-    /** Whether this goal has been marked as failed (overdue beyond threshold or user-dismissed). */
-    private boolean failed;
-
-    /**
-     * Default constructor creating a study goal with auto-generated ID and current date.
-     * 
-     * <p>The goal is initialized as not achieved. The description must be set separately.</p>
-     */
     public StudyGoal() {
-        this.id = java.util.UUID.randomUUID().toString();
+        this.id = UUID.randomUUID().toString();
         this.date = LocalDate.now();
-        this.achieved = false;
-        this.daysDelayed = 0;
-        this.isDelayed = false;
-        this.pointsDeducted = 0;
-        this.failed = false;
+        this.status = GoalStatus.ACTIVE;
+        this.attemptOutcome = AttemptOutcome.PENDING;
     }
 
-    /**
-     * Creates a study goal with the specified description.
-     * 
-     * <p>The goal is automatically assigned a unique ID, set to the current date,
-     * and initialized as not achieved.</p>
-     * 
-     * @param description what the user wants to achieve
-     */
     public StudyGoal(String description) {
         this();
         this.description = description;
     }
-    
-    /**
-     * Creates a study goal with the specified description and optional task link.
-     * 
-     * @param description what the user wants to achieve
-     * @param taskId optional ID of the task this goal is linked to
-     */
+
     public StudyGoal(String description, String taskId) {
         this(description);
         this.taskId = taskId;
     }
 
-    /**
-     * Full constructor for creating StudyGoal from JSON or with all parameters.
-     * 
-     * <p>This constructor provides null-safety by generating defaults for ID and date
-     * if not provided. Used primarily for JSON deserialization and testing.</p>
-     * 
-     * @param id unique identifier (auto-generated if null)
-     * @param date goal date (current date if null)
-     * @param description goal description
-     * @param achieved whether the goal has been achieved
-     * @param reasonIfNotAchieved explanation if not achieved
-     */
     @JsonCreator
     public StudyGoal(@JsonProperty("id") String id,
-                    @JsonProperty("date") LocalDate date,
-                    @JsonProperty("description") String description,
-                    @JsonProperty("achieved") boolean achieved,
-                    @JsonProperty("reasonIfNotAchieved") String reasonIfNotAchieved) {
-        this.id = id != null ? id : java.util.UUID.randomUUID().toString();
+                     @JsonProperty("date") LocalDate date,
+                     @JsonProperty("description") String description,
+                     @JsonProperty("achieved") boolean achieved,
+                     @JsonProperty("reasonIfNotAchieved") String reasonIfNotAchieved) {
+        this.id = id != null ? id : UUID.randomUUID().toString();
         this.date = date != null ? date : LocalDate.now();
         this.description = description;
         this.achieved = achieved;
         this.reasonIfNotAchieved = reasonIfNotAchieved;
-        this.daysDelayed = 0;
-        this.isDelayed = false;
-        this.pointsDeducted = 0;
-    }
-    
-    /**
-     * Full constructor for creating StudyGoal with all delay tracking fields.
-     * Used internally for database operations.
-     */
-    public StudyGoal(String id, LocalDate date, String description, boolean achieved,
-                    String reasonIfNotAchieved, int daysDelayed,
-                    boolean isDelayed, int pointsDeducted, String taskId) {
-        this(id, date, description, achieved, reasonIfNotAchieved,
-             daysDelayed, isDelayed, pointsDeducted, taskId, null);
+        this.status = achieved ? GoalStatus.ACHIEVED : GoalStatus.ACTIVE;
+        this.attemptOutcome = achieved ? AttemptOutcome.ACHIEVED : AttemptOutcome.PENDING;
     }
 
-    /**
-     * Full constructor including the optional replanned-for date.
-     * Used when rescheduling goals (failed defaults to false).
-     */
     public StudyGoal(String id, LocalDate date, String description, boolean achieved,
-                    String reasonIfNotAchieved, int daysDelayed,
-                    boolean isDelayed, int pointsDeducted, String taskId,
-                    LocalDate replannedForDate) {
+                     String reasonIfNotAchieved, int daysDelayed,
+                     boolean isDelayed, int pointsDeducted, String taskId) {
         this(id, date, description, achieved, reasonIfNotAchieved,
-             daysDelayed, isDelayed, pointsDeducted, taskId, replannedForDate, false);
+                daysDelayed, isDelayed, pointsDeducted, taskId, null, false);
     }
 
-    /**
-     * Full constructor including failed flag.
-     * Used by the row mapper.
-     */
     public StudyGoal(String id, LocalDate date, String description, boolean achieved,
-                    String reasonIfNotAchieved, int daysDelayed,
-                    boolean isDelayed, int pointsDeducted, String taskId,
-                    LocalDate replannedForDate, boolean failed) {
-        this.id = id != null ? id : java.util.UUID.randomUUID().toString();
+                     String reasonIfNotAchieved, int daysDelayed,
+                     boolean isDelayed, int pointsDeducted, String taskId,
+                     LocalDate replannedForDate) {
+        this(id, date, description, achieved, reasonIfNotAchieved,
+                daysDelayed, isDelayed, pointsDeducted, taskId, replannedForDate, false);
+    }
+
+    public StudyGoal(String id, LocalDate date, String description, boolean achieved,
+                     String reasonIfNotAchieved, int daysDelayed,
+                     boolean isDelayed, int pointsDeducted, String taskId,
+                     LocalDate replannedForDate, boolean failed) {
+        this.id = id != null ? id : UUID.randomUUID().toString();
         this.date = date != null ? date : LocalDate.now();
         this.description = description;
         this.achieved = achieved;
@@ -210,660 +163,660 @@ public class StudyGoal {
         this.taskId = taskId;
         this.replannedForDate = replannedForDate;
         this.failed = failed;
+        this.status = achieved ? GoalStatus.ACHIEVED : GoalStatus.ACTIVE;
+        this.attemptOutcome = failed ? AttemptOutcome.MISSED : achieved ? AttemptOutcome.ACHIEVED : AttemptOutcome.PENDING;
     }
 
-    /**
-     * Gets the unique identifier of this study goal.
-     * 
-     * @return the goal ID
-     */
+    private StudyGoal(String id, LocalDate date, String description, String taskId,
+                      GoalStatus status, boolean abandonedExplicitly, String achievedAttemptId,
+                      String attemptId, String replannedFromAttemptId, AttemptOutcome attemptOutcome,
+                      String reasonIfNotAchieved, LocalDateTime outcomeAt,
+                      int attemptNumber, int missedAttemptCount) {
+        this.id = id;
+        this.date = date;
+        this.description = description;
+        this.taskId = taskId;
+        this.status = status;
+        this.abandonedExplicitly = abandonedExplicitly;
+        this.achievedAttemptId = achievedAttemptId;
+        this.attemptId = attemptId;
+        this.replannedFromAttemptId = replannedFromAttemptId;
+        this.attemptOutcome = attemptOutcome;
+        this.reasonIfNotAchieved = reasonIfNotAchieved;
+        this.outcomeAt = outcomeAt;
+        this.attemptNumber = Math.max(1, attemptNumber);
+        this.missedAttemptCount = Math.max(0, missedAttemptCount);
+        this.achieved = attemptOutcome == AttemptOutcome.ACHIEVED;
+        this.failed = attemptOutcome == AttemptOutcome.MISSED || status == GoalStatus.ABANDONED;
+        this.isDelayed = this.missedAttemptCount > 0 || this.failed;
+        this.daysDelayed = this.missedAttemptCount;
+        this.pointsDeducted = this.missedAttemptCount;
+        this.replannedForDate = replannedFromAttemptId != null && attemptOutcome == AttemptOutcome.PENDING ? date : null;
+    }
+
     public String getId() { return id; }
-    
-    /**
-     * Sets the unique identifier for this study goal.
-     * 
-     * @param id the goal ID
-     */
     public void setId(String id) { this.id = id; }
 
-    /**
-     * Gets the date this goal was created for.
-     * 
-     * @return the goal date
-     */
     public LocalDate getDate() { return date; }
-    
-    /**
-     * Sets the date for this goal.
-     * 
-     * @param date the goal date
-     */
     public void setDate(LocalDate date) { this.date = date; }
 
-    /**
-     * Gets the description of what should be achieved.
-     * 
-     * @return the goal description
-     */
     public String getDescription() { return description; }
-    
-    /**
-     * Sets the description of what should be achieved.
-     * 
-     * @param description the goal description
-     */
     public void setDescription(String description) { this.description = description; }
 
-    /**
-     * Determines if this goal has been achieved.
-     * 
-     * @return true if the goal has been achieved, false otherwise
-     */
     public boolean isAchieved() { return achieved; }
-    
-    /**
-     * Sets whether this goal has been achieved.
-     * 
-     * @param achieved true if the goal has been achieved
-     */
-    public void setAchieved(boolean achieved) { this.achieved = achieved; }
-
-    /**
-     * Gets the reason why this goal was not achieved.
-     * 
-     * <p>This is used for reflection and learning from unachieved goals.
-     * Only meaningful when {@code achieved} is false.</p>
-     * 
-     * @return the reason for non-achievement, or null if not provided
-     */
-    public String getReasonIfNotAchieved() { return reasonIfNotAchieved; }
-    
-    /**
-     * Sets the reason why this goal was not achieved.
-     * 
-     * <p>This supports reflection and helps identify patterns in goal achievement.
-     * Should be used when marking a goal as not achieved.</p>
-     * 
-     * @param reasonIfNotAchieved explanation of why the goal wasn't achieved
-     */
-    public void setReasonIfNotAchieved(String reasonIfNotAchieved) { 
-        this.reasonIfNotAchieved = reasonIfNotAchieved; 
+    public void setAchieved(boolean achieved) {
+        this.achieved = achieved;
+        if (achieved) {
+            this.failed = false;
+            this.status = GoalStatus.ACHIEVED;
+            this.attemptOutcome = AttemptOutcome.ACHIEVED;
+        } else if (this.attemptOutcome == AttemptOutcome.ACHIEVED) {
+            this.status = GoalStatus.ACTIVE;
+            this.attemptOutcome = AttemptOutcome.PENDING;
+        }
     }
 
+    public String getReasonIfNotAchieved() { return reasonIfNotAchieved; }
+    public void setReasonIfNotAchieved(String reasonIfNotAchieved) {
+        this.reasonIfNotAchieved = reasonIfNotAchieved;
+    }
 
-    /**
-     * Gets the number of days this goal has been delayed.
-     * 
-     * @return days delayed (0 for goals on original date)
-     */
     public int getDaysDelayed() { return daysDelayed; }
-    
-    /**
-     * Sets the number of days this goal has been delayed.
-     * 
-     * @param daysDelayed days delayed
-     */
     public void setDaysDelayed(int daysDelayed) { this.daysDelayed = daysDelayed; }
 
-    /**
-     * Checks if this goal is delayed (transferred from a previous day).
-     * 
-     * @return true if the goal is delayed
-     */
     public boolean isDelayed() { return isDelayed; }
-    
-    /**
-     * Sets whether this goal is delayed.
-     * 
-     * @param delayed true if the goal is delayed
-     */
     public void setDelayed(boolean delayed) { this.isDelayed = delayed; }
 
-    /**
-     * Gets the total points deducted due to delays.
-     * 
-     * @return points deducted
-     */
     public int getPointsDeducted() { return pointsDeducted; }
-    
-    /**
-     * Sets the points deducted due to delays.
-     * 
-     * @param pointsDeducted points deducted
-     */
     public void setPointsDeducted(int pointsDeducted) { this.pointsDeducted = pointsDeducted; }
-    
-    /**
-     * Gets the ID of the task this goal is linked to.
-     * 
-     * @return task ID, or null if not linked to any task
-     */
+
     public String getTaskId() { return taskId; }
-    
-    /**
-     * Sets the ID of the task this goal is linked to.
-     *
-     * @param taskId task ID, or null to unlink from task
-     */
     public void setTaskId(String taskId) { this.taskId = taskId; }
 
-    /**
-     * Gets the date this goal was manually rescheduled to appear on.
-     * When non-null the goal surfaces only on this date and is excluded
-     * from automatic delay carry-forward.
-     *
-     * @return the replanned date, or null if not rescheduled
-     */
     public LocalDate getReplannedForDate() { return replannedForDate; }
+    public void setReplannedForDate(LocalDate replannedForDate) { this.replannedForDate = replannedForDate; }
 
-    /**
-     * Sets the date this goal should be manually rescheduled to.
-     *
-     * @param replannedForDate the target date, or null to clear
-     */
-    public void setReplannedForDate(LocalDate replannedForDate) {
-        this.replannedForDate = replannedForDate;
-    }
-
-    /**
-     * Checks if this goal has been marked as failed.
-     *
-     * @return true if the goal is failed
-     */
     public boolean isFailed() { return failed; }
-
-    /**
-     * Sets whether this goal is failed.
-     *
-     * @param failed true to mark as failed
-     */
-    public void setFailed(boolean failed) { this.failed = failed; }
-
-    /**
-     * Calculate the delay penalty based on days delayed.
-     * Formula: 5 points for first delay, then 2 points per additional day.
-     * 
-     * @return penalty points for the current delay
-     */
-    public int calculateDelayPenalty() {
-        if (daysDelayed == 0) return 0;
-        if (daysDelayed == 1) return 5; // First delay
-        return 5 + (daysDelayed - 1) * 2; // Additional days
+    public void setFailed(boolean failed) {
+        this.failed = failed;
+        if (failed) {
+            this.achieved = false;
+            this.attemptOutcome = AttemptOutcome.MISSED;
+        }
     }
-    
-    /**
-     * Get the color intensity for UI display based on delay.
-     * Returns a value between 0.0 (no delay/green) and 1.0 (max delay/red).
-     * 
-     * @return color intensity for delayed goal visualization
-     */
+
+    public GoalStatus getStatus() { return status; }
+    public boolean isAbandonedExplicitly() { return abandonedExplicitly; }
+    public String getAchievedAttemptId() { return achievedAttemptId; }
+    public String getAttemptId() { return attemptId; }
+    public String getReplannedFromAttemptId() { return replannedFromAttemptId; }
+    public AttemptOutcome getAttemptOutcome() { return attemptOutcome; }
+    public LocalDateTime getOutcomeAt() { return outcomeAt; }
+    public int getAttemptNumber() { return attemptNumber; }
+    public int getMissedAttemptCount() { return missedAttemptCount; }
+
+    public int calculateDelayPenalty() {
+        return missedAttemptCount;
+    }
+
     public double getDelayColorIntensity() {
         if (!isDelayed) return 0.0;
-        // Orange starts at day 1, gradually moves to red
-        return Math.min(1.0, daysDelayed / 7.0); // Max intensity at 7 days
+        return Math.min(1.0, missedAttemptCount / 5.0);
     }
 
-    /**
-     * Returns a string representation of this study goal.
-     * 
-     * <p>The format shows the goal description followed by a checkmark ([✓]) if achieved
-     * or an X ([x]) if not achieved. This provides a quick visual status indicator.</p>
-     * 
-     * @return a string representation showing goal description and achievement status
-     */
     @Override
     public String toString() {
-        return description + " - " + (achieved ? "[✓]" : "[x]");
+        return description + " - " + attemptOutcome;
     }
-    
-    // ==============================================================
-    // DATABASE OPERATIONS (Active Record Pattern)
-    // ==============================================================
-    
-    /**
-     * Save this study goal to the database (insert or update).
-     */
-    public StudyGoal save() {
-        if (jdbcTemplate == null) {
-            throw new IllegalStateException("JdbcTemplate not initialized. Make sure Spring context is loaded.");
-        }
-        
-        String sql = """
-            MERGE INTO study_goals (id, date, description, achieved, reason_if_not_achieved,
-                                   days_delayed, is_delayed, points_deducted, task_id,
-                                   replanned_for_date, failed, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """;
 
-        jdbcTemplate.update(sql,
-            this.id, this.date, this.description, this.achieved, this.reasonIfNotAchieved,
-            this.daysDelayed, this.isDelayed, this.pointsDeducted, this.taskId,
-            this.replannedForDate, this.failed
-        );
-        
-        logger.debug("StudyGoal saved: {} - {}", this.id, this.description);
+    public StudyGoal save() {
+        requireJdbcTemplate();
+        if (id == null || id.isBlank()) {
+            id = UUID.randomUUID().toString();
+        }
+        if (date == null) {
+            date = LocalDate.now();
+        }
+        if (status == null) {
+            status = abandonedExplicitly ? GoalStatus.ABANDONED : achieved ? GoalStatus.ACHIEVED : GoalStatus.ACTIVE;
+        }
+        if (attemptOutcome == null) {
+            attemptOutcome = failed ? AttemptOutcome.MISSED : achieved ? AttemptOutcome.ACHIEVED : AttemptOutcome.PENDING;
+        }
+        if (attemptId == null || attemptId.isBlank()) {
+            attemptId = UUID.randomUUID().toString();
+        }
+        // Parent lifecycle mirrors the current attempt outcome on write.
+        if (attemptOutcome == AttemptOutcome.ACHIEVED) {
+            status = GoalStatus.ACHIEVED;
+            achievedAttemptId = attemptId;
+            achieved = true;
+            failed = false;
+        } else if (status == GoalStatus.ACHIEVED) {
+            status = GoalStatus.ACTIVE;
+            achievedAttemptId = null;
+        }
+
+        upsertParent();
+        upsertAttempt();
+        logger.debug("StudyGoal saved: {} - {}", id, description);
         return this;
     }
-    
-    /**
-     * Delete this study goal from the database.
-     */
+
     public boolean delete() {
-        if (jdbcTemplate == null || this.id == null) {
-            return false;
-        }
-        
-        String sql = "DELETE FROM study_goals WHERE id = ?";
-        int rowsAffected = jdbcTemplate.update(sql, this.id);
-        boolean deleted = rowsAffected > 0;
-        
-        if (deleted) {
-            logger.info("StudyGoal deleted: {} - {}", this.id, this.description);
-        } else {
-            logger.warn("StudyGoal not found for deletion: {}", this.id);
-        }
-        
-        return deleted;
+        return deleteById(id);
     }
-    
-    // ==============================================================
-    // STATIC QUERY METHODS
-    // ==============================================================
-    
-    /**
-     * Get all study goals ordered by date (most recent first).
-     */
+
+    private void upsertParent() {
+        String sql = """
+            MERGE INTO study_goals (
+                id, date, description, achieved, reason_if_not_achieved,
+                days_delayed, is_delayed, points_deducted, task_id,
+                replanned_for_date, failed, status, abandoned_explicitly,
+                achieved_attempt_id, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """;
+        jdbcTemplate.update(sql,
+                id, date, description, status == GoalStatus.ACHIEVED, reasonIfNotAchieved,
+                daysDelayed, isDelayed, pointsDeducted, taskId,
+                replannedForDate, attemptOutcome == AttemptOutcome.MISSED, status.name(),
+                abandonedExplicitly, achievedAttemptId);
+    }
+
+    private void upsertAttempt() {
+        String sql = """
+            MERGE INTO study_goal_attempts (
+                id, goal_id, planned_for_date, replanned_from_attempt_id, outcome,
+                reason_if_not_achieved, outcome_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """;
+        LocalDateTime resolvedOutcomeAt = attemptOutcome == AttemptOutcome.PENDING ? null
+                : outcomeAt != null ? outcomeAt : LocalDateTime.now();
+        jdbcTemplate.update(sql,
+                attemptId, id, date, replannedFromAttemptId, attemptOutcome.name(),
+                reasonIfNotAchieved, resolvedOutcomeAt);
+    }
+
     public static List<StudyGoal> findAll() {
-        if (jdbcTemplate == null) {
-            throw new IllegalStateException("JdbcTemplate not initialized");
-        }
-        
-        String sql = "SELECT * FROM study_goals ORDER BY date DESC, created_at DESC";
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper());
-        logger.debug("Retrieved {} study goals", goals.size());
-        return goals;
+        requireJdbcTemplate();
+        String sql = SELECT_ATTEMPT_VIEW + """
+            ORDER BY a.planned_for_date DESC, a.created_at DESC
+            """;
+        return jdbcTemplate.query(sql, getAttemptViewMapper());
     }
-    
-    /**
-     * Find a study goal by its ID.
-     */
+
     public static Optional<StudyGoal> findById(String goalId) {
         if (jdbcTemplate == null || goalId == null) {
             return Optional.empty();
         }
-        
-        String sql = "SELECT * FROM study_goals WHERE id = ?";
-        try {
-            StudyGoal goal = jdbcTemplate.queryForObject(sql, getRowMapper(), goalId);
-            logger.debug("StudyGoal found: {}", goalId);
-            return Optional.ofNullable(goal);
-        } catch (Exception e) {
-            logger.debug("StudyGoal not found: {}", goalId);
-            return Optional.empty();
-        }
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE g.id = ?
+            ORDER BY
+                CASE a.outcome WHEN 'PENDING' THEN 0 WHEN 'ACHIEVED' THEN 1 ELSE 2 END,
+                a.planned_for_date DESC,
+                a.created_at DESC
+            LIMIT 1
+            """;
+        List<StudyGoal> goals = jdbcTemplate.query(sql, getAttemptViewMapper(), goalId);
+        return goals.stream().findFirst();
     }
-    
-    /**
-     * Get study goals for a specific date.
-     * Failed goals are excluded — use {@link #findAllByDate(LocalDate)} for views
-     * that need the complete history (e.g. calendar).
-     */
+
     public static List<StudyGoal> findByDate(LocalDate date) {
         if (jdbcTemplate == null || date == null) {
             return List.of();
         }
-
-        // Include goals originally planned for this date AND goals manually
-        // rescheduled (replanned) to appear on this date, regardless of achieved status.
-        // Failed goals are excluded from active views.
-        String sql = """
-            SELECT * FROM study_goals
-            WHERE (failed = FALSE OR failed IS NULL)
-              AND (date = ? OR replanned_for_date = ?)
-            ORDER BY created_at
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE g.status <> 'ABANDONED'
+              AND a.planned_for_date = ?
+              AND a.outcome IN ('PENDING', 'ACHIEVED')
+            ORDER BY a.outcome ASC, g.created_at ASC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
-        logger.debug("Retrieved {} study goals for date: {}", goals.size(), date);
-        return goals;
+        return jdbcTemplate.query(sql, getAttemptViewMapper(), date);
     }
 
-    /**
-     * Get all study goals for a specific date, including failed ones.
-     * Used by calendar view which shows the full history for each day.
-     */
     public static List<StudyGoal> findAllByDate(LocalDate date) {
         if (jdbcTemplate == null || date == null) {
             return List.of();
         }
-
-        String sql = """
-            SELECT * FROM study_goals
-            WHERE (date = ? OR replanned_for_date = ?)
-            ORDER BY failed ASC, achieved DESC, created_at ASC
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE a.planned_for_date = ?
+            ORDER BY
+                CASE a.outcome WHEN 'PENDING' THEN 0 WHEN 'ACHIEVED' THEN 1 ELSE 2 END,
+                g.created_at ASC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
-        logger.debug("Retrieved {} study goals (all statuses) for date: {}", goals.size(), date);
-        return goals;
+        return jdbcTemplate.query(sql, getAttemptViewMapper(), date);
     }
-    
-    /**
-     * Get study goals for a specific date including delayed goals that should appear on this date.
-     * This method returns:
-     * <ul>
-     *   <li>Goals originally created for the specified date</li>
-     *   <li>Unachieved goals from previous dates that are now delayed</li>
-     * </ul>
-     *
-     * @param date the date to retrieve goals for
-     * @return list of study goals including delayed ones, ordered by delay status and creation time
-     */
+
     public static List<StudyGoal> findByDateIncludingDelayed(LocalDate date) {
-        if (jdbcTemplate == null || date == null) {
-            return List.of();
-        }
-
-        // Delayed goals that were manually replanned are excluded from the automatic
-        // carry-forward path — they only surface via their replanned_for_date.
-        // Failed goals are excluded from active planner views.
-        String sql = """
-            SELECT * FROM study_goals
-            WHERE (failed = FALSE OR failed IS NULL)
-              AND (date = ?
-               OR (is_delayed = TRUE AND achieved = FALSE AND date < ? AND replanned_for_date IS NULL)
-               OR replanned_for_date = ?)
-            ORDER BY is_delayed ASC, days_delayed DESC, created_at ASC
-            """;
-
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date, date);
-        logger.debug("Retrieved {} study goals (including delayed) for date: {}", goals.size(), date);
-        return goals;
+        return findByDate(date);
     }
 
-    /**
-     * Like {@link #findByDateIncludingDelayed(LocalDate)} but includes failed goals.
-     * Used by calendar view which shows all goals for each day.
-     */
     public static List<StudyGoal> findAllByDateIncludingDelayed(LocalDate date) {
-        if (jdbcTemplate == null || date == null) {
-            return List.of();
-        }
-
-        String sql = """
-            SELECT * FROM study_goals
-            WHERE (date = ?
-               OR (is_delayed = TRUE AND achieved = FALSE AND failed = FALSE AND date < ? AND replanned_for_date IS NULL)
-               OR replanned_for_date = ?)
-            ORDER BY failed ASC, is_delayed ASC, days_delayed DESC, created_at ASC
-            """;
-
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date, date);
-        logger.debug("Retrieved {} study goals (all statuses, including delayed) for date: {}", goals.size(), date);
-        return goals;
+        return findAllByDate(date);
     }
-    
-    /**
-     * Get achieved study goals.
-     */
+
     public static List<StudyGoal> findAchieved() {
-        if (jdbcTemplate == null) {
-            throw new IllegalStateException("JdbcTemplate not initialized");
-        }
-        
-        String sql = "SELECT * FROM study_goals WHERE achieved = TRUE AND (failed = FALSE OR failed IS NULL) ORDER BY date DESC";
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper());
-        logger.debug("Retrieved {} achieved study goals", goals.size());
-        return goals;
+        requireJdbcTemplate();
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE a.outcome = 'ACHIEVED'
+            ORDER BY a.planned_for_date DESC, a.created_at DESC
+            """;
+        return jdbcTemplate.query(sql, getAttemptViewMapper());
     }
-    
-    /**
-     * Delete a study goal by ID (static method).
-     */
+
     public static boolean deleteById(String goalId) {
         if (jdbcTemplate == null || goalId == null) {
             return false;
         }
-        
-        String sql = "DELETE FROM study_goals WHERE id = ?";
-        int rowsAffected = jdbcTemplate.update(sql, goalId);
+        jdbcTemplate.update("DELETE FROM study_goal_attempts WHERE goal_id = ?", goalId);
+        int rowsAffected = jdbcTemplate.update("DELETE FROM study_goals WHERE id = ?", goalId);
         boolean deleted = rowsAffected > 0;
-        
         if (deleted) {
             logger.info("StudyGoal deleted: {}", goalId);
-        } else {
-            logger.warn("StudyGoal not found for deletion: {}", goalId);
         }
-        
         return deleted;
     }
-    
-    /**
-     * Get count of study goals by achievement status.
-     */
+
     public static long countByAchievement(boolean achieved) {
         if (jdbcTemplate == null) {
             return 0L;
         }
-        
-        String sql = "SELECT COUNT(*) FROM study_goals WHERE achieved = ? AND (failed = FALSE OR failed IS NULL)";
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, achieved);
+        String outcome = achieved ? "ACHIEVED" : "PENDING";
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM study_goal_attempts WHERE outcome = ?",
+                Integer.class, outcome);
         return count != null ? count : 0L;
     }
-    
-    /**
-     * Find unachieved goals for a specific date (candidates for transfer).
-     */
+
     public static List<StudyGoal> findUnachievedByDate(LocalDate date) {
         if (jdbcTemplate == null || date == null) {
             return List.of();
         }
-        
-        String sql = "SELECT * FROM study_goals WHERE date = ? AND achieved = FALSE ORDER BY created_at";
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date);
-        logger.debug("Retrieved {} unachieved study goals for date: {}", goals.size(), date);
-        return goals;
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE a.planned_for_date = ?
+              AND a.outcome <> 'ACHIEVED'
+            ORDER BY a.created_at
+            """;
+        return jdbcTemplate.query(sql, getAttemptViewMapper(), date);
     }
-    
-    /**
-     * Find delayed goals (transferred from previous days).
-     */
+
     public static List<StudyGoal> findDelayed() {
-        if (jdbcTemplate == null) {
-            throw new IllegalStateException("JdbcTemplate not initialized");
-        }
-        
-        String sql = "SELECT * FROM study_goals WHERE is_delayed = TRUE ORDER BY days_delayed DESC, date DESC";
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper());
-        logger.debug("Retrieved {} delayed study goals", goals.size());
-        return goals;
+        requireJdbcTemplate();
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE a.outcome = 'MISSED'
+            ORDER BY a.planned_for_date DESC, a.created_at DESC
+            """;
+        return jdbcTemplate.query(sql, getAttemptViewMapper());
     }
-    
-    /**
-     * Find delayed goals for a specific date.
-     */
+
     public static List<StudyGoal> findDelayedByDate(LocalDate date) {
         if (jdbcTemplate == null || date == null) {
             return List.of();
         }
-        
-        String sql = "SELECT * FROM study_goals WHERE date = ? AND is_delayed = TRUE ORDER BY days_delayed DESC";
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date);
-        logger.debug("Retrieved {} delayed study goals for date: {}", goals.size(), date);
-        return goals;
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE a.planned_for_date = ?
+              AND a.outcome = 'MISSED'
+            ORDER BY a.created_at
+            """;
+        return jdbcTemplate.query(sql, getAttemptViewMapper(), date);
     }
-    
-    /**
-     * Find goals linked to a specific task for a given date, including delayed unachieved goals.
-     * Returns goals that are either planned for the date or delayed from earlier dates.
-     *
-     * @param taskId the task ID to find linked goals for
-     * @param date the date to scope the query
-     * @return list of study goals linked to the task for the given date context
-     */
+
     public static List<StudyGoal> findByTaskIdForDate(String taskId, LocalDate date) {
         if (jdbcTemplate == null || taskId == null || taskId.isBlank() || date == null) {
             return List.of();
         }
-
-        // Only return goals explicitly scheduled for this date or explicitly
-        // re-planned to it.  Do NOT auto-carry-forward delayed goals — those
-        // stay in the re-plan section until the user explicitly reschedules them.
-        // The old auto-carry-forward clause (is_delayed AND achieved = FALSE AND
-        // replanned_for_date IS NULL) caused two bugs:
-        //   1. Re-planning one goal made ALL delayed goals for the task appear
-        //   2. Achieved delayed goals vanished (achieved = TRUE no longer matched)
-        String sql = """
-            SELECT * FROM study_goals
-            WHERE task_id = ?
-              AND (failed = FALSE OR failed IS NULL)
-              AND (date = ? OR replanned_for_date = ?)
-            ORDER BY is_delayed ASC, date ASC, created_at ASC
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE g.task_id = ?
+              AND g.status <> 'ABANDONED'
+              AND a.planned_for_date = ?
+              AND a.outcome IN ('PENDING', 'ACHIEVED')
+            ORDER BY a.outcome ASC, a.created_at ASC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), taskId, date, date);
-        logger.debug("Retrieved {} goals for task {} on date {}", goals.size(), taskId, date);
-        return goals;
+        return jdbcTemplate.query(sql, getAttemptViewMapper(), taskId, date);
     }
 
-    /**
-     * Find ALL goals ever linked to a specific task, including failed ones.
-     * Used for the goal history view in the task management panel.
-     *
-     * @param taskId the task ID to find all linked goals for
-     * @return list of all study goals (active, achieved, failed) linked to the task, ordered by date desc
-     */
     public static List<StudyGoal> findByTaskId(String taskId) {
         if (jdbcTemplate == null || taskId == null || taskId.isBlank()) {
             return List.of();
         }
-
-        String sql = """
-            SELECT * FROM study_goals
-            WHERE task_id = ?
-            ORDER BY date DESC, created_at DESC
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE g.task_id = ?
+            ORDER BY a.planned_for_date DESC, a.created_at DESC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), taskId);
-        logger.debug("Retrieved {} total goals for task {}", goals.size(), taskId);
-        return goals;
+        return jdbcTemplate.query(sql, getAttemptViewMapper(), taskId);
     }
 
-    /**
-     * Batch-queries all (task_id, date) pairs that have at least one achieved
-     * goal within the given date range.  Returns a set of "taskId|date"
-     * strings for O(1) lookup.
-     *
-     * <p>This replaces per-cell calls to {@link #hasAchievedGoalForTask} in the
-     * calendar month view, eliminating an N+1 query storm.
-     *
-     * @param rangeStart inclusive start of the date range
-     * @param rangeEnd   inclusive end of the date range
-     * @return set of "taskId|date" keys where an achieved goal exists
-     */
-    public static java.util.Set<String> findAchievedTaskDatePairs(LocalDate rangeStart, LocalDate rangeEnd) {
+    public static boolean updateDetails(String goalId, String description, LocalDate pendingPlannedForDate) {
+        if (jdbcTemplate == null || goalId == null || goalId.isBlank()
+                || description == null || description.isBlank()) {
+            return false;
+        }
+        int parentRows = jdbcTemplate.update("""
+            UPDATE study_goals
+            SET description = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, description.trim(), goalId);
+        if (pendingPlannedForDate != null) {
+            jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET planned_for_date = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE goal_id = ? AND outcome = 'PENDING'
+                """, pendingPlannedForDate, goalId);
+        }
+        return parentRows > 0;
+    }
+
+    public static Set<String> findAchievedTaskDatePairs(LocalDate rangeStart, LocalDate rangeEnd) {
         if (jdbcTemplate == null || rangeStart == null || rangeEnd == null) {
-            return java.util.Set.of();
+            return Set.of();
         }
         String sql = """
-            SELECT DISTINCT task_id, date FROM study_goals
-            WHERE achieved = TRUE
-              AND (failed = FALSE OR failed IS NULL)
-              AND task_id IS NOT NULL
-              AND date IS NOT NULL
-              AND date >= ? AND date <= ?
+            SELECT DISTINCT g.task_id, a.planned_for_date
+            FROM study_goals g
+            JOIN study_goal_attempts a ON a.goal_id = g.id
+            WHERE a.outcome = 'ACHIEVED'
+              AND g.task_id IS NOT NULL
+              AND a.planned_for_date >= ? AND a.planned_for_date <= ?
             """;
-        java.util.Set<String> result = new java.util.HashSet<>();
+        Set<String> result = new HashSet<>();
         jdbcTemplate.query(sql, (rs, rowNum) -> {
-            result.add(rs.getString("task_id") + "|" + rs.getDate("date").toLocalDate());
+            result.add(rs.getString("task_id") + "|" + rs.getDate("planned_for_date").toLocalDate());
             return null;
         }, rangeStart, rangeEnd);
         return result;
     }
 
-    /**
-     * Checks whether at least one achieved study goal exists for the given
-     * task on exactly the specified date.  Used to determine whether a
-     * recurring-task occurrence was "handled".
-     *
-     * @param taskId the task ID
-     * @param date   the exact occurrence date to check
-     * @return {@code true} if a linked, achieved goal exists for that date
-     */
+    public static Set<String> findHandledTaskDatePairs(LocalDate rangeStart, LocalDate rangeEnd) {
+        if (jdbcTemplate == null || rangeStart == null || rangeEnd == null) {
+            return Set.of();
+        }
+        String sql = """
+            WITH RECURSIVE handled_attempts (
+                task_id, attempt_id, planned_for_date, outcome, replanned_from_attempt_id, depth
+            ) AS (
+                SELECT g.task_id, a.id, a.planned_for_date, a.outcome, a.replanned_from_attempt_id, 0
+                FROM study_goals g
+                JOIN study_goal_attempts a ON a.goal_id = g.id
+                WHERE g.task_id IS NOT NULL
+                  AND a.outcome = 'ACHIEVED'
+                UNION ALL
+                SELECT h.task_id, parent.id, parent.planned_for_date, parent.outcome,
+                       parent.replanned_from_attempt_id, h.depth + 1
+                FROM study_goal_attempts parent
+                JOIN handled_attempts h ON h.replanned_from_attempt_id = parent.id
+                WHERE h.depth < 20
+            )
+            SELECT DISTINCT task_id, planned_for_date
+            FROM handled_attempts
+            WHERE planned_for_date >= ?
+              AND planned_for_date <= ?
+              AND outcome IN ('ACHIEVED', 'MISSED')
+            """;
+        Set<String> result = new HashSet<>();
+        jdbcTemplate.query(sql, (rs, rowNum) -> {
+            result.add(rs.getString("task_id") + "|" + rs.getDate("planned_for_date").toLocalDate());
+            return null;
+        }, rangeStart, rangeEnd);
+        return result;
+    }
+
     public static boolean hasAchievedGoalForTask(String taskId, LocalDate date) {
         if (jdbcTemplate == null || taskId == null || taskId.isBlank() || date == null) {
             return false;
         }
         String sql = """
-            SELECT COUNT(*) FROM study_goals
-            WHERE task_id = ? AND date = ? AND achieved = TRUE
-              AND (failed = FALSE OR failed IS NULL)
+            SELECT COUNT(*)
+            FROM study_goals g
+            JOIN study_goal_attempts a ON a.goal_id = g.id
+            WHERE g.task_id = ?
+              AND a.planned_for_date = ?
+              AND a.outcome = 'ACHIEVED'
             """;
         Integer count = jdbcTemplate.queryForObject(sql, Integer.class, taskId, date);
         return count != null && count > 0;
     }
-    
-    /**
-     * Find goals that are NOT linked to any task for a given date, including delayed unachieved ones.
-     *
-     * @param date the date to scope the query
-     * @return list of unlinked study goals for the given date context
-     */
+
+    public static boolean hasHandledGoalForTaskOccurrence(String taskId, LocalDate occurrenceDate) {
+        if (jdbcTemplate == null || taskId == null || taskId.isBlank() || occurrenceDate == null) {
+            return false;
+        }
+        String sql = """
+            WITH RECURSIVE handled_attempts (
+                attempt_id, planned_for_date, outcome, replanned_from_attempt_id, depth
+            ) AS (
+                SELECT a.id, a.planned_for_date, a.outcome, a.replanned_from_attempt_id, 0
+                FROM study_goals g
+                JOIN study_goal_attempts a ON a.goal_id = g.id
+                WHERE g.task_id = ?
+                  AND a.outcome = 'ACHIEVED'
+                UNION ALL
+                SELECT parent.id, parent.planned_for_date, parent.outcome,
+                       parent.replanned_from_attempt_id, h.depth + 1
+                FROM study_goal_attempts parent
+                JOIN handled_attempts h ON h.replanned_from_attempt_id = parent.id
+                WHERE h.depth < 20
+            )
+            SELECT COUNT(*)
+            FROM handled_attempts
+            WHERE planned_for_date = ?
+              AND outcome IN ('ACHIEVED', 'MISSED')
+            """;
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, taskId, occurrenceDate);
+        return count != null && count > 0;
+    }
+
     public static List<StudyGoal> findUnlinkedForDate(LocalDate date) {
         if (jdbcTemplate == null || date == null) {
             return List.of();
         }
-
-        String sql = """
-            SELECT * FROM study_goals
-            WHERE task_id IS NULL
-              AND (failed = FALSE OR failed IS NULL)
-              AND (date = ? OR replanned_for_date = ?)
-            ORDER BY is_delayed ASC, date ASC, created_at ASC
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE g.task_id IS NULL
+              AND g.status <> 'ABANDONED'
+              AND a.planned_for_date = ?
+              AND a.outcome IN ('PENDING', 'ACHIEVED')
+            ORDER BY a.outcome ASC, a.created_at ASC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper(), date, date);
-        logger.debug("Retrieved {} unlinked goals for date {}", goals.size(), date);
-        return goals;
+        return jdbcTemplate.query(sql, getAttemptViewMapper(), date);
     }
-    
-    /**
-     * Find all delayed, unachieved goals that have not yet been manually rescheduled.
-     * Used to populate the re-plan dropdown in the Study Planner.
-     *
-     * @return delayed goals eligible for manual rescheduling, ordered by delay severity
-     */
+
     public static List<StudyGoal> findDelayedAndNotReplanned() {
         if (jdbcTemplate == null) {
             return List.of();
         }
-        String sql = """
-            SELECT * FROM study_goals
-            WHERE is_delayed = TRUE
-              AND achieved = FALSE
-              AND (failed = FALSE OR failed IS NULL)
-              AND replanned_for_date IS NULL
-            ORDER BY days_delayed DESC, date ASC, created_at ASC
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE g.status = 'ACTIVE'
+              AND a.outcome = 'MISSED'
+              AND NOT EXISTS (
+                  SELECT 1 FROM study_goal_attempts p
+                  WHERE p.goal_id = g.id AND p.outcome = 'PENDING'
+              )
+              AND a.id = (
+                  SELECT latest.id
+                  FROM study_goal_attempts latest
+                  WHERE latest.goal_id = g.id
+                  ORDER BY latest.created_at DESC, latest.planned_for_date DESC
+                  LIMIT 1
+              )
+            ORDER BY a.planned_for_date ASC, a.created_at ASC
             """;
-        List<StudyGoal> goals = jdbcTemplate.query(sql, getRowMapper());
-        logger.debug("Retrieved {} delayed goals eligible for rescheduling", goals.size());
-        return goals;
+        return jdbcTemplate.query(sql, getAttemptViewMapper());
     }
 
-    /**
-     * RowMapper for converting database rows to StudyGoal objects.
-     */
-    private static RowMapper<StudyGoal> getRowMapper() {
-        return (rs, rowNum) -> {
-            String id = rs.getString("id");
-            LocalDate date = rs.getObject("date", LocalDate.class);
-            String description = rs.getString("description");
-            boolean achieved = rs.getBoolean("achieved");
-            String reasonIfNotAchieved = rs.getString("reason_if_not_achieved");
-            int daysDelayed = rs.getInt("days_delayed");
-            boolean isDelayed = rs.getBoolean("is_delayed");
-            int pointsDeducted = rs.getInt("points_deducted");
-            String taskId = rs.getString("task_id");
-            LocalDate replannedForDate = rs.getObject("replanned_for_date", LocalDate.class);
-            boolean failed = rs.getBoolean("failed");
+    public static int markPendingAttemptsBefore(LocalDate today) {
+        if (jdbcTemplate == null || today == null) {
+            return 0;
+        }
+        String sql = """
+            UPDATE study_goal_attempts
+            SET outcome = 'MISSED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE outcome = 'PENDING'
+              AND planned_for_date < ?
+            """;
+        return jdbcTemplate.update(sql, today);
+    }
 
-            return new StudyGoal(id, date, description, achieved, reasonIfNotAchieved,
-                               daysDelayed, isDelayed, pointsDeducted, taskId, replannedForDate, failed);
-        };
+    public static boolean createReplanAttempt(String goalId, LocalDate plannedForDate) {
+        if (jdbcTemplate == null || goalId == null || goalId.isBlank() || plannedForDate == null) {
+            return false;
+        }
+        Integer activeGoalCount = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*) FROM study_goals
+            WHERE id = ? AND status = 'ACTIVE'
+            """, Integer.class, goalId);
+        if (activeGoalCount == null || activeGoalCount == 0) {
+            return false;
+        }
+
+        Integer pendingCount = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*) FROM study_goal_attempts
+            WHERE goal_id = ? AND outcome = 'PENDING'
+            """, Integer.class, goalId);
+        if (pendingCount != null && pendingCount > 0) {
+            return false;
+        }
+
+        String latestAttemptId = jdbcTemplate.query("""
+            SELECT id FROM study_goal_attempts
+            WHERE goal_id = ?
+            ORDER BY created_at DESC, planned_for_date DESC
+            LIMIT 1
+            """, rs -> rs.next() ? rs.getString("id") : null, goalId);
+        if (latestAttemptId == null) {
+            return false;
+        }
+
+        String attemptId = UUID.randomUUID().toString();
+        int rows = jdbcTemplate.update("""
+            INSERT INTO study_goal_attempts (
+                id, goal_id, planned_for_date, replanned_from_attempt_id, outcome,
+                created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, attemptId, goalId, plannedForDate, latestAttemptId);
+        jdbcTemplate.update("""
+            UPDATE study_goals
+            SET status = 'ACTIVE', achieved_attempt_id = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'ACTIVE'
+            """, goalId);
+        return rows > 0;
+    }
+
+    public static boolean markCurrentAttemptAchieved(String goalId, String reasonIfNot) {
+        Optional<StudyGoal> goalOpt = findById(goalId);
+        if (goalOpt.isEmpty()) {
+            return false;
+        }
+        StudyGoal goal = goalOpt.get();
+        if (goal.attemptId == null) {
+            return false;
+        }
+        jdbcTemplate.update("""
+            UPDATE study_goal_attempts
+            SET outcome = 'ACHIEVED', reason_if_not_achieved = ?, outcome_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, reasonIfNot, goal.attemptId);
+        jdbcTemplate.update("""
+            UPDATE study_goals
+            SET status = 'ACHIEVED', achieved_attempt_id = ?, achieved = TRUE, failed = FALSE,
+                reason_if_not_achieved = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, goal.attemptId, reasonIfNot, goalId);
+        return true;
+    }
+
+    public static boolean reopenAchievedGoal(String goalId) {
+        if (jdbcTemplate == null || goalId == null || goalId.isBlank()) {
+            return false;
+        }
+        String achievedAttempt = jdbcTemplate.query("""
+            SELECT achieved_attempt_id FROM study_goals WHERE id = ?
+            """, rs -> rs.next() ? rs.getString("achieved_attempt_id") : null, goalId);
+        if (achievedAttempt == null) {
+            return false;
+        }
+        jdbcTemplate.update("""
+            UPDATE study_goal_attempts
+            SET outcome = 'PENDING', reason_if_not_achieved = NULL, outcome_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, achievedAttempt);
+        jdbcTemplate.update("""
+            UPDATE study_goals
+            SET status = 'ACTIVE', achieved_attempt_id = NULL, achieved = FALSE,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, goalId);
+        return true;
+    }
+
+    public static boolean abandonGoal(String goalId) {
+        Optional<StudyGoal> goalOpt = findById(goalId);
+        if (goalOpt.isEmpty()) {
+            return false;
+        }
+        StudyGoal goal = goalOpt.get();
+        // An achieved goal cannot be abandoned: the ACHIEVED attempt row would
+        // survive and keep counting the occurrence as handled.
+        if (goal.status == GoalStatus.ACHIEVED) {
+            return false;
+        }
+        if (goal.attemptId != null && goal.attemptOutcome == AttemptOutcome.PENDING) {
+            jdbcTemplate.update("""
+                UPDATE study_goal_attempts
+                SET outcome = 'MISSED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """, goal.attemptId);
+        }
+        int rows = jdbcTemplate.update("""
+            UPDATE study_goals
+            SET status = 'ABANDONED', achieved_attempt_id = NULL, achieved = FALSE, failed = TRUE,
+                abandoned_explicitly = TRUE, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, goalId);
+        return rows > 0;
+    }
+
+    private static RowMapper<StudyGoal> getAttemptViewMapper() {
+        return (rs, rowNum) -> new StudyGoal(
+                rs.getString("id"),
+                rs.getObject("planned_for_date", LocalDate.class),
+                rs.getString("description"),
+                rs.getString("task_id"),
+                parseGoalStatus(rs.getString("status")),
+                rs.getBoolean("abandoned_explicitly"),
+                rs.getString("achieved_attempt_id"),
+                rs.getString("attempt_id"),
+                rs.getString("replanned_from_attempt_id"),
+                parseAttemptOutcome(rs.getString("attempt_outcome")),
+                rs.getString("reason_if_not_achieved"),
+                rs.getObject("outcome_at", LocalDateTime.class),
+                rs.getInt("attempt_number"),
+                rs.getInt("missed_attempt_count")
+        );
+    }
+
+    private static GoalStatus parseGoalStatus(String value) {
+        try {
+            return value == null ? GoalStatus.ACTIVE : GoalStatus.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            return GoalStatus.ACTIVE;
+        }
+    }
+
+    private static AttemptOutcome parseAttemptOutcome(String value) {
+        try {
+            return value == null ? AttemptOutcome.PENDING : AttemptOutcome.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            return AttemptOutcome.PENDING;
+        }
+    }
+
+    private static void requireJdbcTemplate() {
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("JdbcTemplate not initialized");
+        }
     }
 }
