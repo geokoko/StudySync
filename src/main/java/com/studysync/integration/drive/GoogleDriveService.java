@@ -42,6 +42,12 @@ public class GoogleDriveService {
      * for the whole network upload and would stall every mutation.
      */
     private final Object dirtyStateLock = new Object();
+    /**
+     * Monotonic count of markLocalDbDirty() calls, guarded by dirtyStateLock.
+     * The upload fence compares generations rather than timestamps so two
+     * mutations in the same millisecond can never tie the comparison.
+     */
+    private long localMutationGeneration = 0L;
 
     public GoogleDriveService(GoogleDriveSettings settings,
                               GoogleCredentialManager credentialManager,
@@ -168,9 +174,9 @@ public class GoogleDriveService {
         // at worst a redundant re-upload, never a silently lost edit. The read
         // and the compare-and-clear are atomic w.r.t. markLocalDbDirty() via
         // dirtyStateLock; the checkpoint and network call stay outside the lock.
-        long mutationAtUploadStart;
+        long generationAtUploadStart;
         synchronized (dirtyStateLock) {
-            mutationAtUploadStart = lastLocalMutationAt;
+            generationAtUploadStart = localMutationGeneration;
         }
 
         if (!saveLocally()) {
@@ -181,7 +187,7 @@ public class GoogleDriveService {
         boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
         if (uploaded) {
             synchronized (dirtyStateLock) {
-                if (lastLocalMutationAt == mutationAtUploadStart) {
+                if (localMutationGeneration == generationAtUploadStart) {
                     localDbDirty = false;
                     lastLocalMutationAt = 0L;
                 }
@@ -236,6 +242,7 @@ public class GoogleDriveService {
         synchronized (dirtyStateLock) {
             this.localDbDirty = true;
             this.lastLocalMutationAt = System.currentTimeMillis();
+            this.localMutationGeneration++;
         }
     }
 
