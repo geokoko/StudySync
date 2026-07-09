@@ -35,6 +35,13 @@ public class GoogleDriveService {
     /** Tracks whether the local DB has been modified since the last upload to Drive. */
     private volatile boolean localDbDirty = false;
     private volatile long lastLocalMutationAt = 0L;
+    /**
+     * Guards paired reads/writes of localDbDirty + lastLocalMutationAt, so the
+     * upload thread's compare-and-clear cannot interleave with a concurrent
+     * markLocalDbDirty(). Deliberately not the service monitor — that is held
+     * for the whole network upload and would stall every mutation.
+     */
+    private final Object dirtyStateLock = new Object();
 
     public GoogleDriveService(GoogleDriveSettings settings,
                               GoogleCredentialManager credentialManager,
@@ -161,12 +168,21 @@ public class GoogleDriveService {
 
         // Fence against writes that land while the upload is in flight (or after
         // the UI has already timed out waiting for it): only clear the dirty flag
-        // if no local mutation happened since the checkpoint we uploaded.
-        long mutationAtUploadStart = lastLocalMutationAt;
+        // if no local mutation happened since the checkpoint we uploaded. The
+        // read and the compare-and-clear are atomic w.r.t. markLocalDbDirty()
+        // via dirtyStateLock; the network call stays outside the lock.
+        long mutationAtUploadStart;
+        synchronized (dirtyStateLock) {
+            mutationAtUploadStart = lastLocalMutationAt;
+        }
         boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
-        if (uploaded && lastLocalMutationAt == mutationAtUploadStart) {
-            localDbDirty = false;
-            lastLocalMutationAt = 0L;
+        if (uploaded) {
+            synchronized (dirtyStateLock) {
+                if (lastLocalMutationAt == mutationAtUploadStart) {
+                    localDbDirty = false;
+                    lastLocalMutationAt = 0L;
+                }
+            }
         }
         return uploaded;
     }
@@ -214,8 +230,10 @@ public class GoogleDriveService {
     }
 
     public void markLocalDbDirty() {
-        this.localDbDirty = true;
-        this.lastLocalMutationAt = System.currentTimeMillis();
+        synchronized (dirtyStateLock) {
+            this.localDbDirty = true;
+            this.lastLocalMutationAt = System.currentTimeMillis();
+        }
     }
 
     public boolean isLocalDbDirty() {
