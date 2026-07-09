@@ -35,6 +35,19 @@ public class GoogleDriveService {
     /** Tracks whether the local DB has been modified since the last upload to Drive. */
     private volatile boolean localDbDirty = false;
     private volatile long lastLocalMutationAt = 0L;
+    /**
+     * Guards paired reads/writes of localDbDirty + lastLocalMutationAt, so the
+     * upload thread's compare-and-clear cannot interleave with a concurrent
+     * markLocalDbDirty(). Deliberately not the service monitor — that is held
+     * for the whole network upload and would stall every mutation.
+     */
+    private final Object dirtyStateLock = new Object();
+    /**
+     * Monotonic count of markLocalDbDirty() calls, guarded by dirtyStateLock.
+     * The upload fence compares generations rather than timestamps so two
+     * mutations in the same millisecond can never tie the comparison.
+     */
+    private long localMutationGeneration = 0L;
 
     public GoogleDriveService(GoogleDriveSettings settings,
                               GoogleCredentialManager credentialManager,
@@ -154,6 +167,18 @@ public class GoogleDriveService {
         if (!isIntegrationEnabled() || activeCredential == null) {
             return false;
         }
+        // Fence against writes that land any time after this point (during the
+        // checkpoint, the upload, or after the UI timed out waiting): only clear
+        // the dirty flag if no local mutation happened since. Captured BEFORE
+        // saveLocally() so a mutation racing the checkpoint keeps dirty=true —
+        // at worst a redundant re-upload, never a silently lost edit. The read
+        // and the compare-and-clear are atomic w.r.t. markLocalDbDirty() via
+        // dirtyStateLock; the checkpoint and network call stay outside the lock.
+        long generationAtUploadStart;
+        synchronized (dirtyStateLock) {
+            generationAtUploadStart = localMutationGeneration;
+        }
+
         if (!saveLocally()) {
             logger.warn("Aborting Drive upload because the local database could not be verified as fresh");
             return false;
@@ -161,8 +186,12 @@ public class GoogleDriveService {
 
         boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
         if (uploaded) {
-            localDbDirty = false;
-            lastLocalMutationAt = 0L;
+            synchronized (dirtyStateLock) {
+                if (localMutationGeneration == generationAtUploadStart) {
+                    localDbDirty = false;
+                    lastLocalMutationAt = 0L;
+                }
+            }
         }
         return uploaded;
     }
@@ -210,8 +239,11 @@ public class GoogleDriveService {
     }
 
     public void markLocalDbDirty() {
-        this.localDbDirty = true;
-        this.lastLocalMutationAt = System.currentTimeMillis();
+        synchronized (dirtyStateLock) {
+            this.localDbDirty = true;
+            this.lastLocalMutationAt = System.currentTimeMillis();
+            this.localMutationGeneration++;
+        }
     }
 
     public boolean isLocalDbDirty() {

@@ -2,6 +2,7 @@ package com.studysync.integration.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.http.FileContent;
+import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
@@ -27,6 +28,9 @@ public class GoogleDriveGateway {
 
     private static final Logger logger = LoggerFactory.getLogger(GoogleDriveGateway.class);
 
+    private static final int HTTP_CONNECT_TIMEOUT_MS = 30_000;
+    private static final int HTTP_READ_TIMEOUT_MS = 60_000;
+
     private final GoogleDriveSettings settings;
     private final GoogleCredentialManager credentialManager;
 
@@ -37,7 +41,8 @@ public class GoogleDriveGateway {
 
     public Optional<String> fetchAccountEmail(Credential credential) {
         try {
-            Oauth2 oauth2 = new Oauth2.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(), credential)
+            Oauth2 oauth2 = new Oauth2.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(),
+                    timeoutInitializer(credential))
                     .setApplicationName(settings.applicationName())
                     .build();
             Userinfo info = oauth2.userinfo().get().execute();
@@ -150,9 +155,23 @@ public class GoogleDriveGateway {
     }
 
     private Drive buildDriveClient(Credential credential) {
-        return new Drive.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(), credential)
+        return new Drive.Builder(credentialManager.httpTransport(), credentialManager.jsonFactory(),
+                timeoutInitializer(credential))
                 .setApplicationName(settings.applicationName())
                 .build();
+    }
+
+    /**
+     * Wraps the credential with explicit timeouts so a dead connection fails
+     * with an IOException instead of hanging Drive calls (and the UI awaiting
+     * them) forever.
+     */
+    private HttpRequestInitializer timeoutInitializer(Credential credential) {
+        return request -> {
+            credential.initialize(request);
+            request.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+            request.setReadTimeout(HTTP_READ_TIMEOUT_MS);
+        };
     }
 
     private Optional<String> ensureAppFolder(Drive drive) throws IOException {

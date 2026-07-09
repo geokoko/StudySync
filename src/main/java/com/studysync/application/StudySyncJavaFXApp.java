@@ -19,6 +19,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import java.io.InputStream;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * JavaFX Application class that integrates with Spring Boot dependency injection.
@@ -164,7 +165,10 @@ public class StudySyncJavaFXApp extends Application {
         progressAlert.getButtonTypes().clear();
         progressAlert.show();
 
+        // The timeout backstop guarantees whenComplete fires even if the upload
+        // hangs, so the disabled UI and button-less progress alert always recover.
         CompletableFuture.supplyAsync(driveService::uploadDatabaseSnapshot)
+                .orTimeout(3, TimeUnit.MINUTES)
                 .whenComplete((result, error) -> Platform.runLater(() -> {
                     progressAlert.close();
                     shutdownInProgress = false;
