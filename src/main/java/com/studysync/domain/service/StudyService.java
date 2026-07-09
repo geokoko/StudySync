@@ -270,6 +270,10 @@ public class StudyService {
         if (plannedForDate == null) {
             throw ValidationException.requiredFieldMissing("plannedForDate");
         }
+        if (plannedForDate.isBefore(dateTimeService.getCurrentDate())) {
+            throw ValidationException.invalidDateRange(
+                plannedForDate.toString(), "today or a future date");
+        }
         Optional<StudyGoal> goalOpt = StudyGoal.findById(goalId);
         if (goalOpt.isEmpty()) {
             logger.warn("Requested retry for study goal '{}' but it did not exist", goalId);
@@ -333,7 +337,7 @@ public class StudyService {
             logger.info("Abandoned study goal '{}'", goalId);
             return true;
         } else {
-            logger.warn("Requested mark-as-failed for study goal '{}' but it did not exist", goalId);
+            logger.warn("Requested mark-as-failed for study goal '{}' but it did not exist or was achieved", goalId);
             return false;
         }
     }

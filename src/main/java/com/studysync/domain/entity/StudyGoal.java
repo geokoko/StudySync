@@ -758,6 +758,11 @@ public class StudyGoal {
             return false;
         }
         StudyGoal goal = goalOpt.get();
+        // An achieved goal cannot be abandoned: the ACHIEVED attempt row would
+        // survive and keep counting the occurrence as handled.
+        if (goal.status == GoalStatus.ACHIEVED) {
+            return false;
+        }
         if (goal.attemptId != null && goal.attemptOutcome == AttemptOutcome.PENDING) {
             jdbcTemplate.update("""
                 UPDATE study_goal_attempts

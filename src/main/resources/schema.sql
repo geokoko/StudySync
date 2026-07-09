@@ -273,6 +273,12 @@ FROM study_goals g
 WHERE replanned_for_date IS NOT NULL
   AND NOT EXISTS (
       SELECT 1 FROM study_goal_attempts a WHERE a.id = g.id || '-attempt-2'
+  )
+  -- Only chain onto a backfilled attempt-1. Goals whose attempts were created
+  -- through the app have UUID attempt ids, and inserting attempt-2 for them
+  -- would violate the replanned_from_attempt_id FK and abort schema init.
+  AND EXISTS (
+      SELECT 1 FROM study_goal_attempts a WHERE a.id = g.id || '-attempt-1'
   );
 
 UPDATE study_goals g
@@ -284,14 +290,18 @@ SET achieved_attempt_id = (
     LIMIT 1
 )
 WHERE g.achieved_attempt_id IS NULL
+  AND COALESCE(g.abandoned_explicitly, FALSE) = FALSE
   AND EXISTS (
       SELECT 1 FROM study_goal_attempts a
       WHERE a.goal_id = g.id AND a.outcome = 'ACHIEVED'
   );
 
+-- Explicitly abandoned goals stay abandoned: this backfill must not undo a
+-- user's abandon action on the next startup.
 UPDATE study_goals g
 SET status = 'ACHIEVED'
-WHERE EXISTS (
+WHERE COALESCE(g.abandoned_explicitly, FALSE) = FALSE
+  AND EXISTS (
     SELECT 1 FROM study_goal_attempts a
     WHERE a.goal_id = g.id AND a.outcome = 'ACHIEVED'
 );

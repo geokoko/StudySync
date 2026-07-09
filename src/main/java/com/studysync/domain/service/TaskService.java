@@ -377,8 +377,6 @@ public class TaskService {
     public List<Task> getTasksForDate(LocalDate date) {
         if (date == null) return List.of();
 
-        LocalDate today = dateTimeService.getCurrentDate();
-
         // Fetch all tasks once and index by ID so the goal-linking pass below
         // can look up tasks without extra DB round-trips.
         List<Task> allTasks = Task.findAll();
@@ -387,43 +385,7 @@ public class TaskService {
                         (existing, replacement) -> existing));
 
         List<Task> result = allTasks.stream()
-            .filter(task -> {
-                TaskStatus s = task.getStatus();
-                boolean isActive = s == TaskStatus.OPEN || s == TaskStatus.IN_PROGRESS;
-                // POSTPONED and CANCELLED tasks are excluded from the daily
-                // planner — only DELAYED tasks surface alongside active ones.
-                boolean isPending = s == TaskStatus.DELAYED;
-
-                if (task.isRecurring()) {
-                    // Start date on a recurring task means "don't appear before this date"
-                    if (task.getStartDate() != null && date.isBefore(task.getStartDate())) {
-                        return false;
-                    }
-                    // Deadline on a recurring task means "stop recurring after this date"
-                    if (task.getDeadline() != null && date.isAfter(task.getDeadline())) {
-                        return false;
-                    }
-                    // Reference Monday is derived from the task's recurrence
-                    // anchor (startDate if set, otherwise createdAt), so that
-                    // multi-week intervals are measured consistently.
-                    LocalDate anchorMonday = task.getRecurrenceAnchor()
-                            .with(TemporalAdjusters
-                                    .previousOrSame(DayOfWeek.MONDAY));
-                    return isActive && recurringTaskAppliesTo(task, date, anchorMonday);
-                }
-
-                // Non-recurring: must be unresolved
-                if (!(isActive || isPending)) return false;
-
-                LocalDate deadline = task.getDeadline();
-                if (deadline == null) {
-                    // Undated tasks only surface for today
-                    return date.equals(today);
-                }
-                // Tasks with a deadline: show on the due date and every day after
-                // (so overdue tasks remain visible until resolved)
-                return !date.isBefore(deadline);
-            })
+            .filter(task -> taskSurfacesOn(task, date))
             .collect(Collectors.toCollection(ArrayList::new));
 
         // Also include IN_PROGRESS or DELAYED tasks that have a goal planned for
@@ -452,7 +414,57 @@ public class TaskService {
 
         return result;
     }
-    
+
+    /**
+     * Decides whether a task surfaces in the daily planner for the given date
+     * based on its status, deadline, and recurrence rules alone (goal-linked
+     * inclusion is handled separately by {@link #getTasksForDate}).
+     *
+     * @param task the task to test; {@code null} returns {@code false}
+     * @param date the planner date; {@code null} returns {@code false}
+     * @return {@code true} if the task should appear on that date
+     */
+    public boolean taskSurfacesOn(Task task, LocalDate date) {
+        if (task == null || date == null) {
+            return false;
+        }
+        TaskStatus s = task.getStatus();
+        boolean isActive = s == TaskStatus.OPEN || s == TaskStatus.IN_PROGRESS;
+        // POSTPONED and CANCELLED tasks are excluded from the daily
+        // planner — only DELAYED tasks surface alongside active ones.
+        boolean isPending = s == TaskStatus.DELAYED;
+
+        if (task.isRecurring()) {
+            // Start date on a recurring task means "don't appear before this date"
+            if (task.getStartDate() != null && date.isBefore(task.getStartDate())) {
+                return false;
+            }
+            // Deadline on a recurring task means "stop recurring after this date"
+            if (task.getDeadline() != null && date.isAfter(task.getDeadline())) {
+                return false;
+            }
+            // Reference Monday is derived from the task's recurrence
+            // anchor (startDate if set, otherwise createdAt), so that
+            // multi-week intervals are measured consistently.
+            LocalDate anchorMonday = task.getRecurrenceAnchor()
+                    .with(TemporalAdjusters
+                            .previousOrSame(DayOfWeek.MONDAY));
+            return isActive && recurringTaskAppliesTo(task, date, anchorMonday);
+        }
+
+        // Non-recurring: must be unresolved
+        if (!(isActive || isPending)) return false;
+
+        LocalDate deadline = task.getDeadline();
+        if (deadline == null) {
+            // Undated tasks only surface for today
+            return date.equals(dateTimeService.getCurrentDate());
+        }
+        // Tasks with a deadline: show on the due date and every day after
+        // (so overdue tasks remain visible until resolved)
+        return !date.isBefore(deadline);
+    }
+
     public boolean isHealthy() {
         try {
             Task.findAll();

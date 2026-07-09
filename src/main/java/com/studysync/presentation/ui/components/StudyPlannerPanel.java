@@ -21,10 +21,8 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.Node;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -258,7 +256,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         Label groupLabel = new Label("Group:");
         TaskStyleUtils.fontBold(groupLabel, 12);
         ComboBox<String> groupCombo = new ComboBox<>();
-        groupCombo.getItems().addAll("None", "Status", "Category", "Deadline");
+        groupCombo.getItems().addAll("None", "Status", "Category", "Reason");
         groupCombo.setValue(currentGroup);
         groupCombo.setOnAction(e -> {
             currentGroup = groupCombo.getValue();
@@ -587,40 +585,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 || status == TaskStatus.DELAYED;
     }
 
-    private boolean surfacesByDateRules(Task task, LocalDate date) {
-        if (task == null || date == null) {
-            return false;
-        }
-
-        TaskStatus status = task.getStatus();
-        boolean active = status == TaskStatus.OPEN || status == TaskStatus.IN_PROGRESS;
-        boolean delayed = status == TaskStatus.DELAYED;
-
-        if (task.isRecurring()) {
-            if (!active) {
-                return false;
-            }
-            if (task.getStartDate() != null && date.isBefore(task.getStartDate())) {
-                return false;
-            }
-            if (task.getDeadline() != null && date.isAfter(task.getDeadline())) {
-                return false;
-            }
-            LocalDate anchorMonday = task.getRecurrenceAnchor()
-                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-            return taskService.recurringTaskAppliesTo(task, date, anchorMonday);
-        }
-
-        if (!(active || delayed)) {
-            return false;
-        }
-        LocalDate deadline = task.getDeadline();
-        if (deadline == null) {
-            return date.equals(dateTimeService.getCurrentDate());
-        }
-        return !date.isBefore(deadline);
-    }
-
     private boolean hasGoalOnDisplayDate(Task task) {
         return task != null && taskIdsWithAttemptsOnDisplayDate.contains(task.getId());
     }
@@ -658,20 +622,20 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             case "Status" -> task.getStatus().name();
             case "Category" -> task.getCategory() != null && !task.getCategory().isBlank()
                     ? task.getCategory() : "Uncategorized";
-            case "Deadline", "Reason" -> reasonGroupKeyFor(task);
+            case "Reason" -> reasonGroupKeyFor(task);
             default -> "";
         };
     }
 
     private String reasonGroupKeyFor(Task task) {
-        if (task.isRecurring() && surfacesByDateRules(task, displayDate)) {
+        if (task.isRecurring() && taskService.taskSurfacesOn(task, displayDate)) {
             return "Recurring";
         }
         LocalDate deadline = task.getDeadline();
-        if (deadline != null && deadline.equals(displayDate) && surfacesByDateRules(task, displayDate)) {
+        if (deadline != null && deadline.equals(displayDate) && taskService.taskSurfacesOn(task, displayDate)) {
             return "Due";
         }
-        if (deadline != null && deadline.isBefore(displayDate) && surfacesByDateRules(task, displayDate)) {
+        if (deadline != null && deadline.isBefore(displayDate) && taskService.taskSurfacesOn(task, displayDate)) {
             return "Overdue";
         }
         if (hasGoalOnDisplayDate(task)) {

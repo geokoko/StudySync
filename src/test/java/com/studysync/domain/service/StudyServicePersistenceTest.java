@@ -3,6 +3,7 @@ package com.studysync.domain.service;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.Task;
+import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.integration.drive.GoogleDriveService;
@@ -20,6 +21,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -226,6 +228,38 @@ class StudyServicePersistenceTest {
                 SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?
                 """, Integer.class, abandoned.getId());
         assertEquals(beforeAttempts, afterAttempts);
+    }
+
+    @Test
+    void achievedGoalCannotBeAbandoned() {
+        StudyGoal goal = new StudyGoal("Achieved abandon guard");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.save();
+        studyService.updateStudyGoalAchievement(goal.getId(), true, null);
+
+        assertFalse(studyService.markGoalAsFailed(goal.getId()));
+
+        StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
+        assertEquals(StudyGoal.GoalStatus.ACHIEVED, stored.getStatus());
+        Integer achievedAttempts = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ? AND outcome = 'ACHIEVED'",
+                Integer.class,
+                goal.getId());
+        assertEquals(1, achievedAttempts);
+    }
+
+    @Test
+    void planGoalAttemptRejectsPastDates() {
+        StudyGoal goal = missedGoal("Past retry guard", null, LocalDate.of(2026, 3, 24));
+
+        assertThrows(ValidationException.class,
+                () -> studyService.planGoalAttempt(goal.getId(), LocalDate.of(2026, 3, 27)));
+
+        Integer attempts = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?",
+                Integer.class,
+                goal.getId());
+        assertEquals(1, attempts);
     }
 
     @Test
