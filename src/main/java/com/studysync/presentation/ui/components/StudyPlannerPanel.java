@@ -294,8 +294,32 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         sessionStatusLabel = new Label("No active session");
         TaskStyleUtils.fontNormal(sessionStatusLabel, 14);
 
+        // Optional goal/task link for the session (issue #17)
+        ComboBox<Object> linkCombo = new ComboBox<>();
+        linkCombo.setPromptText("Link to (optional)");
+        linkCombo.setCellFactory(lv -> sessionLinkCell());
+        linkCombo.setButtonCell(sessionLinkCell());
+        linkCombo.setOnShowing(e -> populateSessionLinkCombo(linkCombo));
+
         startSessionBtn.setOnAction(e -> {
-            currentSession = studyService.startStudySession();
+            // Re-validate the selection against the DB: the goal/task may have
+            // been deleted since the combo was populated, and a stale id would
+            // violate the session's FK. Fall back to an unlinked session.
+            Object link = linkCombo.getValue();
+            String goalId = null;
+            String taskId = null;
+            if (link instanceof StudyGoal goal) {
+                goalId = StudyGoal.findById(goal.getId()).map(StudyGoal::getId).orElse(null);
+                String linkedTaskId = goal.getTaskId();
+                if (goalId != null && linkedTaskId != null && !linkedTaskId.isBlank()
+                        && Task.findById(linkedTaskId).isPresent()) {
+                    taskId = linkedTaskId;
+                }
+            } else if (link instanceof Task task) {
+                taskId = Task.findById(task.getId()).map(Task::getId).orElse(null);
+            }
+            currentSession = studyService.startStudySession(goalId, taskId);
+            linkCombo.setValue(null);
             sessionTextArea.clear();
             startSessionTimer();
             syncSessionControls();
@@ -309,7 +333,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             }
         });
 
-        sessionControls.getChildren().addAll(startSessionBtn, endSessionBtn, sessionStatusLabel);
+        sessionControls.getChildren().addAll(startSessionBtn, linkCombo, endSessionBtn, sessionStatusLabel);
 
         sessionTextArea = new TextArea();
         sessionTextArea.setPromptText("Write your session notes, thoughts, or study content here…");
@@ -847,16 +871,18 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 Label noGoals = new Label("No goals linked to this task for this date.");
                 TaskStyleUtils.fontNormal(noGoals, 12);
                 noGoals.setTextFill(Color.web("#7f8c8d"));
-
-                Button addGoalBtn = new Button("+ Create Goal");
-                addGoalBtn.getStyleClass().addAll("btn-purple", "btn-small");
-                addGoalBtn.setOnAction(e -> {
-                    showAddGoalDialog(task);
-                    populateGoalsPanel(goalsPanel, task); // refresh after add
-                });
-
-                goalsPanel.getChildren().addAll(noGoals, addGoalBtn);
+                goalsPanel.getChildren().add(noGoals);
             }
+
+            // A new goal can always be created, even when only missed goals
+            // are waiting for a retry (issue #31).
+            Button addGoalBtn = new Button("+ Create Goal");
+            addGoalBtn.getStyleClass().addAll("btn-purple", "btn-small");
+            addGoalBtn.setOnAction(e -> {
+                showAddGoalDialog(task);
+                populateGoalsPanel(goalsPanel, task); // refresh after add
+            });
+            goalsPanel.getChildren().add(addGoalBtn);
         } else {
             for (StudyGoal goal : activeGoals) {
                 goalsPanel.getChildren().add(buildGoalRow(goal, task));
@@ -1167,7 +1193,89 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         btnRow.getChildren().addAll(detailsBtn, deleteBtn);
         card.getChildren().addAll(timeLabel, durationLabel, focusLabel, pointsLabel, btnRow);
+        Label linkLabel = buildSessionLinkLabel(session);
+        if (linkLabel != null) {
+            card.getChildren().add(card.getChildren().size() - 1, linkLabel);
+        }
         return card;
+    }
+
+    /** Renders a goal or task entry in the session link ComboBox. */
+    private ListCell<Object> sessionLinkCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(Object item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty ? null : sessionLinkText(item));
+            }
+        };
+    }
+
+    private String sessionLinkText(Object item) {
+        String text;
+        if (item instanceof StudyGoal goal) {
+            text = "Goal: " + goal.getDescription();
+        } else if (item instanceof Task task) {
+            text = "Task: " + task.getTitle();
+        } else {
+            return "None";
+        }
+        return text.length() > 60 ? text.substring(0, 57) + "\u2026" : text;
+    }
+
+    /** Fills the link ComboBox with today's goals, then tasks not already covered by one. */
+    private void populateSessionLinkCombo(ComboBox<Object> combo) {
+        Object selected = combo.getValue();
+        combo.getItems().clear();
+        combo.getItems().add(null);
+        LocalDate today = dateTimeService.getCurrentDate();
+        List<StudyGoal> goals = studyService.getStudyGoalsForDate(today).stream()
+                .filter(g -> !g.isAchieved())
+                .toList();
+        combo.getItems().addAll(goals);
+        Set<String> linkedTaskIds = goals.stream()
+                .map(StudyGoal::getTaskId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+        taskService.getTasksForDate(today).stream()
+                .filter(t -> !linkedTaskIds.contains(t.getId()))
+                .forEach(combo.getItems()::add);
+        // Re-select by id: StudyGoal has no equals(), and the previously
+        // selected instance is never in the freshly loaded list.
+        combo.setValue(combo.getItems().stream()
+                .filter(item -> sameLinkTarget(item, selected))
+                .findFirst().orElse(null));
+    }
+
+    private static boolean sameLinkTarget(Object item, Object selected) {
+        if (item instanceof StudyGoal goal && selected instanceof StudyGoal prev) {
+            return goal.getId().equals(prev.getId());
+        }
+        if (item instanceof Task task && selected instanceof Task prev) {
+            return task.getId().equals(prev.getId());
+        }
+        return false;
+    }
+
+    /** Small muted label describing the session's goal/task link, or null when unlinked. */
+    private Label buildSessionLinkLabel(StudySession session) {
+        String text = null;
+        if (session.getGoalId() != null) {
+            text = StudyGoal.findById(session.getGoalId())
+                    .map(g -> "Goal: " + g.getDescription()).orElse(null);
+        }
+        if (text == null && session.getTaskId() != null) {
+            text = Task.findById(session.getTaskId())
+                    .map(t -> "Task: " + t.getTitle()).orElse(null);
+        }
+        if (text == null) {
+            return null;
+        }
+        Label link = new Label(text.length() > 40 ? text.substring(0, 37) + "\u2026" : text);
+        link.setGraphic(TaskStyleUtils.iconLabel("\u29BF", 10));
+        TaskStyleUtils.fontNormal(link, 11);
+        link.setTextFill(Color.web("#7f8c8d"));
+        return link;
     }
 
     private VBox buildIncompleteSessionCard(StudySession session) {
@@ -1231,6 +1339,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         btnRow.setAlignment(Pos.CENTER_RIGHT);
 
         card.getChildren().addAll(statusLabel, timeLabel, durationLabel, btnRow);
+        Label linkLabel = buildSessionLinkLabel(session);
+        if (linkLabel != null) {
+            card.getChildren().add(card.getChildren().size() - 1, linkLabel);
+        }
         return card;
     }
 

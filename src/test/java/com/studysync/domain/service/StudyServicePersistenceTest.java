@@ -21,6 +21,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -49,9 +50,10 @@ class StudyServicePersistenceTest {
         dataSource = new HikariDataSource(config);
         jdbcTemplate = new JdbcTemplate(dataSource);
 
-        createStudySessionsTable();
+        // Order matters: study_sessions carries FKs to tasks and study_goals.
         createTasksTable();
         createStudyGoalsTable();
+        createStudySessionsTable();
 
         StudySession.setJdbcTemplate(jdbcTemplate);
         Task.setJdbcTemplate(jdbcTemplate);
@@ -93,6 +95,40 @@ class StudyServicePersistenceTest {
 
         verify(googleDriveService).markLocalDbDirty();
         verify(googleDriveService).saveLocally();
+    }
+
+    @Test
+    void startStudySessionPersistsOptionalGoalAndTaskLink() {
+        recurringMondayTask("task-1", LocalDate.of(2026, 3, 23));
+        StudyGoal goal = new StudyGoal("Linked session goal", "task-1");
+        goal.setDate(LocalDate.of(2026, 3, 28));
+        goal.save();
+
+        StudySession session = studyService.startStudySession(goal.getId(), goal.getTaskId());
+
+        StudySession stored = StudySession.findByDate(session.getDate()).stream()
+                .filter(s -> s.getId().equals(session.getId()))
+                .findFirst().orElseThrow();
+        assertEquals(goal.getId(), stored.getGoalId());
+        assertEquals("task-1", stored.getTaskId());
+    }
+
+    @Test
+    void endStudySessionSurvivesDeletionOfLinkedGoal() {
+        recurringMondayTask("task-2", LocalDate.of(2026, 3, 23));
+        StudyGoal goal = new StudyGoal("Deleted mid-session", "task-2");
+        goal.setDate(LocalDate.of(2026, 3, 28));
+        goal.save();
+
+        StudySession session = studyService.startStudySession(goal.getId(), "task-2");
+        jdbcTemplate.update("DELETE FROM study_goals WHERE id = ?", goal.getId());
+
+        studyService.endStudySession(session, new StudySessionEnd(3, "wrapped up"));
+
+        StudySession stored = StudySession.findById(session.getId()).orElseThrow();
+        assertTrue(stored.isCompleted());
+        assertNull(stored.getGoalId());
+        assertEquals("task-2", stored.getTaskId());
     }
 
     @Test
@@ -448,11 +484,15 @@ class StudyServicePersistenceTest {
                     improvement_note TEXT,
                     points_earned INTEGER DEFAULT 0,
                     session_text TEXT,
+                    goal_id VARCHAR(50),
+                    task_id VARCHAR(50),
                     is_active BOOLEAN DEFAULT FALSE,
                     last_update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     current_elapsed_minutes INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (goal_id) REFERENCES study_goals(id) ON DELETE SET NULL,
+                    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
                 )
                 """);
     }

@@ -1,6 +1,7 @@
 
 package com.studysync.domain.entity;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.slf4j.Logger;
@@ -42,7 +43,11 @@ public class StudySession {
     private String improvementNote;
     private int pointsEarned;
     private String sessionText;
-    
+
+    /** Optional links to the goal/task this session works on. */
+    private String goalId;
+    private String taskId;
+
     // Real-time tracking fields
     private boolean isActive;
     private LocalDateTime lastUpdateTime;
@@ -121,10 +126,41 @@ public class StudySession {
             MERGE INTO study_sessions (id, date, start_time, end_time, duration_minutes, completed,
                                       focus_level, confidence_level, notes, subject, topic, location,
                                       outcome_expected, actual_work, what_helped, what_distracted,
-                                      improvement_note, points_earned, session_text, is_active,
-                                      last_update_time, current_elapsed_minutes, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                      improvement_note, points_earned, session_text, goal_id, task_id,
+                                      is_active, last_update_time, current_elapsed_minutes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
+        try {
+            executeSaveMerge(sql);
+        } catch (DataIntegrityViolationException e) {
+            if (this.goalId == null && this.taskId == null) {
+                throw e;
+            }
+            // A linked goal/task was deleted while this session was held in
+            // memory (the DB row's FK was SET NULL, but this instance still
+            // carries the stale id). Drop only the dead link and retry rather
+            // than fail — otherwise an active session could never be ended.
+            logger.warn("Session {} link target no longer exists; dropping dead link ({})",
+                    this.id, e.getMessage());
+            if (this.goalId != null && !rowExists("study_goals", this.goalId)) {
+                this.goalId = null;
+            }
+            if (this.taskId != null && !rowExists("tasks", this.taskId)) {
+                this.taskId = null;
+            }
+            executeSaveMerge(sql);
+        }
+
+        logger.debug("Study session saved: {}", this.id);
+    }
+
+    private static boolean rowExists(String table, String id) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM " + table + " WHERE id = ?", Integer.class, id);
+        return count != null && count > 0;
+    }
+
+    private void executeSaveMerge(String sql) {
         jdbcTemplate.update(sql,
             this.id, this.date, this.startTime, this.endTime,
             this.durationMinutes, this.completed, this.focusLevel,
@@ -132,10 +168,9 @@ public class StudySession {
             this.topic, this.location, this.outcomeExpected,
             this.actualWork, this.whatHelped, this.whatDistracted,
             this.improvementNote, this.pointsEarned, this.sessionText,
+            this.goalId, this.taskId,
             this.isActive, this.lastUpdateTime, this.currentElapsedMinutes
         );
-        
-        logger.debug("Study session saved: {}", this.id);
     }
     
     /**
@@ -303,6 +338,8 @@ public class StudySession {
                 rs.getInt("points_earned"),
                 rs.getString("session_text")
             );
+            session.setGoalId(rs.getString("goal_id"));
+            session.setTaskId(rs.getString("task_id"));
             session.setActive(rs.getBoolean("is_active"));
             session.setLastUpdateTime(rs.getObject("last_update_time", LocalDateTime.class));
             session.setCurrentElapsedMinutes(rs.getInt("current_elapsed_minutes"));
@@ -521,6 +558,12 @@ public class StudySession {
         this.sessionText = sessionText; 
         this.lastUpdateTime = LocalDateTime.now();
     }
+
+    public String getGoalId() { return goalId; }
+    public void setGoalId(String goalId) { this.goalId = goalId; }
+
+    public String getTaskId() { return taskId; }
+    public void setTaskId(String taskId) { this.taskId = taskId; }
 
     public boolean isActive() { return isActive; }
     public void setActive(boolean isActive) { this.isActive = isActive; }

@@ -360,7 +360,20 @@ public class StudyService {
     }
 
     public StudySession startStudySession() {
+        return startStudySession(null, null);
+    }
+
+    /**
+     * Starts a study session optionally linked to a goal and/or task (issue #17).
+     *
+     * @param goalId optional ID of the study goal this session works on
+     * @param taskId optional ID of the task this session works on
+     * @return the started session
+     */
+    public StudySession startStudySession(String goalId, String taskId) {
         StudySession session = new StudySession();
+        session.setGoalId(goalId);
+        session.setTaskId(taskId);
         session.startSession();
         session.save();
         markDirtyAndSaveLocally("study session start");

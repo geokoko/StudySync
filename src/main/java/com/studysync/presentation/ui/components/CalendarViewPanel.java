@@ -1284,8 +1284,30 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         goalTextArea.setPromptText("e.g., Complete Chapter 5, Practice 10 problems, Review notes from class...");
         goalTextArea.setPrefRowCount(3);
         goalTextArea.setWrapText(true);
-        
-        content.getChildren().addAll(instructionLabel, goalTextArea);
+
+        Label taskLabel = new Label("Link to task (optional):");
+        TaskStyleUtils.fontBold(taskLabel, 12);
+        ComboBox<Task> taskCombo = new ComboBox<>();
+        taskCombo.setPromptText("None");
+        taskCombo.setMaxWidth(Double.MAX_VALUE);
+        taskCombo.getItems().add(null);
+        taskCombo.getItems().addAll(taskService.getActiveTasks());
+        taskCombo.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(Task item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "None" : item.getTitle());
+            }
+        });
+        taskCombo.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(Task item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "None" : item.getTitle());
+            }
+        });
+
+        content.getChildren().addAll(instructionLabel, goalTextArea, taskLabel, taskCombo);
         dialogPane.setContent(content);
         
         // Enable/disable OK button based on input
@@ -1305,7 +1327,9 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         dialog.showAndWait().ifPresent(goalDescription -> {
             if (!goalDescription.isEmpty()) {
                 try {
-                    studyService.addStudyGoal(goalDescription, date);
+                    Task linkedTask = taskCombo.getValue();
+                    studyService.addStudyGoal(goalDescription, date,
+                            linkedTask != null ? linkedTask.getId() : null);
                     updateCalendarDisplay();
                     
                     // Show confirmation
