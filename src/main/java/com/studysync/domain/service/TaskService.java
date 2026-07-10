@@ -250,16 +250,20 @@ public class TaskService {
         }
 
         // Resurface postponed tasks whose resume date (their deadline) has
-        // arrived. Ones whose date is already in the past fall through to
-        // the DELAYED sweep below — they did miss their resume date.
+        // arrived: OPEN when it resumes today, straight to DELAYED when the
+        // resume date was already missed (recurring tasks never go DELAYED,
+        // matching applyBusinessRules).
         int updatedCount = 0;
         for (Task task : Task.findByStatus(TaskStatus.POSTPONED)) {
-            if (task.getDeadline() != null && !task.getDeadline().isAfter(today)) {
-                task.updateStatus(TaskStatus.OPEN);
-                task.save();
-                updatedCount++;
-                logger.info("Postponed task '{}' resumed as OPEN", task.getTitle());
+            if (task.getDeadline() == null || task.getDeadline().isAfter(today)) {
+                continue;
             }
+            boolean missed = !task.isRecurring() && task.getDeadline().isBefore(today);
+            task.updateStatus(missed ? TaskStatus.DELAYED : TaskStatus.OPEN);
+            task.save();
+            updatedCount++;
+            logger.info("Postponed task '{}' {}", task.getTitle(),
+                    missed ? "missed its resume date, marked DELAYED" : "resumed as OPEN");
         }
 
         List<Task> delayedTasks = Task.findAll().stream()

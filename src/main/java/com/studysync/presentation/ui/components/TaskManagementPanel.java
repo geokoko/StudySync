@@ -190,8 +190,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             empty.setPadding(new Insets(30));
             listBox.getChildren().add(empty);
         } else {
+            Map<String, TaskReschedule> latestReschedules = TaskReschedule.findLatestByTaskIds(
+                    tasks.stream().map(Task::getId).collect(Collectors.toList()));
             for (Task task : tasks) {
-                listBox.getChildren().add(buildTaskCard(task));
+                listBox.getChildren().add(buildTaskCard(task, latestReschedules.get(task.getId())));
             }
         }
 
@@ -203,7 +205,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         return sp;
     }
 
-    private VBox buildTaskCard(Task task) {
+    private VBox buildTaskCard(Task task, TaskReschedule latestReschedule) {
         VBox wrapper = new VBox(0);
         wrapper.setMaxWidth(Double.MAX_VALUE);
 
@@ -343,10 +345,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             metaRow.getChildren().add(deadlineLabel);
         }
 
-        // ponytail: per-card history query; batch-load if task lists ever get big
-        List<TaskReschedule> reschedules = TaskReschedule.findByTaskId(task.getId());
-        if (!reschedules.isEmpty() && reschedules.get(0).getOldDeadline() != null) {
-            Label prevDueLabel = new Label("Previously due: " + reschedules.get(0).getOldDeadline());
+        if (latestReschedule != null && latestReschedule.getOldDeadline() != null) {
+            Label prevDueLabel = new Label("Previously due: " + latestReschedule.getOldDeadline());
             TaskStyleUtils.fontNormal(prevDueLabel, 11);
             prevDueLabel.setTextFill(Color.web("#9aa0a6"));
             metaRow.getChildren().add(prevDueLabel);

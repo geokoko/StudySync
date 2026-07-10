@@ -7,7 +7,11 @@ import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -85,6 +89,28 @@ public class TaskReschedule {
 
         String sql = "SELECT * FROM task_reschedules WHERE task_id = ? ORDER BY rescheduled_at DESC";
         return jdbcTemplate.query(sql, getRowMapper(), taskId);
+    }
+
+    /**
+     * Latest reschedule per task for a batch of task ids — one query instead
+     * of one per task card.
+     */
+    public static Map<String, TaskReschedule> findLatestByTaskIds(Collection<String> taskIds) {
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("JdbcTemplate not initialized");
+        }
+        if (taskIds == null || taskIds.isEmpty()) {
+            return Map.of();
+        }
+
+        String placeholders = String.join(",", Collections.nCopies(taskIds.size(), "?"));
+        String sql = "SELECT * FROM task_reschedules WHERE task_id IN (" + placeholders + ")"
+                + " ORDER BY rescheduled_at DESC";
+        Map<String, TaskReschedule> latest = new HashMap<>();
+        for (TaskReschedule reschedule : jdbcTemplate.query(sql, getRowMapper(), taskIds.toArray())) {
+            latest.putIfAbsent(reschedule.getTaskId(), reschedule);
+        }
+        return latest;
     }
 
     private static RowMapper<TaskReschedule> getRowMapper() {

@@ -15,6 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -163,6 +164,24 @@ class TaskServicePersistenceTest {
 
         assertTrue(TaskReschedule.findByTaskId("task-4").isEmpty());
         assertEquals(TODAY.plusDays(3), Task.findById("task-4").orElseThrow().getDeadline());
+    }
+
+    @Test
+    void findLatestByTaskIdsReturnsMostRecentReschedulePerTask() {
+        savedTask("task-5", TODAY.plusDays(1), TaskStatus.OPEN);
+        jdbcTemplate.update(
+                "INSERT INTO task_reschedules (id, task_id, old_deadline, new_deadline, rescheduled_at) VALUES (?, ?, ?, ?, ?)",
+                "r1", "task-5", TODAY.plusDays(1), TODAY.plusDays(2), TODAY.minusDays(1).atTime(9, 0));
+        jdbcTemplate.update(
+                "INSERT INTO task_reschedules (id, task_id, old_deadline, new_deadline, rescheduled_at) VALUES (?, ?, ?, ?, ?)",
+                "r2", "task-5", TODAY.plusDays(2), TODAY.plusDays(4), TODAY.atTime(9, 0));
+
+        Map<String, TaskReschedule> latest =
+                TaskReschedule.findLatestByTaskIds(List.of("task-5", "no-such-task"));
+
+        assertEquals(1, latest.size());
+        assertEquals(TODAY.plusDays(2), latest.get("task-5").getOldDeadline());
+        assertEquals(TODAY.plusDays(4), latest.get("task-5").getNewDeadline());
     }
 
     private Task savedTask(final String id, final LocalDate deadline, final TaskStatus status) {
