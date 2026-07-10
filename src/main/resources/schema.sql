@@ -20,6 +20,21 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 -- ===================================
+-- Task Reschedules Table
+-- ===================================
+-- Full history of task deadline changes: one row per reschedule.
+-- For DELAYED tasks a reschedule sets a fresh due date; for POSTPONED
+-- tasks the new deadline acts as the "resume on" date.
+CREATE TABLE IF NOT EXISTS task_reschedules (
+    id VARCHAR(50) PRIMARY KEY,
+    task_id VARCHAR(50) NOT NULL,
+    old_deadline DATE,
+    new_deadline DATE NOT NULL,
+    rescheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
+-- ===================================
 -- Projects Table
 -- ===================================
 CREATE TABLE IF NOT EXISTS projects (
@@ -177,6 +192,7 @@ VALUES
 CREATE INDEX IF NOT EXISTS idx_tasks_category ON tasks(category);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline);
+CREATE INDEX IF NOT EXISTS idx_task_reschedules_task_id ON task_reschedules(task_id);
 
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_projects_category ON projects(category);

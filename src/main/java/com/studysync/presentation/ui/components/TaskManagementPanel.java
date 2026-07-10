@@ -4,6 +4,7 @@ package com.studysync.presentation.ui.components;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.Task;
 import com.studysync.domain.entity.TaskReminder;
+import com.studysync.domain.entity.TaskReschedule;
 import com.studysync.domain.valueobject.TaskCategory;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
@@ -271,6 +272,13 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         editBtn.getStyleClass().addAll("btn-primary", "btn-small");
         editBtn.setOnAction(e -> showTaskForm(task));
 
+        if (task.getStatus() == TaskStatus.DELAYED || task.getStatus() == TaskStatus.POSTPONED) {
+            Button rescheduleBtn = new Button("Reschedule");
+            rescheduleBtn.getStyleClass().addAll("btn-small");
+            rescheduleBtn.setOnAction(e -> showRescheduleDialog(task));
+            actions.getChildren().add(rescheduleBtn);
+        }
+
         if (task.getStatus() != TaskStatus.COMPLETED && task.getStatus() != TaskStatus.CANCELLED) {
             Button completeBtn = new Button("Done");
             completeBtn.getStyleClass().addAll("btn-success", "btn-small");
@@ -326,10 +334,22 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             boolean overdue = task.getDeadline().isBefore(LocalDate.now())
                     && task.getStatus() != TaskStatus.COMPLETED
                     && task.getStatus() != TaskStatus.CANCELLED;
-            Label deadlineLabel = new Label("Due: " + task.getDeadline().toString());
+            String dueText = task.getStatus() == TaskStatus.POSTPONED
+                    ? "Postponed until: " + task.getDeadline()
+                    : "Due: " + task.getDeadline();
+            Label deadlineLabel = new Label(dueText);
             TaskStyleUtils.fontNormal(deadlineLabel, 12);
             deadlineLabel.setTextFill(overdue ? Color.web("#c0392b") : Color.web("#495057"));
             metaRow.getChildren().add(deadlineLabel);
+        }
+
+        // ponytail: per-card history query; batch-load if task lists ever get big
+        List<TaskReschedule> reschedules = TaskReschedule.findByTaskId(task.getId());
+        if (!reschedules.isEmpty() && reschedules.get(0).getOldDeadline() != null) {
+            Label prevDueLabel = new Label("Previously due: " + reschedules.get(0).getOldDeadline());
+            TaskStyleUtils.fontNormal(prevDueLabel, 11);
+            prevDueLabel.setTextFill(Color.web("#9aa0a6"));
+            metaRow.getChildren().add(prevDueLabel);
         }
 
         if (task.isRecurring()) {
@@ -913,13 +933,23 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         deadlineHint.setVisible(false);
         deadlineHint.setManaged(false);
 
+        Runnable updateDeadlineHint = () -> {
+            String text = recurringCheck.isSelected()
+                    ? "For recurring tasks, the deadline acts as the end-of-recurrence date."
+                    : statusCombo.getValue() == TaskStatus.POSTPONED
+                        ? "For postponed tasks, the deadline is the resume date - the task returns to the planner on that day."
+                        : "";
+            deadlineHint.setText(text);
+            deadlineHint.setVisible(!text.isEmpty());
+            deadlineHint.setManaged(!text.isEmpty());
+        };
         recurringCheck.selectedProperty().addListener((obs, o, n) -> {
             recurringOptions.setVisible(n);
             recurringOptions.setManaged(n);
-            deadlineHint.setVisible(n);
-            deadlineHint.setManaged(n);
-            deadlineHint.setText(n ? "For recurring tasks, the deadline acts as the end-of-recurrence date." : "");
+            updateDeadlineHint.run();
         });
+        statusCombo.valueProperty().addListener((obs, o, n) -> updateDeadlineHint.run());
+        updateDeadlineHint.run();
 
         // Pre-fill recurring pattern if editing
         if (!isNew && existingTask.isRecurring()) {
@@ -1009,6 +1039,24 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         if (!isNew) {
             form.getChildren().addAll(new Label("Status:"), statusCombo);
+
+            List<TaskReschedule> history = TaskReschedule.findByTaskId(existingTask.getId());
+            if (!history.isEmpty()) {
+                VBox historyBox = new VBox(3);
+                Label historyTitle = new Label("Reschedule history:");
+                TaskStyleUtils.fontBold(historyTitle, 12);
+                historyBox.getChildren().add(historyTitle);
+                for (TaskReschedule r : history) {
+                    String from = r.getOldDeadline() != null ? r.getOldDeadline().toString() : "no deadline";
+                    String when = r.getRescheduledAt() != null
+                            ? " (changed " + r.getRescheduledAt().toLocalDate() + ")" : "";
+                    Label row = new Label(from + " -> " + r.getNewDeadline() + when);
+                    TaskStyleUtils.fontNormal(row, 11);
+                    row.setTextFill(Color.web("#7f8c8d"));
+                    historyBox.getChildren().add(row);
+                }
+                form.getChildren().add(historyBox);
+            }
         }
 
         form.getChildren().addAll(recurringCheck, recurringOptions, btnRow);
@@ -1095,6 +1143,35 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         for (Tab tab : statusTabPane.getTabs()) {
             tab.setContent(buildTaskList((String) tab.getUserData()));
         }
+    }
+
+    /**
+     * Quick reschedule for delayed/postponed tasks: one date picker, no full edit form.
+     */
+    private void showRescheduleDialog(Task task) {
+        Dialog<LocalDate> dialog = new Dialog<>();
+        dialog.setTitle("Reschedule Task");
+        dialog.setHeaderText(task.getStatus() == TaskStatus.POSTPONED
+                ? "Pick the date this task should resume on."
+                : "Pick a new due date.");
+        dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
+
+        DatePicker picker = new DatePicker(LocalDate.now().plusDays(1));
+        picker.setMaxWidth(Double.MAX_VALUE);
+        dialog.getDialogPane().setContent(picker);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        dialog.setResultConverter(bt -> bt == ButtonType.OK ? picker.getValue() : null);
+
+        dialog.showAndWait().ifPresent(newDate -> {
+            try {
+                taskService.rescheduleTask(task, newDate);
+                rebuildAllTabs();
+            } catch (Exception ex) {
+                Alert err = new Alert(Alert.AlertType.ERROR, ex.getMessage(), ButtonType.OK);
+                err.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
+                err.showAndWait();
+            }
+        });
     }
 
     // ──────────────────────────────────────────────
