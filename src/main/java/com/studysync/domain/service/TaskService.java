@@ -3,6 +3,7 @@ package com.studysync.domain.service;
 import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.Task;
+import com.studysync.domain.entity.TaskReschedule;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.integration.drive.GoogleDriveService;
@@ -25,6 +26,7 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -158,11 +160,30 @@ public class TaskService {
         validateTaskExists(task);
         Task updated = applyTaskUpdates(task, update);
         Task finalTask = applyBusinessRules(updated);
-        
+
         Task savedTask = finalTask.save();
+        if (!Objects.equals(task.getDeadline(), savedTask.getDeadline()) && savedTask.getDeadline() != null) {
+            new TaskReschedule(savedTask.getId(), task.getDeadline(), savedTask.getDeadline()).save();
+            logger.info("Recorded reschedule for task '{}': {} -> {}",
+                    savedTask.getTitle(), task.getDeadline(), savedTask.getDeadline());
+        }
         logger.info("Updated task: {}", savedTask.getTitle());
         markDirtyAndSaveLocally("task update");
         return savedTask;
+    }
+
+    /**
+     * Moves a task to a new due date, recording the change in the reschedule
+     * history. For a DELAYED task this also revives it (status back to OPEN);
+     * for a POSTPONED task the new deadline acts as the resume date and the
+     * status is left alone until the daily pass resurfaces it.
+     */
+    @Transactional
+    public Task rescheduleTask(@NotNull Task task, @NotNull LocalDate newDeadline) {
+        if (newDeadline == null) {
+            throw ValidationException.requiredFieldMissing("newDeadline");
+        }
+        return updateTask(task, new TaskUpdate(null, null, null, null, newDeadline, null, null));
     }
     
     @Transactional
@@ -228,23 +249,40 @@ public class TaskService {
             lastDelayedTasksProcessedDate = today;
         }
 
+        // Resurface postponed tasks whose resume date (their deadline) has
+        // arrived: OPEN when it resumes today, straight to DELAYED when the
+        // resume date was already missed (recurring tasks never go DELAYED,
+        // matching applyBusinessRules).
+        int updatedCount = 0;
+        for (Task task : Task.findByStatus(TaskStatus.POSTPONED)) {
+            if (task.getDeadline() == null || task.getDeadline().isAfter(today)) {
+                continue;
+            }
+            boolean missed = !task.isRecurring() && task.getDeadline().isBefore(today);
+            task.updateStatus(missed ? TaskStatus.DELAYED : TaskStatus.OPEN);
+            task.save();
+            updatedCount++;
+            logger.info("Postponed task '{}' {}", task.getTitle(),
+                    missed ? "missed its resume date, marked DELAYED" : "resumed as OPEN");
+        }
+
         List<Task> delayedTasks = Task.findAll().stream()
                 .filter(task -> task.getStatus() != TaskStatus.COMPLETED &&
                                  task.getStatus() != TaskStatus.CANCELLED &&
+                                 task.getStatus() != TaskStatus.POSTPONED &&
                                  task.getDeadline() != null &&
                                  task.getDeadline().isBefore(today) &&
                                  task.getStatus() != TaskStatus.DELAYED)
                 .map(this::applyBusinessRules)
                 .collect(Collectors.toList());
 
-        int updatedCount = 0;
         for (Task task : delayedTasks) {
             task.save();
             updatedCount++;
         }
 
         if (updatedCount > 0) {
-            logger.info("Marked {} tasks as DELAYED", updatedCount);
+            logger.info("Updated {} tasks in the daily delayed/postponed pass", updatedCount);
             markDirtyAndSaveLocally("delayed task processing");
         }
 
@@ -511,8 +549,9 @@ public class TaskService {
         
         LocalDate newDeadline = task.getDeadline();
         if (update.deadline() != null) {
-            if (update.deadline().isBefore(LocalDate.now())) {
-                throw ValidationException.invalidDateRange(update.deadline().toString(), LocalDate.now().toString());
+            LocalDate today = dateTimeService.getCurrentDate();
+            if (update.deadline().isBefore(today)) {
+                throw ValidationException.invalidDateRange(update.deadline().toString(), today.toString());
             }
             newDeadline = update.deadline();
         }
@@ -543,15 +582,26 @@ public class TaskService {
     }
     
     private Task applyBusinessRules(Task task) {
+        LocalDate today = dateTimeService.getCurrentDate();
         // Only mark non-recurring tasks as DELAYED for overdue deadlines.
         // For recurring tasks, the deadline is an end-of-recurrence boundary,
         // not a due date, so it should not trigger DELAYED status.
+        // COMPLETED and CANCELLED are terminal; POSTPONED keeps its resume
+        // date until markDelayedTasks resurfaces it.
+        boolean delayEligible = task.getStatus() != TaskStatus.COMPLETED
+                && task.getStatus() != TaskStatus.CANCELLED
+                && task.getStatus() != TaskStatus.POSTPONED;
         if (!task.isRecurring()
                 && task.getDeadline() != null
-                && task.getDeadline().isBefore(LocalDate.now())
-                && task.getStatus() != TaskStatus.COMPLETED) {
+                && task.getDeadline().isBefore(today)
+                && delayEligible) {
             logger.info("Task '{}' marked as DELAYED due to overdue deadline", task.getTitle());
             task.updateStatus(TaskStatus.DELAYED);
+        } else if (task.getStatus() == TaskStatus.DELAYED) {
+            // The deadline was removed or moved to today/future — the task
+            // is no longer late, so a rescheduled DELAYED task revives.
+            logger.info("Task '{}' no longer overdue, reset to OPEN", task.getTitle());
+            task.updateStatus(TaskStatus.OPEN);
         }
         return task;
     }
