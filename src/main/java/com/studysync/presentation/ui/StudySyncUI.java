@@ -332,9 +332,11 @@ public class StudySyncUI {
     }
 
     private void runStartupMaintenance() {
-        markDelayedTasksOnStartup();
-        processDelayedGoalsOnStartup();
-        refreshAllPanels();
+        googleDriveService.runStartupMaintenanceWithoutDirtyTracking(() -> {
+            markDelayedTasksOnStartup();
+            processDelayedGoalsOnStartup();
+            refreshAllPanels();
+        });
     }
 
     private void markDelayedTasksOnStartup() {

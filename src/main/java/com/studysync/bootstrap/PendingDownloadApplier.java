@@ -1,5 +1,7 @@
 package com.studysync.bootstrap;
 
+import com.studysync.integration.drive.DriveSyncState;
+import com.studysync.integration.drive.DriveSyncStateStore;
 import com.studysync.integration.drive.PendingDownloadMetadata;
 import com.studysync.integration.drive.PendingDownloadSupport;
 import org.slf4j.Logger;
@@ -55,6 +57,12 @@ public final class PendingDownloadApplier {
 
             createBackupIfPresent(livePath);
             PendingDownloadSupport.moveReplacing(stagedPath, livePath);
+            try {
+                DriveSyncStateStore.write(livePath,
+                        new DriveSyncState(metadata.remoteModifiedTimeEpochMillis(), false));
+            } catch (IOException e) {
+                logger.warn("Applied Drive database but could not record its sync revision: {}", e.getMessage());
+            }
             Files.deleteIfExists(metadataPath);
             PendingDownloadSupport.pruneBackups(livePath, MAX_BACKUPS, BACKUP_MAX_AGE);
             logger.info("Applied staged Google Drive database download to {}", livePath);

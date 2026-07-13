@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -26,6 +27,8 @@ class GoogleDriveServiceTest {
 
     private GoogleDriveService googleDriveService;
     private GoogleDriveGateway gateway;
+    private GoogleDriveSettings settings;
+    private GoogleCredentialManager credentialManager;
     private DataSource dataSource;
     private Credential activeCredential;
     private Path localDatabasePath;
@@ -35,7 +38,7 @@ class GoogleDriveServiceTest {
         localDatabasePath = Files.createTempDirectory("studysync-drive-test").resolve("studysync.mv.db");
         Files.writeString(localDatabasePath, "initial");
 
-        GoogleDriveSettings settings = new GoogleDriveSettings(
+        settings = new GoogleDriveSettings(
                 true,
                 "client-id",
                 "client-secret",
@@ -45,7 +48,7 @@ class GoogleDriveServiceTest {
                 "studysync.mv.db",
                 localDatabasePath,
                 localDatabasePath.getParent().resolve("credentials"));
-        GoogleCredentialManager credentialManager = mock(GoogleCredentialManager.class);
+        credentialManager = mock(GoogleCredentialManager.class);
         gateway = mock(GoogleDriveGateway.class);
         dataSource = mock(DataSource.class);
         Connection connection = mock(Connection.class);
@@ -95,6 +98,8 @@ class GoogleDriveServiceTest {
 
     @Test
     void checkSyncStatusReturnsConflictWhenLocalIsDirtyAndDriveIsNewer() throws Exception {
+        Instant knownRemoteTime = Instant.now().minusSeconds(120);
+        DriveSyncStateStore.write(localDatabasePath, new DriveSyncState(knownRemoteTime.toEpochMilli(), false));
         Files.setLastModifiedTime(localDatabasePath, FileTime.from(Instant.now()));
         setPrivateField(googleDriveService, "localDbDirty", true);
         when(gateway.getRemoteModifiedTime(activeCredential))
@@ -103,6 +108,88 @@ class GoogleDriveServiceTest {
         GoogleDriveService.SyncStatus status = googleDriveService.checkSyncStatus();
 
         assertEquals(GoogleDriveService.SyncStatus.CONFLICT, status);
+    }
+
+    @Test
+    void checkSyncStatusIgnoresLocalFileTimestampWhenStoredDriveRevisionMatches() throws Exception {
+        Instant remoteTime = Instant.now().minusSeconds(120);
+        Files.setLastModifiedTime(localDatabasePath, FileTime.from(Instant.now().plusSeconds(120)));
+        DriveSyncStateStore.write(localDatabasePath, new DriveSyncState(remoteTime.toEpochMilli(), false));
+        when(gateway.getRemoteModifiedTime(activeCredential)).thenReturn(Optional.of(remoteTime));
+
+        GoogleDriveService.SyncStatus status = googleDriveService.checkSyncStatus();
+
+        assertEquals(GoogleDriveService.SyncStatus.UP_TO_DATE, status);
+    }
+
+    @Test
+    void checkSyncStatusReturnsDriveNewerAgainstStoredRevisionDespiteNewLocalTimestamp() throws Exception {
+        Instant knownRemoteTime = Instant.now().minusSeconds(240);
+        Instant remoteTime = knownRemoteTime.plusMillis(1);
+        Files.setLastModifiedTime(localDatabasePath, FileTime.from(Instant.now().plusSeconds(120)));
+        DriveSyncStateStore.write(localDatabasePath, new DriveSyncState(knownRemoteTime.toEpochMilli(), false));
+        when(gateway.getRemoteModifiedTime(activeCredential)).thenReturn(Optional.of(remoteTime));
+
+        GoogleDriveService.SyncStatus status = googleDriveService.checkSyncStatus();
+
+        assertEquals(GoogleDriveService.SyncStatus.DRIVE_NEWER, status);
+    }
+
+    @Test
+    void checkSyncStatusIgnoresStartupMaintenanceMutations() throws Exception {
+        Instant remoteTime = Instant.now().minusSeconds(120);
+        DriveSyncStateStore.write(localDatabasePath, new DriveSyncState(remoteTime.toEpochMilli(), false));
+        googleDriveService.runStartupMaintenanceWithoutDirtyTracking(googleDriveService::markLocalDbDirty);
+        when(gateway.getRemoteModifiedTime(activeCredential)).thenReturn(Optional.of(remoteTime));
+
+        GoogleDriveService.SyncStatus status = googleDriveService.checkSyncStatus();
+
+        assertEquals(GoogleDriveService.SyncStatus.UP_TO_DATE, status);
+    }
+
+    @Test
+    void localDirtyStateIsPersistedBeforeFirstDriveRevision() {
+        googleDriveService.markLocalDbDirty();
+
+        DriveSyncState state = DriveSyncStateStore.read(localDatabasePath).orElseThrow();
+        assertEquals(null, state.remoteModifiedTimeEpochMillis());
+        assertTrue(state.localChangesPending());
+    }
+
+    @Test
+    void localDirtyStateSurvivesServiceRestart() throws Exception {
+        Instant remoteTime = Instant.now().minusSeconds(120);
+        DriveSyncStateStore.write(localDatabasePath,
+                new DriveSyncState(remoteTime.toEpochMilli(), false));
+
+        googleDriveService.markLocalDbDirty();
+
+        assertTrue(DriveSyncStateStore.read(localDatabasePath).orElseThrow().localChangesPending());
+        GoogleDriveService restartedService = new GoogleDriveService(
+                settings, credentialManager, gateway, dataSource);
+        setPrivateField(restartedService, "activeCredential", activeCredential);
+        when(gateway.getRemoteModifiedTime(activeCredential)).thenReturn(Optional.of(remoteTime));
+        assertTrue(restartedService.isLocalDbDirty());
+        assertEquals(GoogleDriveService.SyncStatus.LOCAL_NEWER, restartedService.checkSyncStatus());
+    }
+
+    @Test
+    void successfulUploadRecordsDriveRevisionAndClearsPersistedDirtyState() throws Exception {
+        Instant previousRemoteTime = Instant.now().minusSeconds(120);
+        Instant uploadedRemoteTime = Instant.now();
+        DriveSyncStateStore.write(localDatabasePath,
+                new DriveSyncState(previousRemoteTime.toEpochMilli(), false));
+        googleDriveService.markLocalDbDirty();
+        when(gateway.uploadDatabaseToDrive(activeCredential)).thenReturn(true);
+        when(gateway.getRemoteModifiedTime(activeCredential)).thenReturn(Optional.of(uploadedRemoteTime));
+
+        boolean uploaded = googleDriveService.uploadDatabaseSnapshot();
+
+        DriveSyncState state = DriveSyncStateStore.read(localDatabasePath).orElseThrow();
+        assertTrue(uploaded);
+        assertEquals(uploadedRemoteTime.toEpochMilli(), state.remoteModifiedTimeEpochMillis());
+        assertFalse(state.localChangesPending());
+        assertFalse(googleDriveService.isLocalDbDirty());
     }
 
     private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {

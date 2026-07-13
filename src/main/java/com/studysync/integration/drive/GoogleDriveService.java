@@ -22,7 +22,6 @@ import java.util.Optional;
 public class GoogleDriveService {
 
     private static final Logger logger = LoggerFactory.getLogger(GoogleDriveService.class);
-    private static final long SYNC_STATUS_TOLERANCE_SECONDS = 30;
     private static final long UPLOAD_FRESHNESS_TOLERANCE_MS = 5_000;
 
     private final GoogleDriveSettings settings;
@@ -48,6 +47,7 @@ public class GoogleDriveService {
      * mutations in the same millisecond can never tie the comparison.
      */
     private long localMutationGeneration = 0L;
+    private final ThreadLocal<Integer> dirtyTrackingSuppressionDepth = ThreadLocal.withInitial(() -> 0);
 
     public GoogleDriveService(GoogleDriveSettings settings,
                               GoogleCredentialManager credentialManager,
@@ -57,6 +57,7 @@ public class GoogleDriveService {
         this.credentialManager = credentialManager;
         this.gateway = gateway;
         this.dataSource = dataSource;
+        restorePersistedDirtyState();
 
         if (settings != null && settings.isReady()) {
             this.activeCredential = loadStoredCredential();
@@ -186,12 +187,7 @@ public class GoogleDriveService {
 
         boolean uploaded = gateway.uploadDatabaseToDrive(activeCredential);
         if (uploaded) {
-            synchronized (dirtyStateLock) {
-                if (localMutationGeneration == generationAtUploadStart) {
-                    localDbDirty = false;
-                    lastLocalMutationAt = 0L;
-                }
-            }
+            recordCurrentDriveRevision(generationAtUploadStart);
         }
         return uploaded;
     }
@@ -240,9 +236,27 @@ public class GoogleDriveService {
 
     public void markLocalDbDirty() {
         synchronized (dirtyStateLock) {
+            if (dirtyTrackingSuppressionDepth.get() > 0) {
+                return;
+            }
             this.localDbDirty = true;
             this.lastLocalMutationAt = System.currentTimeMillis();
             this.localMutationGeneration++;
+            persistDirtyState();
+        }
+    }
+
+    public void runStartupMaintenanceWithoutDirtyTracking(final Runnable operation) {
+        int previousDepth = dirtyTrackingSuppressionDepth.get();
+        dirtyTrackingSuppressionDepth.set(previousDepth + 1);
+        try {
+            operation.run();
+        } finally {
+            if (previousDepth == 0) {
+                dirtyTrackingSuppressionDepth.remove();
+            } else {
+                dirtyTrackingSuppressionDepth.set(previousDepth);
+            }
         }
     }
 
@@ -274,23 +288,70 @@ public class GoogleDriveService {
                 return SyncStatus.DRIVE_NEWER;
             }
 
-            Instant localTime = Files.getLastModifiedTime(localPath).toInstant();
-            if (localDbDirty && remoteTime.get().isAfter(localTime.plusSeconds(SYNC_STATUS_TOLERANCE_SECONDS))) {
-                return SyncStatus.CONFLICT;
+            Optional<DriveSyncState> knownState = DriveSyncStateStore.read(localPath);
+            if (knownState.isEmpty()) {
+                return localDbDirty ? SyncStatus.LOCAL_NEWER : SyncStatus.DRIVE_NEWER;
             }
-            if (localDbDirty) {
-                return SyncStatus.LOCAL_NEWER;
+
+            boolean localChangesPending = localDbDirty || knownState.get().localChangesPending();
+            if (knownState.get().remoteModifiedTimeEpochMillis() == null) {
+                return localChangesPending ? SyncStatus.CONFLICT : SyncStatus.DRIVE_NEWER;
             }
-            if (remoteTime.get().isAfter(localTime.plusSeconds(SYNC_STATUS_TOLERANCE_SECONDS))) {
-                return SyncStatus.DRIVE_NEWER;
+            long knownRemoteTime = knownState.get().remoteModifiedTimeEpochMillis();
+            long currentRemoteTime = remoteTime.get().toEpochMilli();
+            if (currentRemoteTime > knownRemoteTime) {
+                return localChangesPending ? SyncStatus.CONFLICT : SyncStatus.DRIVE_NEWER;
             }
-            if (localTime.isAfter(remoteTime.get().plusSeconds(SYNC_STATUS_TOLERANCE_SECONDS))) {
+            if (knownRemoteTime > currentRemoteTime) {
+                return SyncStatus.UNKNOWN;
+            }
+            if (localChangesPending) {
                 return SyncStatus.LOCAL_NEWER;
             }
             return SyncStatus.UP_TO_DATE;
         } catch (Exception e) {
             logger.warn("Failed to check sync status: {}", e.getMessage());
             return SyncStatus.UNKNOWN;
+        }
+    }
+
+    private void recordCurrentDriveRevision(final long generationAtUploadStart) {
+        try {
+            Optional<Instant> remoteTime = gateway.getRemoteModifiedTime(activeCredential);
+            if (remoteTime.isEmpty()) {
+                logger.warn("Drive upload succeeded but its revision could not be recorded locally");
+                return;
+            }
+            synchronized (dirtyStateLock) {
+                boolean localChangesPending = localMutationGeneration != generationAtUploadStart;
+                DriveSyncStateStore.write(getLocalDatabasePath(),
+                        new DriveSyncState(remoteTime.get().toEpochMilli(), localChangesPending));
+                if (!localChangesPending) {
+                    localDbDirty = false;
+                    lastLocalMutationAt = 0L;
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Drive upload succeeded but recording its revision failed: {}", e.getMessage());
+        }
+    }
+
+    private void restorePersistedDirtyState() {
+        DriveSyncStateStore.read(getLocalDatabasePath())
+                .filter(DriveSyncState::localChangesPending)
+                .ifPresent(state -> localDbDirty = true);
+    }
+
+    private void persistDirtyState() {
+        Optional<DriveSyncState> knownState = DriveSyncStateStore.read(getLocalDatabasePath());
+        Long remoteModifiedTime = knownState
+                .map(DriveSyncState::remoteModifiedTimeEpochMillis)
+                .orElse(null);
+        try {
+            DriveSyncStateStore.write(getLocalDatabasePath(),
+                    new DriveSyncState(remoteModifiedTime, true));
+        } catch (IOException e) {
+            logger.warn("Failed to persist pending local Drive changes: {}", e.getMessage());
         }
     }
 
