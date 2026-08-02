@@ -53,7 +53,6 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
     
     // Calendar layout constants
     private static final int DAYS_IN_WEEK = 7;
-    private static final int MAX_WEEKS = 6;
     private static final double CELL_WIDTH = 150;
     private static final double CELL_HEIGHT = 120;
 
@@ -499,9 +498,6 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         return data;
     }
 
-    private List<StudyGoal> getFilteredStudyGoalsForDate(LocalDate date) {
-        return studyService.getGoalsForDate(date);
-    }
 
 
     private String getProductivityIcon(double score) {
@@ -784,7 +780,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             content.getChildren().add(headerBox);
         }
         
-        List<StudyGoal> studyGoals = getFilteredStudyGoalsForDate(date);
+        List<StudyGoal> studyGoals = studyService.getGoalsForDate(date);
         
         if (studyGoals.isEmpty()) {
             String emptyMessage = isFutureDate

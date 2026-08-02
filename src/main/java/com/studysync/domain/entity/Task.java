@@ -3,10 +3,8 @@ package com.studysync.domain.entity;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
 import jakarta.validation.constraints.*;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +52,6 @@ public class Task {
     private int points;
     
     private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
 
     /**
      * Recurrence pattern for repeating tasks.
@@ -107,7 +104,6 @@ public class Task {
     public Task() {
         this.id = UUID.randomUUID().toString();
         this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
         this.status = TaskStatus.OPEN;
         this.points = 0;
         this.recurringPattern = null;
@@ -148,11 +144,9 @@ public class Task {
         this.status = status != null ? status : TaskStatus.OPEN;
         this.points = points;
         this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
         this.recurringPattern = recurringPattern;
         this.startDate = startDate;
         this.recurrenceEndDate = recurrenceEndDate;
-
 
         // Validation
         Objects.requireNonNull(this.id, "id cannot be null");
@@ -176,16 +170,6 @@ public class Task {
         );
     }
 
-    // Business logic methods
-    public boolean isOverdue() {
-        return deadline != null && deadline.isBefore(LocalDate.now()) && 
-               status != TaskStatus.COMPLETED;
-    }
-
-    public boolean hasDeadline() {
-        return deadline != null;
-    }
-    
     public void markCompleted() {
         updateStatus(TaskStatus.COMPLETED);
     }
@@ -201,7 +185,6 @@ public class Task {
         } else {
             this.completedAt = null;
         }
-        this.updatedAt = LocalDateTime.now();
     }
 
     /**
@@ -220,7 +203,6 @@ public class Task {
     
     public void addPoints(int additionalPoints) {
         this.points += Math.max(0, additionalPoints);
-        this.updatedAt = LocalDateTime.now();
     }
 
     // Getters and setters
@@ -230,7 +212,6 @@ public class Task {
 
     public void setId(String id) {
         this.id = id;
-        this.updatedAt = LocalDateTime.now();
     }
 
     public String getTitle() {
@@ -239,7 +220,6 @@ public class Task {
 
     public void setTitle(String title) {
         this.title = title;
-        this.updatedAt = LocalDateTime.now();
     }
 
     public String getDescription() {
@@ -248,7 +228,6 @@ public class Task {
 
     public void setDescription(String description) {
         this.description = description;
-        this.updatedAt = LocalDateTime.now();
     }
 
     public String getCategory() {
@@ -257,7 +236,6 @@ public class Task {
 
     public void setCategory(String category) {
         this.category = category;
-        this.updatedAt = LocalDateTime.now();
     }
 
     public TaskPriority getPriority() {
@@ -266,7 +244,6 @@ public class Task {
 
     public void setPriority(TaskPriority priority) {
         this.priority = priority;
-        this.updatedAt = LocalDateTime.now();
     }
 
     public LocalDate getDeadline() {
@@ -275,7 +252,6 @@ public class Task {
 
     public void setDeadline(LocalDate deadline) {
         this.deadline = deadline;
-        this.updatedAt = LocalDateTime.now();
     }
 
     public TaskStatus getStatus() {
@@ -284,7 +260,6 @@ public class Task {
 
     public void setStatus(TaskStatus status) {
         this.status = status;
-        this.updatedAt = LocalDateTime.now();
     }
 
     public int getPoints() {
@@ -293,7 +268,6 @@ public class Task {
 
     public void setPoints(int points) {
         this.points = points;
-        this.updatedAt = LocalDateTime.now();
     }
 
     public LocalDateTime getCreatedAt() {
@@ -304,13 +278,7 @@ public class Task {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
 
     /**
      * Gets the recurrence pattern.
@@ -328,7 +296,6 @@ public class Task {
      */
     public void setRecurringPattern(String recurringPattern) {
         this.recurringPattern = recurringPattern;
-        this.updatedAt = LocalDateTime.now();
     }
 
     /**
@@ -345,7 +312,6 @@ public class Task {
      */
     public void setStartDate(LocalDate startDate) {
         this.startDate = startDate;
-        this.updatedAt = LocalDateTime.now();
     }
 
     /**
@@ -363,7 +329,6 @@ public class Task {
      */
     public void setRecurrenceEndDate(LocalDate recurrenceEndDate) {
         this.recurrenceEndDate = recurrenceEndDate;
-        this.updatedAt = LocalDateTime.now();
     }
 
     /**
@@ -376,7 +341,6 @@ public class Task {
 
     public void setCompletedAt(LocalDate completedAt) {
         this.completedAt = completedAt;
-        this.updatedAt = LocalDateTime.now();
     }
 
     /**
@@ -393,7 +357,6 @@ public class Task {
      */
     public void setRemindDaysBefore(Integer remindDaysBefore) {
         this.remindDaysBefore = (remindDaysBefore != null && remindDaysBefore >= 0) ? remindDaysBefore : null;
-        this.updatedAt = LocalDateTime.now();
     }
 
     /**
@@ -495,7 +458,6 @@ public class Task {
         
         String id = (this.id == null || this.id.isBlank()) ? UUID.randomUUID().toString() : this.id;
         this.id = id;
-        this.updatedAt = LocalDateTime.now();
         
         // created_at is deliberately absent: H2 keeps unlisted columns on the
         // update path and applies the column DEFAULT on the insert path. Listing

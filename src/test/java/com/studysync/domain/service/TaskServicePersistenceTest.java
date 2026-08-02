@@ -60,8 +60,7 @@ class TaskServicePersistenceTest {
                     recurrence_end_date DATE,
                     completed_at DATE,
                     remind_days_before INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
         jdbcTemplate.execute("""

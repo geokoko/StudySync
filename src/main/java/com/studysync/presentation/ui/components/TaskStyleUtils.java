@@ -8,7 +8,6 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
 import javafx.scene.paint.Color;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.Locale;

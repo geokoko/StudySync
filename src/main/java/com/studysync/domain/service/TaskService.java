@@ -73,18 +73,6 @@ public class TaskService {
         logger.info("TaskService caches reset after DB reload");
     }
 
-    private void markDirty() {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    googleDriveService.markLocalDbDirty();
-                }
-            });
-        } else {
-            googleDriveService.markLocalDbDirty();
-        }
-    }
 
     private void markDirtyAndSaveLocally(final String operation) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {

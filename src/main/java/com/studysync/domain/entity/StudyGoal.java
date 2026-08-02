@@ -389,14 +389,6 @@ public class StudyGoal {
         return jdbcTemplate.query(sql, getAttemptViewMapper(), date);
     }
 
-    public static List<StudyGoal> findByDateIncludingDelayed(LocalDate date) {
-        return findByDate(date);
-    }
-
-    public static List<StudyGoal> findAllByDateIncludingDelayed(LocalDate date) {
-        return findAllByDate(date);
-    }
-
     public static List<StudyGoal> findAchieved() {
         requireJdbcTemplate();
         String sql = SELECT_ATTEMPT_VIEW + """

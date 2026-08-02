@@ -18,8 +18,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     recurrence_end_date DATE,
     completed_at DATE,
     remind_days_before INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ===================================
@@ -456,3 +455,8 @@ MERGE INTO schema_migrations (id) VALUES ('recover-project-work-totals');
 -- already here, and a stored date would silently go stale the moment the
 -- deadline moved.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS remind_days_before INTEGER;
+
+-- tasks.updated_at is gone: no write path ever set it, so it only ever held the
+-- row's insert time while looking like a modification timestamp - which is what
+-- made an earlier completed_at backfill read it as one.
+ALTER TABLE tasks DROP COLUMN IF EXISTS updated_at;

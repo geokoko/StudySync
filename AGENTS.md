@@ -94,7 +94,7 @@ Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordC
 | Entity | Table | Key Static Methods |
 |---|---|---|
 | `Task` | `tasks` | `findAll`, `findById`, `findByStatus`, `findByCategory`, `findDueBy`, `findOverdue`, `findByPriority`, `search`, `findHighPriority`, `findRecurring`, `findActiveRecurring`, `countByStatus`, `existsById`, `updateStatus`, `deleteById`, `deleteByIds`, `save`, `delete` |
-| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findByDateIncludingDelayed`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `deleteById`, `save`, `delete` |
+| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `deleteById`, `save`, `delete` |
 | `StudySession` | `study_sessions` | `findAll`, `findById`, `findByDate`, `findActiveSession`, `save`, `delete` |
 | `Project` | `projects` | `findAll`, `findById`, `findByStatus`, `save`, `delete` |
 | `ProjectSession` | `project_sessions` | `findAll`, `findById`, `findByProjectId`, `findByDate`, `save`, `delete` |
@@ -131,7 +131,7 @@ H2 file-based database at `./data/studysync.mv.db`. Schema is in `schema.sql` an
 
 ### Tables
 
-- **tasks** — id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, recurrence_end_date, completed_at, remind_days_before, timestamps
+- **tasks** — id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, recurrence_end_date, completed_at, remind_days_before, created_at (no updated_at — nothing ever wrote it)
 - **projects** — id, title, description, category, status, priority, dates, progress, hours, total_minutes_worked, total_sessions_count, last_worked_on, notes, timestamps. `total_minutes_worked` is authoritative; `actual_hours` is a rounded-down convenience column
 - **study_sessions** — id, date, times, duration, completion flags, focus/confidence levels, session notes, active tracking fields, timestamps
 - **project_sessions** — id, project_id (FK → projects), date, times, duration, objectives, progress, notes, timestamps

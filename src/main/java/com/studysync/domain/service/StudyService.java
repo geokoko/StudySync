@@ -18,7 +18,6 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -58,18 +57,6 @@ public class StudyService {
         logger.info("StudyService caches reset after DB reload");
     }
 
-    private void markDirty() {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    googleDriveService.markLocalDbDirty();
-                }
-            });
-        } else {
-            googleDriveService.markLocalDbDirty();
-        }
-    }
 
     private void markDirtyAndSaveLocally(String operation) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -90,10 +77,6 @@ public class StudyService {
         }
     }
 
-    @Transactional(readOnly = true)
-    public List<StudySession> getStudySessions() {
-        return StudySession.findAll();
-    }
 
     @Transactional(readOnly = true)
     public List<StudyGoal> getStudyGoals() {
@@ -102,7 +85,7 @@ public class StudyService {
 
     public List<StudyGoal> getStudyGoalsForDate(LocalDate date) {
         ensureDelayedGoalsProcessedToday();
-        return StudyGoal.findByDateIncludingDelayed(date);
+        return StudyGoal.findByDate(date);
     }
 
     /**
@@ -111,7 +94,7 @@ public class StudyService {
      */
     public List<StudyGoal> getAllGoalsForDate(LocalDate date) {
         ensureDelayedGoalsProcessedToday();
-        return StudyGoal.findAllByDateIncludingDelayed(date);
+        return StudyGoal.findAllByDate(date);
     }
 
     /**
@@ -129,30 +112,7 @@ public class StudyService {
         return StudyGoal.findAllByDate(date);
     }
 
-    /**
-     * Get study goals planned for a future date.
-     * Skips delay processing since future dates cannot have delayed goals.
-     * 
-     * @param date a future date to retrieve planned goals for
-     * @return list of study goals planned for that date
-     * @throws ValidationException if {@code date} is null or not strictly in the future
-     */
-    @Transactional(readOnly = true)
-    public List<StudyGoal> getStudyGoalsForFutureDate(LocalDate date) {
-        if (date == null) {
-            throw ValidationException.requiredFieldMissing("date");
-        }
-        if (!date.isAfter(dateTimeService.getCurrentDate())) {
-            throw ValidationException.invalidDateRange(
-                date.toString(), "a future date (use getStudyGoalsForDate for past/present)");
-        }
-        return StudyGoal.findByDate(date);
-    }
 
-    @Transactional(readOnly = true)
-    public List<DailyReflection> getDailyReflections() {
-        return DailyReflection.findAll();
-    }
 
     public List<StudyGoal> getTodayGoals() {
         ensureDelayedGoalsProcessedToday();
@@ -424,10 +384,6 @@ public class StudyService {
         }
     }
 
-    @Transactional(readOnly = true)
-    public boolean reflectionExistsForDate(LocalDate date) {
-        return DailyReflection.findByDate(date).isPresent();
-    }
 
     @Transactional(readOnly = true)
     public int calculateDailyProgress() {
@@ -457,10 +413,6 @@ public class StudyService {
         return StudySession.findActiveSession();
     }
 
-    @Transactional(readOnly = true)
-    public List<StudySession> getSessionsInDateRange(LocalDate startDate, LocalDate endDate) {
-        return StudySession.findInDateRange(startDate, endDate);
-    }
 
     @Transactional(readOnly = true)
     public List<StudySession> getRecentStudySessions(int days) {
