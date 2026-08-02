@@ -3,14 +3,12 @@ package com.studysync.presentation.ui.components;
 
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.Task;
-import com.studysync.domain.entity.TaskReminder;
 import com.studysync.domain.entity.TaskReschedule;
 import com.studysync.domain.valueobject.TaskCategory;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.domain.service.TaskService;
 import com.studysync.domain.service.CategoryService;
-import com.studysync.domain.service.ReminderService;
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskUpdate;
 import javafx.geometry.Insets;
@@ -21,6 +19,7 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -35,7 +34,6 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
     private final TaskService taskService;
     private final CategoryService categoryService;
-    private final ReminderService reminderService;
     private final StudyService studyService;
     private final Consumer<Node> showModal;
     private final Runnable closeModal;
@@ -50,11 +48,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private TabPane statusTabPane;
 
     public TaskManagementPanel(TaskService taskService, CategoryService categoryService,
-                               ReminderService reminderService, StudyService studyService,
+                               StudyService studyService,
                                Consumer<Node> showModal, Runnable closeModal) {
         this.taskService = taskService;
         this.categoryService = categoryService;
-        this.reminderService = reminderService;
         this.studyService = studyService;
         this.showModal = showModal;
         this.closeModal = closeModal;
@@ -286,7 +283,6 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             completeBtn.getStyleClass().addAll("btn-success", "btn-small");
             completeBtn.setOnAction(e -> {
                 taskService.updateTaskStatus(task, TaskStatus.COMPLETED);
-                reminderService.removeRemindersForTask(task.getId());
                 rebuildAllTabs();
             });
             actions.getChildren().add(completeBtn);
@@ -303,7 +299,6 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             confirm.showAndWait().ifPresent(bt -> {
                 if (bt == ButtonType.OK) {
                     taskService.removeTask(task);
-                    reminderService.removeRemindersForTask(task.getId());
                     rebuildAllTabs();
                 }
             });
@@ -312,6 +307,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         actions.getChildren().addAll(editBtn, deleteBtn);
 
         titleRow.getChildren().addAll(titleLabel, priorityLabel, statusBadge);
+        if (task.isReminderDue(LocalDate.now())) {
+            titleRow.getChildren().add(TaskStyleUtils.createReminderBadge(
+                    ChronoUnit.DAYS.between(LocalDate.now(), task.getDeadline())));
+        }
         if (task.isRecurring()) {
             Label recurBadge = new Label("Recurring");
             recurBadge.setTextFill(Color.web("#7c4dff"));
@@ -884,6 +883,15 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         deadlinePicker.setPromptText("Deadline (optional)");
         deadlinePicker.setMaxWidth(Double.MAX_VALUE);
 
+        ComboBox<Integer> reminderCombo = new ComboBox<>();
+        reminderCombo.setMaxWidth(Double.MAX_VALUE);
+        reminderCombo.getItems().addAll(null, 1, 3, 7, 30);
+        reminderCombo.setCellFactory(lv -> reminderCell());
+        reminderCombo.setButtonCell(reminderCell());
+        reminderCombo.setValue(isNew ? null : existingTask.getRemindDaysBefore());
+        // Nothing to count back from without a deadline.
+        reminderCombo.disableProperty().bind(deadlinePicker.valueProperty().isNull());
+
         // Status (only when editing)
         ComboBox<TaskStatus> statusCombo = new ComboBox<>();
         statusCombo.setMaxWidth(Double.MAX_VALUE);
@@ -922,9 +930,20 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         startDatePicker.setPromptText("Start date");
         startDatePicker.setMaxWidth(Double.MAX_VALUE);
 
+        DatePicker recurrenceEndPicker = new DatePicker();
+        recurrenceEndPicker.setPromptText("Never ends");
+        recurrenceEndPicker.setMaxWidth(Double.MAX_VALUE);
+
+        Label recurrenceEndHint = new Label("The last day this task repeats. Separate from the deadline, "
+                + "which is when the task itself is due.");
+        TaskStyleUtils.fontNormal(recurrenceEndHint, 10);
+        recurrenceEndHint.setTextFill(Color.web("#7f8c8d"));
+        recurrenceEndHint.setWrapText(true);
+
         recurringOptions.getChildren().addAll(new Label("Repeat every:"), intervalRow,
                 new Label("On days:"), daysRow,
-                new Label("Start date:"), startDatePicker);
+                new Label("Start date:"), startDatePicker,
+                new Label("Repeat until:"), recurrenceEndPicker, recurrenceEndHint);
 
         Label deadlineHint = new Label("");
         TaskStyleUtils.fontNormal(deadlineHint, 10);
@@ -935,7 +954,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         Runnable updateDeadlineHint = () -> {
             String text = recurringCheck.isSelected()
-                    ? "For recurring tasks, the deadline acts as the end-of-recurrence date."
+                    ? "The deadline is when this task is due. Use \"Repeat until\" below to stop the repetition."
                     : statusCombo.getValue() == TaskStatus.POSTPONED
                         ? "For postponed tasks, the deadline is the resume date - the task returns to the planner on that day."
                         : "";
@@ -965,6 +984,9 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             } catch (Exception ignored) { }
             if (existingTask.getStartDate() != null) {
                 startDatePicker.setValue(existingTask.getStartDate());
+            }
+            if (existingTask.getRecurrenceEndDate() != null) {
+                recurrenceEndPicker.setValue(existingTask.getRecurrenceEndDate());
             }
         }
 
@@ -1004,15 +1026,18 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
             try {
                 LocalDate startDate = recurringCheck.isSelected() ? startDatePicker.getValue() : null;
+                LocalDate recurrenceEnd = recurringCheck.isSelected() ? recurrenceEndPicker.getValue() : null;
                 if (isNew) {
                     Task newTask = new Task(null, title, descArea.getText().trim(),
                             cat.name(), new TaskPriority(prio),
-                            deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern, startDate);
+                            deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern, startDate, recurrenceEnd);
+                    newTask.setRemindDaysBefore(deadlinePicker.getValue() != null ? reminderCombo.getValue() : null);
                     taskService.addTask(newTask);
                 } else {
                     TaskUpdate update = new TaskUpdate(title, descArea.getText().trim(),
                             cat.name(), new TaskPriority(prio),
-                            deadlinePicker.getValue(), recurPattern, startDate);
+                            deadlinePicker.getValue(), recurPattern, startDate, recurrenceEnd,
+                            deadlinePicker.getValue() != null ? reminderCombo.getValue() : null);
                     taskService.updateTask(existingTask, update);
                     // Apply status change separately if editing
                     if (statusCombo.getValue() != null && statusCombo.getValue() != existingTask.getStatus()) {
@@ -1035,7 +1060,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                 new Label("Description:"), descArea,
                 new Label("Category:"), catCombo, newCatRow,
                 new Label("Priority:"), priorityCombo,
-                new Label("Deadline:"), deadlinePicker, deadlineHint);
+                new Label("Deadline:"), deadlinePicker, deadlineHint,
+                new Label("Remind me:"), reminderCombo);
 
         if (!isNew) {
             form.getChildren().addAll(new Label("Status:"), statusCombo);
@@ -1206,6 +1232,27 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
     private static String nvl(String s) {
         return s != null ? s : "";
+    }
+
+    /** Renders the reminder offset as plain English; null means no reminder. */
+    private ListCell<Integer> reminderCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(Integer days, boolean empty) {
+                super.updateItem(days, empty);
+                if (empty || days == null) {
+                    setText("No reminder");
+                } else if (days == 1) {
+                    setText("1 day before the deadline");
+                } else if (days == 7) {
+                    setText("1 week before the deadline");
+                } else if (days == 30) {
+                    setText("1 month before the deadline");
+                } else {
+                    setText(days + " days before the deadline");
+                }
+            }
+        };
     }
 
     private ListCell<Integer> starCell() {

@@ -3,7 +3,7 @@ package com.studysync.presentation.ui;
 import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.service.DateTimeService;
 import com.studysync.domain.service.ProjectService;
-import com.studysync.domain.service.ReminderService;
+import com.studysync.domain.service.ScoringService;
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskService;
 import com.studysync.integration.drive.GoogleDriveService;
@@ -59,10 +59,10 @@ public class StudySyncUI {
 
     private final TaskService taskService;
     private final CategoryService categoryService;
-    private final ReminderService reminderService;
     private final StudyService studyService;
     private final ProjectService projectService;
     private final DateTimeService dateTimeService;
+    private final ScoringService scoringService;
     private final GoogleDriveService googleDriveService;
     private final Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
@@ -74,23 +74,23 @@ public class StudySyncUI {
     @Autowired
     public StudySyncUI(TaskService taskService,
                        CategoryService categoryService,
-                       ReminderService reminderService,
                        StudyService studyService,
                        ProjectService projectService,
                        DateTimeService dateTimeService,
+                       ScoringService scoringService,
                        GoogleDriveService googleDriveService) {
         this.taskService = Objects.requireNonNull(taskService, "taskService");
         this.categoryService = Objects.requireNonNull(categoryService, "categoryService");
-        this.reminderService = Objects.requireNonNull(reminderService, "reminderService");
         this.studyService = Objects.requireNonNull(studyService, "studyService");
         this.projectService = Objects.requireNonNull(projectService, "projectService");
         this.dateTimeService = Objects.requireNonNull(dateTimeService, "dateTimeService");
+        this.scoringService = Objects.requireNonNull(scoringService, "scoringService");
         this.googleDriveService = Objects.requireNonNull(googleDriveService, "googleDriveService");
 
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
         Tab calendarTab = new Tab("Calendar View");
         calendarTab.setGraphic(TaskStyleUtils.iconLabel("\u25A6", 14));
-        panels.put(calendarTab, new CalendarViewPanel(this.studyService, this.taskService, this.projectService));
+        panels.put(calendarTab, new CalendarViewPanel(this.studyService, this.taskService, this.projectService, this.scoringService));
         Tab plannerTab = new Tab("Study Planner");
         plannerTab.setGraphic(TaskStyleUtils.iconLabel("\u270E", 14));
         panels.put(plannerTab, new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService,
@@ -104,7 +104,7 @@ public class StudySyncUI {
                 this::showModal, this::closeModal));
         Tab tasksTab = new Tab("Tasks");
         tasksTab.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
-        panels.put(tasksTab, new TaskManagementPanel(this.taskService, this.categoryService, this.reminderService,
+        panels.put(tasksTab, new TaskManagementPanel(this.taskService, this.categoryService,
                 this.studyService, this::showModal, this::closeModal));
         panelMap = Collections.unmodifiableMap(panels);
     }
@@ -384,7 +384,7 @@ public class StudySyncUI {
         profileStage.initOwner(tabPane.getScene().getWindow());
 
         ProfileViewPanel profilePanel = new ProfileViewPanel(
-                studyService, projectService, taskService, dateTimeService, googleDriveService);
+                studyService, dateTimeService, scoringService, googleDriveService);
 
         Scene profileScene = new Scene(profilePanel, 1000, 700);
         profileScene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());

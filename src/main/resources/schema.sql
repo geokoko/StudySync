@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     points INTEGER DEFAULT 0,
     recurring_pattern VARCHAR(100),
     start_date DATE,
+    recurrence_end_date DATE,
+    completed_at DATE,
+    remind_days_before INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -50,6 +53,9 @@ CREATE TABLE IF NOT EXISTS projects (
     progress_percentage INTEGER DEFAULT 0,
     estimated_hours INTEGER,
     actual_hours INTEGER,
+    total_minutes_worked INTEGER,
+    total_sessions_count INTEGER,
+    last_worked_on TIMESTAMP,
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -166,6 +172,17 @@ CREATE TABLE IF NOT EXISTS daily_reflections (
     deserve_reward BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ===================================
+-- Off Days Table
+-- ===================================
+-- Days the user marked as off / holiday. Sessions and goals dated on one of
+-- these days never count towards global scores.
+CREATE TABLE IF NOT EXISTS off_days (
+    date DATE PRIMARY KEY,
+    label VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ===================================
@@ -345,3 +362,92 @@ WHERE status = 'ABANDONED'
       SELECT 1 FROM study_goal_attempts a
       WHERE a.goal_id = g.id AND a.outcome = 'ACHIEVED'
   );
+
+-- ===================================
+-- Scoring Migrations
+-- ===================================
+-- Completion date of a task. Drives the timeliness component of the score and
+-- decides which day the task's points land on. Existing completed tasks are
+-- backfilled from updated_at, the closest proxy available for old rows.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at DATE;
+
+UPDATE tasks
+SET completed_at = CAST(updated_at AS DATE)
+WHERE status = 'COMPLETED' AND completed_at IS NULL;
+
+-- Points are derived data, so they are recomputed from duration/focus on every
+-- startup. This keeps historical sessions on the same scale as new ones and is
+-- idempotent: same inputs always produce the same points.
+-- Integer arithmetic only, so it matches StudySession.calculatePoints() exactly
+-- (a floating-point version would round differently in edge cases).
+UPDATE study_sessions
+SET points_earned =
+    (LEAST(COALESCE(duration_minutes, 0), 240) / 2
+        * CASE COALESCE(focus_level, 3)
+              WHEN 1 THEN 40
+              WHEN 2 THEN 70
+              WHEN 4 THEN 120
+              WHEN 5 THEN 140
+              ELSE 100
+          END
+        + 50) / 100
+    + CASE WHEN completed THEN 10 ELSE 0 END;
+
+-- Same shape for project sessions, which carry no focus rating.
+UPDATE project_sessions
+SET points_earned = LEAST(COALESCE(duration_minutes, 0), 240) / 2
+    + CASE WHEN completed THEN 10 ELSE 0 END;
+
+CREATE INDEX IF NOT EXISTS idx_tasks_completed_at ON tasks(completed_at);
+
+-- Recurring tasks used to overload `deadline` as the end-of-recurrence date,
+-- which left them unable to express a real due date. The two are separate now.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence_end_date DATE;
+
+-- One-shot migrations need a marker: every other statement in this file is
+-- either additive or recomputes derived data, so re-running is harmless, but
+-- moving `deadline` into `recurrence_end_date` would eat a genuine deadline
+-- set on a recurring task after the split.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    id VARCHAR(100) PRIMARY KEY,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+UPDATE tasks
+SET recurrence_end_date = deadline, deadline = NULL
+WHERE recurring_pattern IS NOT NULL
+  AND deadline IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE id = 'split-recurrence-end-from-deadline');
+
+MERGE INTO schema_migrations (id) VALUES ('split-recurrence-end-from-deadline');
+
+-- Project work was stored only as whole hours (actual_hours), so every save
+-- truncated the minutes and every reload multiplied the loss. Session counts
+-- and last-worked-on were never stored at all. Added without a DEFAULT so the
+-- backfill below can tell legacy rows apart from rows the app has written.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_minutes_worked INTEGER;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_sessions_count INTEGER;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS last_worked_on TIMESTAMP;
+
+-- Best reconstruction available for existing rows; the truncated minutes are
+-- gone. Idempotent: once set, the column is no longer NULL.
+UPDATE projects
+SET total_minutes_worked = COALESCE(actual_hours, 0) * 60
+WHERE total_minutes_worked IS NULL;
+
+-- Recover the real session count and worked minutes from the sessions
+-- themselves, which were never lossy. Only fills rows that have sessions.
+UPDATE projects p
+SET total_sessions_count = (
+        SELECT COUNT(*) FROM project_sessions s WHERE s.project_id = p.id AND s.completed = TRUE),
+    total_minutes_worked = (
+        SELECT COALESCE(SUM(s.duration_minutes), 0) FROM project_sessions s
+        WHERE s.project_id = p.id AND s.completed = TRUE)
+WHERE EXISTS (SELECT 1 FROM project_sessions s WHERE s.project_id = p.id AND s.completed = TRUE)
+  AND COALESCE(p.total_sessions_count, 0) = 0;
+
+-- How many days before its deadline a task should start reminding, or NULL for
+-- no reminder. The reminder date is derived rather than stored: the deadline is
+-- already here, and a stored date would silently go stale the moment the
+-- deadline moved.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS remind_days_before INTEGER;

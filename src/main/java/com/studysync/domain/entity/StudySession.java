@@ -23,7 +23,14 @@ public class StudySession {
     
     private static final Logger logger = LoggerFactory.getLogger(StudySession.class);
     private static JdbcTemplate jdbcTemplate;
-    
+
+    /** Minutes past which a single session stops earning more points. */
+    public static final int MAX_SCORED_MINUTES = 240;
+
+    /** Added for actually finishing a session rather than abandoning it. */
+    public static final int COMPLETION_BONUS = 10;
+
+
     private String id;
     private LocalDate date;
     private LocalDateTime startTime;
@@ -366,22 +373,7 @@ public class StudySession {
         calculateAndSetPoints();
     }
 
-    public void pauseSession() {
-        if (this.isActive && this.startTime != null) {
-            this.currentElapsedMinutes = (int) Duration.between(this.startTime, LocalDateTime.now()).toMinutes();
-            this.durationMinutes = this.currentElapsedMinutes;
-            this.isActive = false;
-        }
-    }
 
-    public void resumeSession() {
-        if (!this.isActive) {
-            // Adjust start time to account for already elapsed time
-            this.startTime = LocalDateTime.now().minusMinutes(this.currentElapsedMinutes);
-            this.isActive = true;
-            this.lastUpdateTime = LocalDateTime.now();
-        }
-    }
 
     public void updateRealTimeProgress() {
         if (this.isActive && this.startTime != null) {
@@ -398,29 +390,40 @@ public class StudySession {
         return this.currentElapsedMinutes;
     }
 
-    public static int calculatePoints(int durationMinutes, int focusLevel, int confidenceLevel, boolean completed) {
-        int basePoints = Math.min(durationMinutes / 10, 60);
-        
-        // Focus scoring with penalties for low focus (1-2 stars)
-        int focusScore;
-        if (focusLevel <= 2) {
-            // Penalty for low focus: significant point reduction
-            focusScore = -20 * (3 - focusLevel); // -20 for level 2, -40 for level 1
-        } else {
-            // Bonus for good focus levels (3-5)
-            focusScore = (focusLevel - 2) * 15; // +15 for level 3, +30 for level 4, +45 for level 5
-        }
-        
-        int confidenceBonus = confidenceLevel * 5;
-        int completionBonus = completed ? 20 : 0;
-        
-        // Ensure minimum score is 0 (can't go negative)
-        int totalPoints = basePoints + focusScore + confidenceBonus + completionBonus;
-        return Math.max(0, totalPoints);
+    /**
+     * Points for a study session: time studied, scaled by how focused it was.
+     *
+     * <p>Time sets the size of the reward and focus scales it, so a long
+     * average session can never be worth less than a short self-flattered one.
+     * Time is capped at four hours per session, past which extra minutes say
+     * more about forgetting to stop the timer than about studying.</p>
+     *
+     * <p>Kept in integer arithmetic on purpose: the startup migration in
+     * schema.sql recomputes the same value in SQL, and a floating-point
+     * version rounds differently on exact halves.</p>
+     *
+     * @param durationMinutes minutes studied
+     * @param focusLevel self-rated focus, 1-5 (anything else scores as neutral)
+     * @param completed whether the session was finished rather than abandoned
+     * @return points earned, never negative
+     */
+    public static int calculatePoints(int durationMinutes, int focusLevel, boolean completed) {
+        int base = Math.min(Math.max(durationMinutes, 0), MAX_SCORED_MINUTES) / 2;
+
+        // Percentages, not doubles, so the SQL migration can mirror this exactly.
+        int qualityPercent = switch (focusLevel) {
+            case 1 -> 40;
+            case 2 -> 70;
+            case 4 -> 120;
+            case 5 -> 140;
+            default -> 100;
+        };
+
+        return (base * qualityPercent + 50) / 100 + (completed ? COMPLETION_BONUS : 0);
     }
 
     public void calculateAndSetPoints() {
-        this.pointsEarned = calculatePoints(this.durationMinutes, this.focusLevel, this.confidenceLevel, this.completed);
+        this.pointsEarned = calculatePoints(this.durationMinutes, this.focusLevel, this.completed);
     }
 
     public void updateFocusLevel(int newFocusLevel) {

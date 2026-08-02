@@ -76,6 +76,33 @@ public class Task {
      */
     private LocalDate startDate;
 
+    /**
+     * Last date a recurring task may produce an occurrence. NULL means the
+     * recurrence never ends.
+     *
+     * <p>This used to be conflated with {@link #deadline}, which left recurring
+     * tasks unable to express a real due date. They are separate now:
+     * {@code recurrenceEndDate} says when repeating stops, {@code deadline}
+     * says when the task must be done - and the deadline is what drives
+     * overdue badges and the timeliness part of the score, for recurring and
+     * one-off tasks alike.</p>
+     */
+    private LocalDate recurrenceEndDate;
+
+    /**
+     * Date the task was completed, or NULL while it is unfinished. Set when the
+     * status becomes COMPLETED and cleared if it moves back out. Decides which
+     * day the task's points land on, so off days exclude it correctly.
+     */
+    private LocalDate completedAt;
+
+    /**
+     * How many days before the deadline this task starts reminding, or NULL for
+     * no reminder. The reminder date itself is derived from the deadline rather
+     * than stored, so moving the deadline moves the reminder with it.
+     */
+    private Integer remindDaysBefore;
+
     // Default constructor
     public Task() {
         this.id = UUID.randomUUID().toString();
@@ -100,10 +127,18 @@ public class Task {
         this(id, title, description, category, priority, deadline, status, points, recurringPattern, null);
     }
 
-    // Full constructor with recurring pattern and start date
-    public Task(String id, String title, String description, String category, 
+    // Constructor with recurring pattern and start date (no recurrence end)
+    public Task(String id, String title, String description, String category,
                 TaskPriority priority, LocalDate deadline, TaskStatus status, int points,
                 String recurringPattern, LocalDate startDate) {
+        this(id, title, description, category, priority, deadline, status, points,
+             recurringPattern, startDate, null);
+    }
+
+    // Full constructor
+    public Task(String id, String title, String description, String category,
+                TaskPriority priority, LocalDate deadline, TaskStatus status, int points,
+                String recurringPattern, LocalDate startDate, LocalDate recurrenceEndDate) {
         this.id = id != null ? id : UUID.randomUUID().toString();
         this.title = title;
         this.description = description;
@@ -116,7 +151,9 @@ public class Task {
         this.updatedAt = LocalDateTime.now();
         this.recurringPattern = recurringPattern;
         this.startDate = startDate;
-        
+        this.recurrenceEndDate = recurrenceEndDate;
+
+
         // Validation
         Objects.requireNonNull(this.id, "id cannot be null");
         Objects.requireNonNull(this.title, "title cannot be null");
@@ -150,13 +187,35 @@ public class Task {
     }
     
     public void markCompleted() {
-        this.status = TaskStatus.COMPLETED;
-        this.updatedAt = LocalDateTime.now();
+        updateStatus(TaskStatus.COMPLETED);
     }
-    
+
     public void updateStatus(TaskStatus newStatus) {
         this.status = newStatus;
+        // Completion date follows the status, so no caller has to remember to
+        // maintain it. Re-completing keeps the original date.
+        if (newStatus == TaskStatus.COMPLETED) {
+            if (this.completedAt == null) {
+                this.completedAt = LocalDate.now();
+            }
+        } else {
+            this.completedAt = null;
+        }
         this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * Whether this task was finished by its deadline.
+     *
+     * @return {@code true} when completed on or before the deadline, {@code false}
+     *         when completed late, and empty when the question does not apply
+     *         (unfinished, or no deadline to be measured against)
+     */
+    public Optional<Boolean> completedOnTime() {
+        if (status != TaskStatus.COMPLETED || deadline == null || completedAt == null) {
+            return Optional.empty();
+        }
+        return Optional.of(!completedAt.isAfter(deadline));
     }
     
     public void addPoints(int additionalPoints) {
@@ -290,6 +349,84 @@ public class Task {
     }
 
     /**
+     * Last date this recurring task may produce an occurrence.
+     * @return the end-of-recurrence date, or {@code null} if it never ends
+     */
+    public LocalDate getRecurrenceEndDate() {
+        return recurrenceEndDate;
+    }
+
+    /**
+     * Sets the end-of-recurrence date. This is not a deadline - see
+     * {@link #getDeadline()} for when the task is actually due.
+     * @param recurrenceEndDate last date an occurrence may fall on
+     */
+    public void setRecurrenceEndDate(LocalDate recurrenceEndDate) {
+        this.recurrenceEndDate = recurrenceEndDate;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * Date the task was completed.
+     * @return the completion date, or {@code null} while unfinished
+     */
+    public LocalDate getCompletedAt() {
+        return completedAt;
+    }
+
+    public void setCompletedAt(LocalDate completedAt) {
+        this.completedAt = completedAt;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * Days before the deadline at which this task starts reminding.
+     * @return the offset in days, or {@code null} when no reminder is set
+     */
+    public Integer getRemindDaysBefore() {
+        return remindDaysBefore;
+    }
+
+    /**
+     * Sets the reminder offset. Values below zero are treated as no reminder.
+     * @param remindDaysBefore days before the deadline, or {@code null} for none
+     */
+    public void setRemindDaysBefore(Integer remindDaysBefore) {
+        this.remindDaysBefore = (remindDaysBefore != null && remindDaysBefore >= 0) ? remindDaysBefore : null;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * The day this task starts reminding, derived from the deadline.
+     *
+     * @return the reminder date, or empty when the task has no deadline or no
+     *         reminder offset
+     */
+    public Optional<LocalDate> reminderDate() {
+        if (deadline == null || remindDaysBefore == null) {
+            return Optional.empty();
+        }
+        return Optional.of(deadline.minusDays(remindDaysBefore));
+    }
+
+    /**
+     * Whether this task's reminder is currently due: the reminder day has
+     * arrived, the deadline has not yet passed (after that it is simply
+     * overdue, which is surfaced on its own), and the task is unresolved.
+     *
+     * @param today the date to evaluate against
+     * @return {@code true} when the task should show a reminder
+     */
+    public boolean isReminderDue(LocalDate today) {
+        if (today == null || status == TaskStatus.COMPLETED || status == TaskStatus.CANCELLED) {
+            return false;
+        }
+        return reminderDate()
+                .map(remindOn -> !today.isBefore(remindOn) && !today.isAfter(deadline))
+                .orElse(false);
+    }
+
+    /**
      * Returns the effective recurrence anchor date.
      * If {@code startDate} is set, returns it; otherwise falls back to
      * the date portion of {@code createdAt}.
@@ -354,11 +491,18 @@ public class Task {
         this.id = id;
         this.updatedAt = LocalDateTime.now();
         
+        // created_at is deliberately absent: H2 keeps unlisted columns on the
+        // update path and applies the column DEFAULT on the insert path. Listing
+        // it as CURRENT_TIMESTAMP used to reset the creation date on every save,
+        // which silently moved the recurrence anchor of any recurring task
+        // without an explicit start date.
         String sql = """
-            MERGE INTO tasks (id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            MERGE INTO tasks (id, title, description, category, priority, deadline, status, points,
+                              recurring_pattern, start_date, recurrence_end_date, completed_at,
+                              remind_days_before)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
-        
+
         jdbcTemplate.update(sql,
             id,
             this.title,
@@ -369,7 +513,10 @@ public class Task {
             this.status != null ? this.status.name() : TaskStatus.OPEN.name(),
             this.points,
             this.recurringPattern,
-            this.startDate
+            this.startDate,
+            this.recurrenceEndDate,
+            this.completedAt,
+            this.remindDaysBefore
         );
         
         logger.debug("Task saved: {} - {}", id, this.title);
@@ -560,8 +707,31 @@ public class Task {
             return false;
         }
         
-        String sql = "UPDATE tasks SET status = ? WHERE id = ?";
-        return jdbcTemplate.update(sql, status.name(), taskId) > 0;
+        // completed_at is maintained here rather than at the call sites, so
+        // every path that completes a task records the date exactly once.
+        String sql = """
+            UPDATE tasks
+            SET status = ?,
+                completed_at = CASE WHEN ? = 'COMPLETED' THEN COALESCE(completed_at, CURRENT_DATE) ELSE NULL END
+            WHERE id = ?
+            """;
+        return jdbcTemplate.update(sql, status.name(), status.name(), taskId) > 0;
+    }
+
+    /**
+     * Tasks completed within a date range, for scoring.
+     *
+     * @param start first day of the range, inclusive
+     * @param end last day of the range, inclusive
+     * @return completed tasks whose completion date falls in the range
+     */
+    public static List<Task> findCompletedBetween(LocalDate start, LocalDate end) {
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("JdbcTemplate not initialized");
+        }
+
+        String sql = "SELECT * FROM tasks WHERE status = 'COMPLETED' AND completed_at BETWEEN ? AND ?";
+        return jdbcTemplate.query(sql, getRowMapper(), start, end);
     }
 
     /**
@@ -656,8 +826,11 @@ public class Task {
                 TaskStatus.valueOf(rs.getString("status")),
                 rs.getInt("points"),
                 rs.getString("recurring_pattern"),
-                rs.getObject("start_date", LocalDate.class)
+                rs.getObject("start_date", LocalDate.class),
+                rs.getObject("recurrence_end_date", LocalDate.class)
             );
+            task.completedAt = rs.getObject("completed_at", LocalDate.class);
+            task.remindDaysBefore = rs.getObject("remind_days_before", Integer.class);
             java.sql.Timestamp createdTs = rs.getTimestamp("created_at");
             if (createdTs != null) {
                 task.setCreatedAt(createdTs.toLocalDateTime());

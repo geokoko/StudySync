@@ -1,34 +1,49 @@
 package com.studysync.domain.service;
 
-import javafx.animation.Animation;
-import javafx.animation.KeyFrame;
-import javafx.animation.Timeline;
+import jakarta.annotation.PreDestroy;
 import javafx.application.Platform;
-import javafx.util.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.time.format.DateTimeFormatter;
 import java.util.function.Consumer;
 
 /**
  * Service to handle date and time operations, including automatic date refresh at midnight.
  * This service notifies registered listeners when the date changes.
+ *
+ * <p>The tick is a plain daemon scheduler rather than a JavaFX {@code Timeline}:
+ * this bean is constructed while the Spring context starts, which happens
+ * before {@code Application.launch()}, so a Timeline here would depend on the
+ * toolkit being up before anything guarantees it. Polling once a minute rather
+ * than scheduling a single job at midnight keeps it correct across clock
+ * changes, daylight saving and a laptop waking from sleep.</p>
  */
 @Service
 public class DateTimeService {
-    
-    private final List<Consumer<LocalDate>> dateChangeListeners = new ArrayList<>();
-    private final Timeline midnightTimer;
-    private LocalDate currentDate;
-    
+
+    private static final Logger logger = LoggerFactory.getLogger(DateTimeService.class);
+
+    private final List<Consumer<LocalDate>> dateChangeListeners = new CopyOnWriteArrayList<>();
+    private final ScheduledExecutorService dateWatcher;
+    private volatile LocalDate currentDate;
+
     public DateTimeService() {
         this.currentDate = LocalDate.now();
-        this.midnightTimer = createMidnightTimer();
-        this.midnightTimer.play();
+        this.dateWatcher = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "studysync-date-watcher");
+            // Daemon: this must never be the reason the JVM stays alive.
+            thread.setDaemon(true);
+            return thread;
+        });
+        this.dateWatcher.scheduleAtFixedRate(this::checkAndUpdateDate, 1, 1, TimeUnit.MINUTES);
     }
     
     /**
@@ -70,47 +85,41 @@ public class DateTimeService {
     public void checkAndUpdateDate() {
         LocalDate now = LocalDate.now();
         if (!now.equals(currentDate)) {
-            LocalDate oldDate = currentDate;
             currentDate = now;
             notifyDateChangeListeners(currentDate);
         }
     }
-    
+
     /**
-     * Create a timeline that checks for date changes every minute.
-     * @return Timeline for midnight detection
-     */
-    private Timeline createMidnightTimer() {
-        Timeline timeline = new Timeline(new KeyFrame(
-            Duration.minutes(1), 
-            e -> checkAndUpdateDate()
-        ));
-        timeline.setCycleCount(Animation.INDEFINITE);
-        return timeline;
-    }
-    
-    /**
-     * Notify all listeners that the date has changed.
+     * Notify all listeners that the date has changed, on the JavaFX thread.
      * @param newDate The new current date
      */
     private void notifyDateChangeListeners(LocalDate newDate) {
-        Platform.runLater(() -> {
-            for (Consumer<LocalDate> listener : dateChangeListeners) {
-                try {
-                    listener.accept(newDate);
-                } catch (Exception e) {
-                    System.err.println("Error notifying date change listener: " + e.getMessage());
-                }
-            }
-        });
-    }
-    
-    /**
-     * Stop the midnight timer (call this when shutting down the application).
-     */
-    public void shutdown() {
-        if (midnightTimer != null) {
-            midnightTimer.stop();
+        if (dateChangeListeners.isEmpty()) {
+            // Listeners are registered by the UI, so an empty list means the
+            // toolkit may not be running yet and Platform.runLater would throw.
+            return;
         }
+        try {
+            Platform.runLater(() -> {
+                for (Consumer<LocalDate> listener : dateChangeListeners) {
+                    try {
+                        listener.accept(newDate);
+                    } catch (Exception e) {
+                        logger.warn("Error notifying date change listener", e);
+                    }
+                }
+            });
+        } catch (IllegalStateException e) {
+            logger.warn("JavaFX toolkit unavailable, skipping date change notification: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Stop the date watcher. Invoked by Spring when the context closes.
+     */
+    @PreDestroy
+    public void shutdown() {
+        dateWatcher.shutdownNow();
     }
 }

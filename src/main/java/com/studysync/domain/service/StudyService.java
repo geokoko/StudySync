@@ -2,6 +2,7 @@ package com.studysync.domain.service;
 
 import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.entity.DailyReflection;
+import com.studysync.domain.entity.OffDay;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.Task;
@@ -472,6 +473,91 @@ public class StudyService {
                 .collect(Collectors.groupingBy(StudySession::getDate, Collectors.toList()));
     }
     
+    // ================================================================
+    // OFF DAYS (HOLIDAYS) AND GLOBAL SCORING
+    // ================================================================
+
+    /**
+     * Off days and their labels in a date range, for calendar rendering.
+     *
+     * @param start first day of the range, inclusive
+     * @param end last day of the range, inclusive
+     * @return map of off day to label
+     */
+    @Transactional(readOnly = true)
+    public Map<LocalDate, String> getOffDays(LocalDate start, LocalDate end) {
+        return OffDay.findLabelsInRange(start, end);
+    }
+
+    /**
+     * The off-day label of a single date.
+     *
+     * @param date the date to check
+     * @return the label, or empty when the date is a normal day
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> getOffDayLabel(LocalDate date) {
+        return OffDay.labelFor(date);
+    }
+
+    /**
+     * Marks a day as off. Work already logged on it is kept but stops counting
+     * towards global scores.
+     *
+     * @param date the day to mark
+     * @param label optional description such as "Holiday" or "Sick day"
+     */
+    public void markOffDay(LocalDate date, String label) {
+        if (date == null) {
+            throw ValidationException.requiredFieldMissing("date");
+        }
+        OffDay.mark(date, label);
+        markDirtyAndSaveLocally("off day marking");
+    }
+
+    /**
+     * Turns an off day back into a normal, scored day.
+     *
+     * @param date the day to clear
+     * @return {@code true} when the day was marked off before
+     */
+    public boolean clearOffDay(LocalDate date) {
+        if (date == null) {
+            throw ValidationException.requiredFieldMissing("date");
+        }
+        boolean cleared = OffDay.unmark(date);
+        if (cleared) {
+            markDirtyAndSaveLocally("off day removal");
+        }
+        return cleared;
+    }
+
+    /**
+     * The goal attempts belonging to a calendar day, as the calendar shows
+     * them: everything planned for a future day, and for today or the past the
+     * attempts that were actually planned for or resolved on that day.
+     *
+     * <p>Scoring and display share this one definition so the count under a
+     * day's score always matches the list rendered next to it.</p>
+     *
+     * @param date the day to list goals for
+     * @return goal attempts belonging to that day
+     */
+    @Transactional(readOnly = true)
+    public List<StudyGoal> getGoalsForDate(LocalDate date) {
+        LocalDate today = dateTimeService.getCurrentDate();
+
+        if (date.isAfter(today)) {
+            return StudyGoal.findAllByDate(date);
+        }
+        if (date.equals(today)) {
+            return getAllGoalsForDate(date);
+        }
+        return getAllGoalsForDate(date).stream()
+                .filter(goal -> goal.isAchieved() || goal.isFailed() || goal.getDate().equals(date))
+                .toList();
+    }
+
     // ================================================================
     // DELAYED GOAL MANAGEMENT
     // ================================================================

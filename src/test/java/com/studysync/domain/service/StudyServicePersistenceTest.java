@@ -1,5 +1,6 @@
 package com.studysync.domain.service;
 
+import com.studysync.domain.entity.OffDay;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.Task;
@@ -54,10 +55,12 @@ class StudyServicePersistenceTest {
         createTasksTable();
         createStudyGoalsTable();
         createStudySessionsTable();
+        createOffDaysTable();
 
         StudySession.setJdbcTemplate(jdbcTemplate);
         Task.setJdbcTemplate(jdbcTemplate);
         StudyGoal.setJdbcTemplate(jdbcTemplate);
+        OffDay.setJdbcTemplate(jdbcTemplate);
 
         googleDriveService = mock(GoogleDriveService.class);
         when(googleDriveService.saveLocally()).thenReturn(true);
@@ -74,6 +77,7 @@ class StudyServicePersistenceTest {
         StudySession.setJdbcTemplate(null);
         Task.setJdbcTemplate(null);
         StudyGoal.setJdbcTemplate(null);
+        OffDay.setJdbcTemplate(null);
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
         }
@@ -462,6 +466,39 @@ class StudyServicePersistenceTest {
         assertFalse(restored.isCompleted());
     }
 
+    @Test
+    void offDaysCanBeMarkedLabelledAndCleared() {
+        LocalDate holiday = LocalDate.of(2026, 3, 26);
+        LocalDate unlabelled = LocalDate.of(2026, 3, 27);
+
+        studyService.markOffDay(holiday, "Easter");
+        studyService.markOffDay(unlabelled, null);
+
+        assertEquals("Easter", studyService.getOffDayLabel(holiday).orElseThrow());
+        assertEquals(OffDay.DEFAULT_LABEL, studyService.getOffDayLabel(unlabelled).orElseThrow());
+        assertTrue(studyService.getOffDayLabel(LocalDate.of(2026, 3, 28)).isEmpty());
+
+        assertEquals(2, studyService.getOffDays(LocalDate.of(2026, 3, 1), LocalDate.of(2026, 3, 31)).size());
+
+        // Re-marking replaces the label rather than adding a second row.
+        studyService.markOffDay(holiday, "Easter Monday");
+        assertEquals("Easter Monday", studyService.getOffDayLabel(holiday).orElseThrow());
+
+        assertTrue(studyService.clearOffDay(holiday));
+        assertFalse(studyService.clearOffDay(holiday));
+        assertTrue(studyService.getOffDayLabel(holiday).isEmpty());
+    }
+
+    private void createOffDaysTable() {
+        jdbcTemplate.execute("""
+                CREATE TABLE off_days (
+                    date DATE PRIMARY KEY,
+                    label VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+    }
+
     private void createStudySessionsTable() {
         jdbcTemplate.execute("""
                 CREATE TABLE study_sessions (
@@ -510,6 +547,9 @@ class StudyServicePersistenceTest {
                     points INTEGER DEFAULT 0,
                     recurring_pattern VARCHAR(100),
                     start_date DATE,
+                    recurrence_end_date DATE,
+                    completed_at DATE,
+                    remind_days_before INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )

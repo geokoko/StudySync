@@ -2,14 +2,11 @@ package com.studysync.presentation.ui.components;
 
 import com.studysync.StudySyncApplication;
 import com.studysync.domain.service.StudyService;
-import com.studysync.domain.service.ProjectService;
-import com.studysync.domain.service.TaskService;
 import com.studysync.domain.service.DateTimeService;
+import com.studysync.domain.service.ScoreBreakdown;
+import com.studysync.domain.service.ScoringService;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.StudyGoal;
-import com.studysync.domain.entity.DailyReflection;
-import com.studysync.domain.entity.Task;
-import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.integration.drive.GoogleDriveService;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -37,9 +34,8 @@ import java.util.stream.Collectors;
 public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private static final Logger logger = LoggerFactory.getLogger(ProfileViewPanel.class);
     private final StudyService studyService;
-    private final ProjectService projectService;
-    private final TaskService taskService;
     private final DateTimeService dateTimeService;
+    private final ScoringService scoringService;
     private final GoogleDriveService googleDriveService;
     private volatile GoogleDriveService.SyncStatus lastKnownSyncStatus = GoogleDriveService.SyncStatus.UNKNOWN;
     
@@ -58,13 +54,11 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private Button driveDownloadButton;
     private Button saveLocallyButton;
     
-    public ProfileViewPanel(StudyService studyService, ProjectService projectService,
-                           TaskService taskService, DateTimeService dateTimeService,
-                           GoogleDriveService googleDriveService) {
+    public ProfileViewPanel(StudyService studyService, DateTimeService dateTimeService,
+                           ScoringService scoringService, GoogleDriveService googleDriveService) {
         this.studyService = studyService;
-        this.projectService = projectService;
-        this.taskService = taskService;
         this.dateTimeService = dateTimeService;
+        this.scoringService = scoringService;
         this.googleDriveService = googleDriveService;
         
         // Create main content container
@@ -745,50 +739,37 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     private void updateStatsCards() {
         try {
-            // Get data for last 30 days
-            List<StudySession> recentSessions = studyService.getSessionsGroupedByDate(30).values()
-                    .stream().flatMap(List::stream).collect(Collectors.toList());
-            List<StudyGoal> recentGoals = studyService.getStudyGoals().stream()
-                    .filter(g -> g.getDate().isAfter(dateTimeService.getCurrentDate().minusDays(30)))
-                    .collect(Collectors.toList());
-            List<Task> allTasks = taskService.getTasks();
+            // Last 30 days, minus anything logged on a day marked off
+            ScoreBreakdown score = scoringService.scoreForWindow(30);
 
-            // Calculate statistics
-            int totalSessions = recentSessions.size();
-            int totalMinutes = recentSessions.stream().mapToInt(StudySession::getDurationMinutes).sum();
-            int totalPoints = recentSessions.stream().mapToInt(StudySession::getPointsEarned).sum();
-
-            double avgFocus = recentSessions.isEmpty() ? 0 :
-                recentSessions.stream().mapToInt(StudySession::getFocusLevel).average().orElse(0);
-
-            int achievedGoals = (int) recentGoals.stream().filter(StudyGoal::isAchieved).count();
-            int missedGoals = (int) recentGoals.stream().filter(StudyGoal::isFailed).count();
-            int goalAttemptScore = achievedGoals - missedGoals;
-            
-            long completedTasks = allTasks.stream().filter(t -> t.getStatus() == TaskStatus.COMPLETED).count();
-            long totalActiveTasks = allTasks.stream().filter(t -> t.getStatus() != TaskStatus.COMPLETED).count();
-            
             // Create stat cards
             HBox row1 = new HBox(15);
             row1.setAlignment(Pos.CENTER);
-            
-            VBox sessionsCard = createStatCard("Study Sessions", String.valueOf(totalSessions), "Last 30 days", "#3498db");
-            VBox hoursCard = createStatCard("Study Hours", String.format("%.1f", totalMinutes / 60.0), "Total time spent", "#e74c3c");
-            VBox pointsCard = createStatCard("Points Earned", String.valueOf(totalPoints), "Achievement score", "#f39c12");
-            VBox focusCard = createStatCard("Avg Focus", String.format("%.1f/5", avgFocus), "Concentration level", "#9b59b6");
-            
+
+            VBox sessionsCard = createStatCard("Sessions", String.valueOf(score.sessions()),
+                    "Study and project, last 30 days", "#3498db");
+            VBox hoursCard = createStatCard("Hours Logged", String.format("%.1f", score.minutes() / 60.0),
+                    "Total time spent", "#e74c3c");
+            VBox pointsCard = createStatCard("Points Earned", String.valueOf(score.points()),
+                    "Sessions + goals + task timeliness", "#f39c12");
+            VBox focusCard = createStatCard("Avg Focus", String.format("%.1f/5", score.avgFocus()),
+                    "Concentration level", "#9b59b6");
+
             row1.getChildren().addAll(sessionsCard, hoursCard, pointsCard, focusCard);
-            
+
             HBox row2 = new HBox(15);
             row2.setAlignment(Pos.CENTER);
-            
-            VBox goalsCard = createStatCard("Lifetime net", String.format("%+d", goalAttemptScore), "Achieved minus missed goals", "#27ae60");
-            VBox tasksCard = createStatCard("Tasks Done", String.valueOf(completedTasks), "Completed tasks", "#16a085");
-            VBox efficiencyCard = createStatCard("Efficiency", 
-                totalMinutes > 0 ? String.format("%.1f", (double) totalPoints / totalMinutes * 60) : "0", 
-                "Points per hour", "#8e44ad");
-            VBox streakCard = createStatCard("Study Streak", calculateStudyStreak() + " days", "Consecutive days", "#e67e22");
-            
+
+            VBox goalsCard = createStatCard("Goal Net", String.format("%+d", score.netGoals()),
+                    "Achieved minus missed, last 30 days", "#27ae60");
+            VBox tasksCard = createStatCard("Tasks Done", String.valueOf(score.tasksCompleted()),
+                    "Completed in the last 30 days", "#16a085");
+            VBox efficiencyCard = createStatCard("Efficiency",
+                    String.format("%.1f", score.pointsPerHour()),
+                    "Points per hour", "#8e44ad");
+            VBox streakCard = createStatCard("Study Streak", scoringService.getStudyStreak() + " days",
+                    "Consecutive days (off days skipped)", "#e67e22");
+
             row2.getChildren().addAll(goalsCard, tasksCard, efficiencyCard, streakCard);
             
             statsContainer.getChildren().clear();
@@ -805,6 +786,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     private void updateCharts() {
         try {
+            // Charts plot raw per-day values, including days marked off - only the
+            // aggregate scores above exclude them.
             chartsContainer.getChildren().clear();
             
             // Focus level trend chart
@@ -900,25 +883,18 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     private void updateProfileSummary() {
         try {
-            List<StudySession> recentSessions = studyService.getSessionsGroupedByDate(30).values()
-                    .stream().flatMap(List::stream).collect(Collectors.toList());
-            
-            if (recentSessions.isEmpty()) {
+            ScoreBreakdown score = scoringService.scoreForWindow(30);
+
+            if (score.sessions() == 0) {
                 profileSummaryLabel.setText("Welcome to StudySync! Start your first study session to see your progress here.");
                 productivityRating.setProgress(0);
                 productivityLabel.setText("No data yet");
                 return;
             }
-            
-            // Calculate overall metrics
-            double avgFocus = recentSessions.stream().mapToInt(StudySession::getFocusLevel).average().orElse(0);
-            int totalHours = recentSessions.stream().mapToInt(StudySession::getDurationMinutes).sum() / 60;
-            int studyDays = calculateStudyStreak();
-            
-            // Calculate productivity rating
-            double productivityScore = calculateProductivityScore(recentSessions);
+
+            double productivityScore = score.productivity();
             productivityRating.setProgress(productivityScore / 100.0);
-            
+
             String rating;
             String color;
             if (productivityScore >= 80) {
@@ -934,79 +910,31 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
                 rating = "Needs Improvement";
                 color = "#e74c3c";
             }
-            
+
             productivityRating.setStyle("-fx-accent: " + color + ";");
             productivityLabel.setText(rating + " (" + Math.round(productivityScore) + "%)");
             productivityLabel.setTextFill(Color.web(color));
-            
+
             String summary = String.format(
-                "Over the last 30 days, you've completed %d study sessions totaling %d hours. " +
+                "Over the last 30 days, you've logged %d sessions totaling %d hours. " +
                 "Your average focus level is %.1f/5. Keep up the great work and continue building your study habits!",
-                recentSessions.size(), totalHours, avgFocus
+                score.sessions(), score.minutes() / 60, score.avgFocus()
             );
-            
+
+            int offDays = 30 - score.scoringDays();
+            if (offDays > 0) {
+                summary += String.format(" %d day%s marked off in this period %s excluded from these scores.",
+                        offDays, offDays == 1 ? "" : "s", offDays == 1 ? "is" : "are");
+            }
+
             profileSummaryLabel.setText(summary);
-            
+
         } catch (Exception e) {
-            System.err.println("Error updating profile summary: " + e.getMessage());
+            logger.warn("Error updating profile summary", e);
             profileSummaryLabel.setText("Unable to load profile summary.");
         }
     }
-    
-    private double calculateProductivityScore(List<StudySession> sessions) {
-        if (sessions.isEmpty()) return 0;
-        
-        // Base score from focus levels (40% weight)
-        double avgFocus = sessions.stream().mapToInt(StudySession::getFocusLevel).average().orElse(0);
-        double focusScore = (avgFocus / 5.0) * 40;
-        
-        // Consistency score (30% weight) - based on how many days out of last 30 had sessions
-        long daysWithSessions = sessions.stream()
-            .map(s -> s.getDate())
-            .distinct()
-            .count();
-        double consistencyScore = Math.min(1.0, daysWithSessions / 30.0) * 30;
-        
-        // Volume score (20% weight) - based on total study time
-        int totalMinutes = sessions.stream().mapToInt(StudySession::getDurationMinutes).sum();
-        double avgMinutesPerDay = totalMinutes / 30.0;
-        double volumeScore = Math.min(1.0, avgMinutesPerDay / 120.0) * 20; // 2 hours per day = max score
-        
-        // Goal attempt score (10% weight): achieved attempts help, missed attempts hurt.
-        List<StudyGoal> goals = studyService.getStudyGoals().stream()
-            .filter(g -> g.getDate().isAfter(dateTimeService.getCurrentDate().minusDays(30)))
-            .collect(Collectors.toList());
-        double goalScore = 0;
-        if (!goals.isEmpty()) {
-            long achievedGoals = goals.stream().filter(StudyGoal::isAchieved).count();
-            long missedGoals = goals.stream().filter(StudyGoal::isFailed).count();
-            double normalized = ((double) (achievedGoals - missedGoals + goals.size())) / (2.0 * goals.size());
-            goalScore = Math.max(0, Math.min(1, normalized)) * 10;
-        }
-        
-        return focusScore + consistencyScore + volumeScore + goalScore;
-    }
-    
-    private int calculateStudyStreak() {
-        try {
-            Map<LocalDate, List<StudySession>> sessionsMap = studyService.getSessionsGroupedByDate(90);
-            int streak = 0;
-            LocalDate date = dateTimeService.getCurrentDate();
-            
-            while (streak < 90) {
-                if (!sessionsMap.containsKey(date) || sessionsMap.get(date).isEmpty()) {
-                    break;
-                }
-                streak++;
-                date = date.minusDays(1);
-            }
-            
-            return streak;
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-    
+
     @Override
     public void updateDisplay() {
         updateProfileSummary();

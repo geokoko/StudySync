@@ -105,8 +105,16 @@ public class Project {
         this.updatedAt = LocalDateTime.now();
     }
 
+    /**
+     * Adds worked time to the project's running total.
+     *
+     * @param minutes minutes to add; negative values subtract, which is how
+     *                deleting a session gives its time back. The total is
+     *                floored at zero rather than the argument, since clamping
+     *                the argument silently ignored every subtraction.
+     */
     public void addWorkedMinutes(int minutes) {
-        this.totalMinutesWorked += Math.max(0, minutes);
+        this.totalMinutesWorked = Math.max(0, this.totalMinutesWorked + minutes);
         this.lastWorkedOn = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
     }
@@ -276,29 +284,40 @@ public class Project {
         
         this.updatedAt = LocalDateTime.now();
         
+        // estimated_hours and notes are deliberately absent: this entity has no
+        // field for either, and listing them meant every save nulled the
+        // estimate and overwrote notes with the description. H2 leaves unlisted
+        // columns alone.
+        //
+        // completion_date keeps the date the project was first completed rather
+        // than jumping to today on every subsequent save.
         String sql = """
-            MERGE INTO projects (id, title, description, category, status, priority, start_date, 
-                               deadline, completion_date, progress_percentage, estimated_hours, 
-                               actual_hours, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            MERGE INTO projects (id, title, description, category, status, priority, start_date,
+                               deadline, completion_date, progress_percentage,
+                               actual_hours, total_minutes_worked, total_sessions_count,
+                               last_worked_on, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+                    CASE WHEN ? = 'COMPLETED'
+                         THEN COALESCE((SELECT completion_date FROM projects WHERE id = ?), CURRENT_DATE)
+                         ELSE NULL END,
+                    ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """;
-        
-        // Calculate completion date if project is completed
-        LocalDate completionDate = this.status == ProjectStatus.COMPLETED ? 
-                                   LocalDate.now() : null;
-        
+
         // Calculate progress percentage
         int progressPercentage = calculateProgressPercentage();
-        
-        // Convert total minutes to hours for storage
+
+        // actual_hours stays as a rounded-down convenience column; the exact
+        // figure now lives in total_minutes_worked.
         int actualHours = this.totalMinutesWorked / 60;
-        
+
         jdbcTemplate.update(sql,
             this.id, this.title, this.description, this.category,
             this.status.name(), this.priority != null ? this.priority.stars() : 1,
-            this.startDate, this.targetEndDate, completionDate,
-            progressPercentage, null, // estimated_hours can be null for now
-            actualHours, this.description, // using description as notes for now
+            this.startDate, this.targetEndDate,
+            this.status.name(), this.id,
+            progressPercentage,
+            actualHours, this.totalMinutesWorked, this.totalSessionsCount,
+            this.lastWorkedOn,
             this.createdAt
         );
         
@@ -572,13 +591,17 @@ public class Project {
             LocalDate targetEndDate = rs.getObject("deadline", LocalDate.class);
             LocalDateTime createdAt = rs.getObject("created_at", LocalDateTime.class);
             
-            // Convert hours back to minutes for the object
-            int actualHours = rs.getInt("actual_hours");
-            int totalMinutesWorked = actualHours * 60;
-            
+            // Exact minutes; actual_hours is the lossy convenience column and is
+            // only a fallback for rows written before the split.
+            int totalMinutesWorked = rs.getObject("total_minutes_worked") != null
+                    ? rs.getInt("total_minutes_worked")
+                    : rs.getInt("actual_hours") * 60;
+            int totalSessionsCount = rs.getInt("total_sessions_count");
+            LocalDateTime lastWorkedOn = rs.getObject("last_worked_on", LocalDateTime.class);
+
             return new Project(
                 id, title, description, category, taskPriority, startDate, targetEndDate,
-                status, createdAt, null, 0, totalMinutesWorked
+                status, createdAt, lastWorkedOn, totalSessionsCount, totalMinutesWorked
             );
         };
     }

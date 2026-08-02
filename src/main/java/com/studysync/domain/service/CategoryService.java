@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
  * 
  * <p><strong>Core Responsibilities:</strong>
  * <ul>
- *   <li><strong>Category CRUD:</strong> Create, read, update, delete category operations</li>
+ *   <li><strong>Category creation and lookup:</strong> Add categories and check they exist</li>
  *   <li><strong>Uniqueness Enforcement:</strong> Ensure category names are unique</li>
  *   <li><strong>Validation:</strong> Enforce business rules for category naming</li>
  *   <li><strong>Integration Support:</strong> Provide validation for other services</li>
@@ -31,7 +31,6 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>Category names must be unique (case-sensitive)</li>
  *   <li>Category names cannot be null or empty</li>
- *   <li>Categories are immutable records - updates require delete/create</li>
  *   <li>Default categories may be provided by the system</li>
  * </ul></p>
  * 
@@ -47,10 +46,6 @@ import java.util.stream.Collectors;
  *     Task task = new Task("Study", null, "Academic", priority, deadline);
  *     taskService.addTask(task, categoryService);
  * }
- * 
- * // Rename existing category
- * TaskCategory oldCategory = new TaskCategory("Acedemic"); // typo
- * categoryService.renameCategory(oldCategory, "Academic");
  * </pre></p>
  * 
  * <p><strong>Integration:</strong> This service is commonly used by {@link TaskService}
@@ -118,74 +113,7 @@ public class CategoryService {
         logger.info("Added category: {}", name);
     }
     
-    /**
-     * Removes an existing task category from the system.
-     * 
-     * <p><strong>Warning:</strong> This operation will remove the category even if
-     * tasks are still assigned to it. Consider checking for dependent tasks before
-     * calling this method to avoid orphaned references.</p>
-     * 
-     * @param category the category to remove (must exist)
-     * @throws ValidationException if the category doesn't exist
-     */
-    @Transactional
-    public void removeCategory(TaskCategory category) {
-        if (category == null || category.name() == null) {
-            throw ValidationException.requiredFieldMissing("category");
-        }
-        
-        Category entityCategory = Category.findByName(category.name())
-            .orElseThrow(() -> ValidationException.invalidInput("category", 
-                "Category '" + category.name() + "' does not exist"));
-        
-        if (!entityCategory.delete()) {
-            throw ValidationException.invalidInput("category", 
-                "Failed to delete category '" + category.name() + "'");
-        }
-        
-        logger.info("Removed category: {}", category.getName());
-    }
     
-    /**
-     * Renames an existing category to a new name.
-     * 
-     * <p>Since TaskCategory is an immutable record, this operation is implemented
-     * as a delete-and-create sequence. The new name must be unique and not empty.</p>
-     * 
-     * <p><strong>Note:</strong> This operation does not update existing tasks that
-     * reference the old category name. Consider updating dependent tasks separately
-     * if needed.</p>
-     * 
-     * @param category the existing category to rename
-     * @param newName the new unique name for the category
-     * @throws ValidationException if newName is null, empty, or already exists
-     */
-    @Transactional
-    public void renameCategory(TaskCategory category, String newName) {
-        if (newName == null || newName.trim().isEmpty()) {
-            throw ValidationException.requiredFieldMissing("newName");
-        }
-        
-        if (category == null || category.name() == null) {
-            throw ValidationException.requiredFieldMissing("category");
-        }
-        
-        String trimmedNewName = newName.trim();
-        
-        if (Category.existsByName(trimmedNewName)) {
-            throw ValidationException.invalidInput("newName", "Category with name '" + trimmedNewName + "' already exists");
-        }
-        
-        Category existingCategory = Category.findByName(category.name())
-            .orElseThrow(() -> ValidationException.invalidInput("category", 
-                "Category '" + category.name() + "' does not exist"));
-        
-        // Update the existing category's name
-        existingCategory.setName(trimmedNewName);
-        existingCategory.save();
-        
-        logger.info("Renamed category from '{}' to '{}'", category.getName(), trimmedNewName);
-    }
     
     /**
      * Checks if a category with the specified name exists.
