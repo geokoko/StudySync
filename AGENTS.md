@@ -108,7 +108,7 @@ Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordC
 |---|---|
 | `TaskService` | Task CRUD, filtering, status transitions, bulk operations, recurring task date matching, missed occurrence detection, task statistics, async queries |
 | `StudyService` | Study sessions (start/end), study goals, daily reflections, delayed goal processing, off-day CRUD |
-| `ScoringService` | The only place that decides what counts towards a score. `scoreForDate` / `scoreForWindow` return a `ScoreBreakdown`; also `getStudyStreak`, `countScoringDays`, `taskPoints` |
+| `ScoringService` | The only place that decides what counts towards a score. `scoreForDate` / `scoreForWindow` return a `ScoreBreakdown`; also `getStudyStreak` and `taskPoints` |
 | `ProjectService` | Project CRUD, project sessions (start/end), progress tracking |
 | `CategoryService` | Category creation and existence checks for tasks and projects |
 | `DateTimeService` | Date/time utilities, current date provider |

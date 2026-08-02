@@ -128,6 +128,10 @@ public class TaskService {
             taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(),
                     new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints(),
                     task.getRecurringPattern(), task.getStartDate(), task.getRecurrenceEndDate());
+            // The constructor covers neither of these, and rebuilding the task
+            // here must not quietly drop fields the caller set.
+            taskToSave.setRemindDaysBefore(task.getRemindDaysBefore());
+            taskToSave.setCompletedAt(task.getCompletedAt());
             logger.debug("Set default priority for task: {}", taskToSave.getTitle());
         }
 
@@ -480,24 +484,25 @@ public class TaskService {
             // is why recurring tasks were kept out of DELAYED marking.
             if (!(isActive || isPending)) return false;
 
+            // Nothing appears before the task's own start date - not even an
+            // overdue one. This guard has to sit above the deadline check
+            // below, not just inside isRecurringOccurrence, or a task whose
+            // deadline has passed would surface for every date back to the
+            // epoch.
+            if (task.getStartDate() != null && date.isBefore(task.getStartDate())) {
+                return false;
+            }
+
             // Past its own deadline and still unresolved: visible every day
             // until it is resolved, exactly like a one-off overdue task.
-            // Checked before the recurrence bounds, because being late outlives
-            // the schedule - the end of recurrence must not hide a task the
-            // user never finished.
+            // Deliberately not bounded by the end of recurrence - being late
+            // outlives the schedule, and the end of repeating must not hide a
+            // task the user never finished.
             if (task.getDeadline() != null && !date.isBefore(task.getDeadline())) {
                 return true;
             }
 
-            // Start date on a recurring task means "don't appear before this date"
-            if (task.getStartDate() != null && date.isBefore(task.getStartDate())) {
-                return false;
-            }
-            // Recurrence stops after this date. The deadline is a due date and
-            // deliberately does not affect whether an occurrence shows up.
-            if (task.getRecurrenceEndDate() != null && date.isAfter(task.getRecurrenceEndDate())) {
-                return false;
-            }
+            // Remaining bounds belong to the occurrence rule itself.
             return isRecurringOccurrence(task, date);
         }
 
@@ -647,6 +652,8 @@ public class TaskService {
         Task updated = new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline,
                 task.getStatus(), task.getPoints(), newRecurringPattern, newStartDate, newRecurrenceEnd);
         updated.setCompletedAt(task.getCompletedAt());
+        // null keeps the existing reminder; CLEAR_REMINDER removes it.
+        // setRemindDaysBefore maps any negative value to "no reminder".
         updated.setRemindDaysBefore(update.remindDaysBefore() != null
                 ? update.remindDaysBefore() : task.getRemindDaysBefore());
         // The constructor stamps a fresh creation date; keep the real one, or

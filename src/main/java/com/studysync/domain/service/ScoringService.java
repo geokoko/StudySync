@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * The single place that decides what counts towards a score and how much it is
@@ -109,17 +110,6 @@ public class ScoringService {
         return score(dates, goals, dates.size());
     }
 
-    /**
-     * How many of the last {@code days} days count towards scores.
-     *
-     * @param days size of the window
-     * @return the window size minus the off days it contains
-     */
-    public int countScoringDays(int days) {
-        Set<LocalDate> offDays = OffDay.findAllDates();
-        return (int) windowDates(days).stream().filter(date -> !offDays.contains(date)).count();
-    }
-
     /** The {@code days} calendar days ending today, off days included. */
     private List<LocalDate> windowDates(int days) {
         LocalDate today = dateTimeService.getCurrentDate();
@@ -171,7 +161,11 @@ public class ScoringService {
 
     private ScoreBreakdown score(List<LocalDate> dates, List<StudyGoal> goals, int scoringDays) {
         if (dates.isEmpty()) {
-            return ScoreBreakdown.empty(Math.max(scoringDays, 1));
+            // Report the true count, zero included: callers derive "days marked
+            // off" by subtracting it from the window size, and a floor of 1
+            // would under-report a fully-off window by a day. The productivity
+            // formula does its own divide-by-zero guard.
+            return ScoreBreakdown.empty(scoringDays);
         }
 
         Set<LocalDate> dateSet = new HashSet<>(dates);
@@ -205,7 +199,14 @@ public class ScoringService {
                 + projectSessions.stream().mapToInt(ProjectSession::getDurationMinutes).sum();
         double avgFocus = studySessions.isEmpty() ? 0.0
                 : studySessions.stream().mapToInt(StudySession::getFocusLevel).average().orElse(0.0);
-        long activeDays = studySessions.stream().map(StudySession::getDate).distinct().count();
+        // Consistency counts any logged work, project sessions included -
+        // points, minutes and the session count all include them, so leaving
+        // them out here scored a month of pure project work as near-idle.
+        // Focus stays study-only because project sessions carry no rating.
+        long activeDays = Stream.concat(
+                studySessions.stream().map(StudySession::getDate),
+                projectSessions.stream().map(ProjectSession::getDate))
+                .distinct().count();
 
         double productivity = productivity(minutes, avgFocus, goalsAchieved, goalsMissed, activeDays, scoringDays);
 

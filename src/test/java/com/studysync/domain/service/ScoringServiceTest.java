@@ -103,11 +103,11 @@ class ScoringServiceTest {
     void sessionPointsMatchTheSqlMigrationExactly() {
         // schema.sql recomputes points in SQL on every startup. If the two ever
         // disagree, stored history silently drifts from freshly scored work.
-        for (int minutes : new int[] {0, 5, 20, 45, 61, 90, 121, 239, 240, 600}) {
+        for (int minutes : new int[] {-30, -1, 0, 5, 20, 45, 61, 90, 121, 239, 240, 600}) {
             for (int focus = 1; focus <= 5; focus++) {
                 for (boolean completed : new boolean[] {true, false}) {
                     Integer viaSql = jdbcTemplate.queryForObject("""
-                            SELECT (LEAST(COALESCE(?, 0), 240) / 2
+                            SELECT (LEAST(GREATEST(COALESCE(?, 0), 0), 240) / 2
                                     * CASE COALESCE(?, 3)
                                           WHEN 1 THEN 40
                                           WHEN 2 THEN 70
@@ -141,13 +141,36 @@ class ScoringServiceTest {
         assertEquals(2, score.sessions());
         assertEquals(120, score.minutes());
         assertEquals(28, score.scoringDays());
-        assertEquals(28, scoringService.countScoringDays(30));
 
         // Off days neither break the streak nor extend it: today plus day -2.
         assertEquals(2, scoringService.getStudyStreak());
 
         studyService.clearOffDay(today.minusDays(3));
         assertEquals(3, scoringService.scoreForWindow(30).sessions());
+    }
+
+    @Test
+    void aFullyOffWindowReportsZeroScoringDaysRatherThanOne() {
+        for (int i = 0; i < 30; i++) {
+            studyService.markOffDay(today.minusDays(i), "Break");
+        }
+
+        // The profile derives "days marked off" by subtracting this from the
+        // window size, so a floor of 1 would under-report by a day.
+        assertEquals(0, scoringService.scoreForWindow(30).scoringDays());
+    }
+
+    @Test
+    void projectOnlyWorkStillCountsTowardsConsistency() {
+        projectSession(today, 120);
+
+        ScoreBreakdown score = scoringService.scoreForWindow(30);
+
+        // Points, minutes and the session count all include project work, so
+        // the consistency term must too - otherwise a month of project-only
+        // work scores as near-idle.
+        assertEquals(1, score.sessions());
+        assertTrue(score.productivity() > 0, "productivity was " + score.productivity());
     }
 
     @Test

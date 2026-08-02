@@ -84,7 +84,9 @@ class TaskServicePersistenceTest {
         DateTimeService dateTimeService = mock(DateTimeService.class);
         when(dateTimeService.getCurrentDate()).thenReturn(TODAY);
 
-        taskService = new TaskService(mock(CategoryService.class), googleDriveService, dateTimeService);
+        CategoryService categoryService = mock(CategoryService.class);
+        when(categoryService.categoryExists(org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        taskService = new TaskService(categoryService, googleDriveService, dateTimeService);
     }
 
     @AfterEach
@@ -328,6 +330,65 @@ class TaskServicePersistenceTest {
                 new TaskUpdate("Renamed", null, null, null, null));
 
         assertEquals(7, Task.findById("keeps-reminder").orElseThrow().getRemindDaysBefore());
+    }
+
+    @Test
+    void lateRecurringTaskStillDoesNotSurfaceBeforeItsStartDate() {
+        // Deadline already passed, start date months away: the overdue rule
+        // must not drag it back before the task is supposed to begin.
+        Task task = savedRecurringTask("future-start", "1:1", TODAY.plusMonths(5),
+                TODAY.minusDays(1), null);
+
+        assertFalse(taskService.taskSurfacesOn(task, TODAY));
+        assertFalse(taskService.taskSurfacesOn(task, TODAY.plusDays(30)));
+        assertTrue(taskService.taskSurfacesOn(task, TODAY.plusMonths(5)));
+    }
+
+    @Test
+    void postponedTasksDoNotFireReminders() {
+        // A postponed task's deadline is its resume date, so counting down to
+        // it would announce "due in N days" for something that is not due then
+        // — and drag it into a planner that excludes postponed work.
+        Task postponed = savedTask("postponed-reminder", TODAY.plusDays(2), TaskStatus.POSTPONED);
+        postponed.setRemindDaysBefore(7);
+        postponed.save();
+
+        assertFalse(Task.findById("postponed-reminder").orElseThrow().isReminderDue(TODAY));
+        assertTrue(taskService.getTasksWithDueReminders(TODAY).isEmpty());
+    }
+
+    @Test
+    void reminderCanBeRemovedFromAnExistingTask() {
+        Task task = savedTask("clearable", TODAY.plusDays(10), TaskStatus.OPEN);
+        task.setRemindDaysBefore(7);
+        task.save();
+
+        // null means "leave alone", so clearing needs the explicit sentinel.
+        taskService.updateTask(Task.findById("clearable").orElseThrow(),
+                new TaskUpdate("Still named", null, null, null, null, null, null, null,
+                        TaskUpdate.CLEAR_REMINDER));
+
+        assertNull(Task.findById("clearable").orElseThrow().getRemindDaysBefore());
+        assertFalse(Task.findById("clearable").orElseThrow().isReminderDue(TODAY.plusDays(5)));
+    }
+
+    @Test
+    void addingATaskWithoutAPriorityKeepsItsReminder() {
+        // The full constructor rejects a null priority, so the only way into
+        // addTask's default-priority branch is the no-arg constructor.
+        Task task = new Task();
+        task.setId("no-priority");
+        task.setTitle("Task");
+        task.setCategory("Study");
+        task.setDeadline(TODAY.plusDays(10));
+        task.setRemindDaysBefore(7);
+        assertNull(task.getPriority());
+
+        taskService.addTask(task);
+
+        // addTask rebuilds the task to apply a default priority; that rebuild
+        // must not drop fields the constructor does not cover.
+        assertEquals(7, Task.findById("no-priority").orElseThrow().getRemindDaysBefore());
     }
 
     private Task savedTask(final String id, final LocalDate deadline, final TaskStatus status) {

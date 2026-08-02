@@ -35,6 +35,14 @@ public class DateTimeService {
     private final ScheduledExecutorService dateWatcher;
     private volatile LocalDate currentDate;
 
+    /**
+     * Last date listeners were successfully told about. Tracked separately from
+     * {@link #currentDate} so a rollover that could not be delivered - the UI
+     * had not registered yet - is retried on the next tick instead of being
+     * silently consumed.
+     */
+    private volatile LocalDate lastNotifiedDate;
+
     public DateTimeService() {
         this.currentDate = LocalDate.now();
         this.dateWatcher = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -43,7 +51,8 @@ public class DateTimeService {
             thread.setDaemon(true);
             return thread;
         });
-        this.dateWatcher.scheduleAtFixedRate(this::checkAndUpdateDate, 1, 1, TimeUnit.MINUTES);
+        this.lastNotifiedDate = this.currentDate;
+        this.dateWatcher.scheduleAtFixedRate(this::tick, 1, 1, TimeUnit.MINUTES);
     }
     
     /**
@@ -79,26 +88,45 @@ public class DateTimeService {
     }
     
     /**
-     * Check if it's a new day and update if necessary.
-     * This is called by the timer and can also be called manually.
+     * Scheduler entry point. Swallowing nothing here would be worse than it
+     * sounds: {@code scheduleAtFixedRate} cancels all further executions after
+     * an uncaught throw and buries the exception in a Future nobody reads, so
+     * the app would run on a frozen date for the rest of the session with
+     * nothing in the log.
+     */
+    private void tick() {
+        try {
+            checkAndUpdateDate();
+        } catch (RuntimeException e) {
+            logger.warn("Date watcher tick failed; continuing", e);
+        }
+    }
+
+    /**
+     * Check if it's a new day and update if necessary. Called by the watcher
+     * and safe to call manually.
      */
     public void checkAndUpdateDate() {
         LocalDate now = LocalDate.now();
-        if (!now.equals(currentDate)) {
-            currentDate = now;
-            notifyDateChangeListeners(currentDate);
+        currentDate = now;
+        if (!now.equals(lastNotifiedDate) && notifyDateChangeListeners(now)) {
+            lastNotifiedDate = now;
         }
     }
 
     /**
      * Notify all listeners that the date has changed, on the JavaFX thread.
+     *
      * @param newDate The new current date
+     * @return {@code true} when the notification was handed to the toolkit;
+     *         {@code false} when there was nobody to tell, so the caller can
+     *         try again on the next tick
      */
-    private void notifyDateChangeListeners(LocalDate newDate) {
+    private boolean notifyDateChangeListeners(LocalDate newDate) {
         if (dateChangeListeners.isEmpty()) {
             // Listeners are registered by the UI, so an empty list means the
             // toolkit may not be running yet and Platform.runLater would throw.
-            return;
+            return false;
         }
         try {
             Platform.runLater(() -> {
@@ -110,8 +138,10 @@ public class DateTimeService {
                     }
                 }
             });
+            return true;
         } catch (IllegalStateException e) {
-            logger.warn("JavaFX toolkit unavailable, skipping date change notification: {}", e.getMessage());
+            logger.warn("JavaFX toolkit unavailable, will retry date change notification: {}", e.getMessage());
+            return false;
         }
     }
 

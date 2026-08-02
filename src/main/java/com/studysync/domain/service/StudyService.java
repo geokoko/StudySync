@@ -533,29 +533,25 @@ public class StudyService {
     }
 
     /**
-     * The goal attempts belonging to a calendar day, as the calendar shows
-     * them: everything planned for a future day, and for today or the past the
-     * attempts that were actually planned for or resolved on that day.
+     * The goal attempts planned for a calendar day.
      *
      * <p>Scoring and display share this one definition so the count under a
      * day's score always matches the list rendered next to it.</p>
      *
+     * <p>Not {@code readOnly}: for today and the past this first runs the
+     * once-per-day sweep that marks overdue attempts as missed, which writes.
+     * Future dates skip the sweep - an attempt planned for tomorrow cannot be
+     * overdue.</p>
+     *
      * @param date the day to list goals for
-     * @return goal attempts belonging to that day
+     * @return goal attempts planned for that day
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public List<StudyGoal> getGoalsForDate(LocalDate date) {
-        LocalDate today = dateTimeService.getCurrentDate();
-
-        if (date.isAfter(today)) {
-            return StudyGoal.findAllByDate(date);
+        if (!date.isAfter(dateTimeService.getCurrentDate())) {
+            ensureDelayedGoalsProcessedToday();
         }
-        if (date.equals(today)) {
-            return getAllGoalsForDate(date);
-        }
-        return getAllGoalsForDate(date).stream()
-                .filter(goal -> goal.isAchieved() || goal.isFailed() || goal.getDate().equals(date))
-                .toList();
+        return StudyGoal.findAllByDate(date);
     }
 
     // ================================================================

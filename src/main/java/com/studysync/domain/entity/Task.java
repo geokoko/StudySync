@@ -418,7 +418,13 @@ public class Task {
      * @return {@code true} when the task should show a reminder
      */
     public boolean isReminderDue(LocalDate today) {
-        if (today == null || status == TaskStatus.COMPLETED || status == TaskStatus.CANCELLED) {
+        // POSTPONED is excluded along with the resolved states: a postponed
+        // task's deadline is its resume date, not a due date, so counting down
+        // to it would announce "due in N days" for something that is not due
+        // then - and would drag it back into a planner that deliberately
+        // leaves postponed work out.
+        if (today == null || status == TaskStatus.COMPLETED
+                || status == TaskStatus.CANCELLED || status == TaskStatus.POSTPONED) {
             return false;
         }
         return reminderDate()

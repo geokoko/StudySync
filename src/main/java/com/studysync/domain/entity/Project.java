@@ -115,7 +115,11 @@ public class Project {
      */
     public void addWorkedMinutes(int minutes) {
         this.totalMinutesWorked = Math.max(0, this.totalMinutesWorked + minutes);
-        this.lastWorkedOn = LocalDateTime.now();
+        if (minutes > 0) {
+            // Only actual work moves "last worked on". Undoing a session from
+            // three months ago must not claim the project was touched today.
+            this.lastWorkedOn = LocalDateTime.now();
+        }
         this.updatedAt = LocalDateTime.now();
     }
 

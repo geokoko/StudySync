@@ -40,6 +40,9 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private volatile GoogleDriveService.SyncStatus lastKnownSyncStatus = GoogleDriveService.SyncStatus.UNKNOWN;
     
     // UI Components for dynamic updates
+    /** Size of the analytics window, in days. Used for both the score and the off-day count. */
+    private static final int SCORE_WINDOW_DAYS = 30;
+
     private VBox statsContainer;
     private VBox chartsContainer;
     private Label profileSummaryLabel;
@@ -737,17 +740,15 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         return card;
     }
     
-    private void updateStatsCards() {
+    private void updateStatsCards(ScoreBreakdown score) {
         try {
-            // Last 30 days, minus anything logged on a day marked off
-            ScoreBreakdown score = scoringService.scoreForWindow(30);
 
             // Create stat cards
             HBox row1 = new HBox(15);
             row1.setAlignment(Pos.CENTER);
 
             VBox sessionsCard = createStatCard("Sessions", String.valueOf(score.sessions()),
-                    "Study and project, last 30 days", "#3498db");
+                    "Study and project, last " + SCORE_WINDOW_DAYS + " days", "#3498db");
             VBox hoursCard = createStatCard("Hours Logged", String.format("%.1f", score.minutes() / 60.0),
                     "Total time spent", "#e74c3c");
             VBox pointsCard = createStatCard("Points Earned", String.valueOf(score.points()),
@@ -761,9 +762,9 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             row2.setAlignment(Pos.CENTER);
 
             VBox goalsCard = createStatCard("Goal Net", String.format("%+d", score.netGoals()),
-                    "Achieved minus missed, last 30 days", "#27ae60");
+                    "Achieved minus missed, last " + SCORE_WINDOW_DAYS + " days", "#27ae60");
             VBox tasksCard = createStatCard("Tasks Done", String.valueOf(score.tasksCompleted()),
-                    "Completed in the last 30 days", "#16a085");
+                    "Completed in the last " + SCORE_WINDOW_DAYS + " days", "#16a085");
             VBox efficiencyCard = createStatCard("Efficiency",
                     String.format("%.1f", score.pointsPerHour()),
                     "Points per hour", "#8e44ad");
@@ -881,10 +882,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         return chart;
     }
     
-    private void updateProfileSummary() {
+    private void updateProfileSummary(ScoreBreakdown score) {
         try {
-            ScoreBreakdown score = scoringService.scoreForWindow(30);
-
             if (score.sessions() == 0) {
                 profileSummaryLabel.setText("Welcome to StudySync! Start your first study session to see your progress here.");
                 productivityRating.setProgress(0);
@@ -916,12 +915,12 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             productivityLabel.setTextFill(Color.web(color));
 
             String summary = String.format(
-                "Over the last 30 days, you've logged %d sessions totaling %d hours. " +
+                "Over the last " + SCORE_WINDOW_DAYS + " days, you've logged %d sessions totaling %d hours. " +
                 "Your average focus level is %.1f/5. Keep up the great work and continue building your study habits!",
                 score.sessions(), score.minutes() / 60, score.avgFocus()
             );
 
-            int offDays = 30 - score.scoringDays();
+            int offDays = SCORE_WINDOW_DAYS - score.scoringDays();
             if (offDays > 0) {
                 summary += String.format(" %d day%s marked off in this period %s excluded from these scores.",
                         offDays, offDays == 1 ? "" : "s", offDays == 1 ? "is" : "are");
@@ -937,8 +936,11 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
 
     @Override
     public void updateDisplay() {
-        updateProfileSummary();
-        updateStatsCards();
+        // Computed once: this is a dozen queries including a full goals-table
+        // scan, and both sections below want the identical figures.
+        ScoreBreakdown score = scoringService.scoreForWindow(SCORE_WINDOW_DAYS);
+        updateProfileSummary(score);
+        updateStatsCards(score);
         updateCharts();
         refreshDriveSyncState();
     }

@@ -1037,7 +1037,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                     TaskUpdate update = new TaskUpdate(title, descArea.getText().trim(),
                             cat.name(), new TaskPriority(prio),
                             deadlinePicker.getValue(), recurPattern, startDate, recurrenceEnd,
-                            deadlinePicker.getValue() != null ? reminderCombo.getValue() : null);
+                            reminderSelection(deadlinePicker.getValue(), reminderCombo.getValue()));
                     taskService.updateTask(existingTask, update);
                     // Apply status change separately if editing
                     if (statusCombo.getValue() != null && statusCombo.getValue() != existingTask.getStatus()) {
@@ -1232,6 +1232,18 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
     private static String nvl(String s) {
         return s != null ? s : "";
+    }
+
+    /**
+     * Translates the reminder combo into a TaskUpdate value. A cleared
+     * selection has to travel as {@link TaskUpdate#CLEAR_REMINDER}, because
+     * null on that record means "leave the existing reminder alone".
+     */
+    private static Integer reminderSelection(LocalDate deadline, Integer selected) {
+        if (deadline == null || selected == null) {
+            return TaskUpdate.CLEAR_REMINDER;
+        }
+        return selected;
     }
 
     /** Renders the reminder offset as plain English; null means no reminder. */

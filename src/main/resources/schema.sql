@@ -367,13 +367,16 @@ WHERE status = 'ABANDONED'
 -- Scoring Migrations
 -- ===================================
 -- Completion date of a task. Drives the timeliness component of the score and
--- decides which day the task's points land on. Existing completed tasks are
--- backfilled from updated_at, the closest proxy available for old rows.
+-- decides which day the task's points land on.
+--
+-- Tasks completed before this column existed are deliberately left NULL rather
+-- than backfilled. No column records when they were finished - `updated_at` is
+-- never written by the app, so it holds the row's insert time, and `created_at`
+-- holds whatever the last save stamped. Guessing would hand every legacy task a
+-- fabricated +20 or -10 timeliness score and land those points on an arbitrary
+-- day. A NULL scores zero, which is the honest answer for work finished before
+-- anyone was measuring.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at DATE;
-
-UPDATE tasks
-SET completed_at = CAST(updated_at AS DATE)
-WHERE status = 'COMPLETED' AND completed_at IS NULL;
 
 -- Points are derived data, so they are recomputed from duration/focus on every
 -- startup. This keeps historical sessions on the same scale as new ones and is
@@ -382,7 +385,7 @@ WHERE status = 'COMPLETED' AND completed_at IS NULL;
 -- (a floating-point version would round differently in edge cases).
 UPDATE study_sessions
 SET points_earned =
-    (LEAST(COALESCE(duration_minutes, 0), 240) / 2
+    (LEAST(GREATEST(COALESCE(duration_minutes, 0), 0), 240) / 2
         * CASE COALESCE(focus_level, 3)
               WHEN 1 THEN 40
               WHEN 2 THEN 70
@@ -395,7 +398,7 @@ SET points_earned =
 
 -- Same shape for project sessions, which carry no focus rating.
 UPDATE project_sessions
-SET points_earned = LEAST(COALESCE(duration_minutes, 0), 240) / 2
+SET points_earned = LEAST(GREATEST(COALESCE(duration_minutes, 0), 0), 240) / 2
     + CASE WHEN completed THEN 10 ELSE 0 END;
 
 CREATE INDEX IF NOT EXISTS idx_tasks_completed_at ON tasks(completed_at);
@@ -423,28 +426,30 @@ MERGE INTO schema_migrations (id) VALUES ('split-recurrence-end-from-deadline');
 
 -- Project work was stored only as whole hours (actual_hours), so every save
 -- truncated the minutes and every reload multiplied the loss. Session counts
--- and last-worked-on were never stored at all. Added without a DEFAULT so the
--- backfill below can tell legacy rows apart from rows the app has written.
+-- and last-worked-on were never stored at all.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_minutes_worked INTEGER;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_sessions_count INTEGER;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS last_worked_on TIMESTAMP;
 
--- Best reconstruction available for existing rows; the truncated minutes are
--- gone. Idempotent: once set, the column is no longer NULL.
-UPDATE projects
-SET total_minutes_worked = COALESCE(actual_hours, 0) * 60
-WHERE total_minutes_worked IS NULL;
-
--- Recover the real session count and worked minutes from the sessions
--- themselves, which were never lossy. Only fills rows that have sessions.
+-- Recover the exact figures once, from the sessions themselves - they were
+-- never lossy - falling back to the truncated actual_hours for work that has no
+-- surviving session rows. GREATEST because deleting a session used to leave the
+-- project total untouched, so actual_hours can legitimately exceed the sum.
+--
+-- One-shot and marker-guarded. `total_sessions_count` cannot guard it: the row
+-- mapper reads a NULL count as 0 and Project.save() writes that 0 straight back,
+-- so a NULL-based guard would let this destructive statement fire again on a
+-- later startup and overwrite figures the app had since maintained itself.
 UPDATE projects p
 SET total_sessions_count = (
         SELECT COUNT(*) FROM project_sessions s WHERE s.project_id = p.id AND s.completed = TRUE),
-    total_minutes_worked = (
-        SELECT COALESCE(SUM(s.duration_minutes), 0) FROM project_sessions s
-        WHERE s.project_id = p.id AND s.completed = TRUE)
-WHERE EXISTS (SELECT 1 FROM project_sessions s WHERE s.project_id = p.id AND s.completed = TRUE)
-  AND COALESCE(p.total_sessions_count, 0) = 0;
+    total_minutes_worked = GREATEST(
+        COALESCE(p.actual_hours, 0) * 60,
+        (SELECT COALESCE(SUM(s.duration_minutes), 0) FROM project_sessions s
+         WHERE s.project_id = p.id AND s.completed = TRUE))
+WHERE NOT EXISTS (SELECT 1 FROM schema_migrations WHERE id = 'recover-project-work-totals');
+
+MERGE INTO schema_migrations (id) VALUES ('recover-project-work-totals');
 
 -- How many days before its deadline a task should start reminding, or NULL for
 -- no reminder. The reminder date is derived rather than stored: the deadline is
