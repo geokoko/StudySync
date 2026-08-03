@@ -44,13 +44,11 @@ StudySync provides comprehensive academic management with three main modules:
 * **Task Reminders**: Choose how many days before a deadline a task starts reminding you; it shows a countdown badge and appears under "Coming up" in the planner
 * **Data Persistence**: All data stored reliably in embedded H2 database
 
-## Google Calendar Integration (**not** finished as of version 0.1.0)
+## Google Calendar Integration (planned and **not** implemented as of now)
 * **OAuth 2.0 Authentication**: Secure Google account login
 * **Today's Events**: View all Google Calendar events for the current day
 * **Real-time Sync**: Refresh calendar events with one click
-* **Event Details**: Display event time, title, location, and description
 * **Seamless Integration**: Calendar events displayed alongside study tasks
-* **Privacy Focused**: Local credential storage with easy disconnect option
 
 ## ☁️ Google Drive Sync
 * **Google Sign-in**: Connect your personal Google account directly from the Profile window
