@@ -10,7 +10,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![JavaFX](https://img.shields.io/badge/JavaFX-21-blue.svg)](https://openjfx.io/)
 [![H2 Database](https://img.shields.io/badge/Database-H2-blue.svg)](https://www.h2database.com/)
-[![Version](https://img.shields.io/badge/Version-0.1.5-red.svg)](https://github.com/geokoko/StudySync/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.6-red.svg)](https://github.com/geokoko/StudySync/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
@@ -19,7 +19,7 @@ StudySync is a comprehensive Study Management System built with modern Java tech
 
 Perfect for students who want to integrate their academic calendar with task management and study tracking! 📚✨
 
-> **⚠️ Beta Release**: This is version 0.1.5 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
+> **⚠️ Beta Release**: This is version 0.1.6 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
 
 ## Key Features
 
@@ -171,7 +171,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architectural information an
 ## Data Storage
 
 * **Database**: H2 embedded database (`data/studysync.mv.db`)
-* **Schema Migrations**: Idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements in `schema.sql` ensure safe upgrades for existing databases
+* **Schema Migrations**: `schema.sql` re-runs on every startup, so statements are additive (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) or recompute derived data. The few genuinely one-shot migrations are guarded by a `schema_migrations` marker table so they cannot re-fire
 * **Cloud Backup (optional)**: When Drive sync is enabled, the same file is mirrored to `My Drive/StudySync/studysync.mv.db`
 * **Logs**: Application logs stored in `logs/` directory
 * **Configuration**: YAML configuration files in `src/main/resources/`

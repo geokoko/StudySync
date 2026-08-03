@@ -16,7 +16,7 @@
 │                Simplified Service Layer                     │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
 │  │   TaskService   │  │  StudyService   │  │ProjectService│ │
-│  │ CategoryService │  │ ReminderService │  │   ...more   │  │
+│  │ CategoryService │  │  ScoringService │  │   ...more   │  │
 │  │ (Business Logic │  │   Orchestration) │  │             │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -32,7 +32,7 @@
 │  └─────────────────┘  └─────────────────┘  └─────────────┘  │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
 │  │ ProjectSession  │  │   TaskPriority  │  │TaskCategory │  │
-│  │  • save()       │  │   TaskStatus    │  │DailyReflection│
+│  │  OffDay         │  │   TaskStatus    │  │DailyReflection│
 │  │  • delete()     │  │  ProjectStatus  │  │   ...more   │  │
 │  │  • findAll()    │  │  (Value Objects)│  │             │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────┘  │
@@ -69,21 +69,38 @@ Tasks support an optional recurrence schedule via a `recurring_pattern` column:
 
 - **Format**: `"intervalWeeks:daysOfWeek"` — e.g. `"1:1,3,5"` = every week on Mon, Wed, Fri; `"2:1,4"` = every 2 weeks on Mon, Thu
 - **NULL** means a one-off (non-recurring) task
+- `recurrence_end_date` is the last date an occurrence may fall on; NULL means it never ends. Before 0.1.6 this was conflated with `deadline`, which left recurring tasks unable to express a real due date
+- `deadline` means the same thing on recurring and one-off tasks: when the task is due. It drives overdue badges and the timeliness part of the score, and deliberately does *not* affect whether an occurrence appears
 - `Task.isRecurring()` and `Task.getRecurringSummary()` provide runtime helpers
-- `TaskService.recurringTaskAppliesTo(task, date, referenceMonday)` checks whether a recurring task should appear on a given date
-- When editing, `""` (empty string) in `TaskUpdate.recurringPattern` signals "clear the pattern", while `null` means "keep existing"
+- `TaskService.isRecurringOccurrence(task, date)` answers "does the schedule land here", which is a different question from `taskSurfacesOn(task, date)`: a late recurring task also surfaces every day past its deadline until resolved. Anything counting missed occurrences must use the former
+- When editing, `""` (empty string) in `TaskUpdate.recurringPattern` signals "clear the pattern", while `null` means "keep existing". `TaskUpdate.CLEAR_REMINDER` plays the same role for the reminder offset
+
+### **Scoring**
+
+`ScoringService` is the single place that decides what counts. The calendar's per-day figures and the profile's 30-day figures are both `ScoreBreakdown`s over different date ranges, so the two cannot drift apart the way two hand-written formulas did.
+
+- **Sessions** earn time scaled by focus, so a long average session can never be worth less than a short self-flattered one
+- **Achieved goal attempts** earn a flat amount — session points already pay for the effort, this pays for the outcome
+- **Completed tasks** earn timeliness only. A flat completion bonus would double-count the sessions and goals that finished the task; whether it landed before its deadline is information nothing else captures. Rescheduling costs points, so "on time" cannot be bought by moving the date
+- Stored `points_earned` is treated as **derived** — see Schema Migrations below
+
+### **Off Days**
+
+Days marked off (holiday, sick day, break) are excluded from every global score and shrink the denominators rather than counting as days with no work. The study streak skips them instead of breaking. Per-day figures and the profile charts still show what actually happened on an off day — only the aggregates exclude it.
 
 ### **Future Goal Planning**
 
 Study goals can be planned for future dates:
 
-- `StudyService.getStudyGoalsForFutureDate(date)` returns goals for a specific future date without delay processing
+- `StudyService.getGoalsForDate(date)` is the single definition shared by scoring and display, so a day's goal count always matches the list rendered beside it. Future dates skip the overdue sweep — an attempt planned for tomorrow cannot be overdue
 - The Study Planner's "Add Goal" dialog includes a DatePicker (today + future only) with quick "Today" / "Tomorrow" buttons
 - Calendar and Daily views branch on past/today/future when loading goals
 
 ### **Delayed Goal Processing Guard**
 
-`processAllDelayedGoals()` performs a full table scan and write operations. To avoid redundant work on every UI refresh, a `lastDelayProcessingDate` field ensures it runs at most once per calendar day.
+`processAllDelayedGoals()` performs a full table scan and write operations. To avoid redundant work on every UI refresh, a `lastDelayProcessingDate` field ensures it runs at most once per calendar day, via `StudyService.ensureOverdueAttemptsProcessed()`.
+
+The sweep saves without setting the Drive dirty flag. It is derived maintenance — every machine recomputes it on startup — so flagging it made simply opening the app look like unsaved local edits, which was enough to raise a sync conflict against a Drive copy that was genuinely ahead.
 
 ### **Schema Migrations**
 
@@ -91,4 +108,6 @@ Since `spring.sql.init.mode: always` loads `schema.sql` on every startup:
 
 - Tables use `CREATE TABLE IF NOT EXISTS` (safe for existing DBs)
 - New columns are added via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` at the bottom of `schema.sql`
+- Derived data may be recomputed on every startup, provided the computation is idempotent. Session points work this way: the SQL mirrors `StudySession.calculatePoints()` in integer arithmetic, and a test runs every input combination against both to keep them in step
+- Genuinely one-shot migrations — moving a value from one column to another — are guarded by a `schema_migrations` marker table. Without it, re-running would eat a value the user set after the migration first ran
 - This avoids data loss and supports rolling upgrades without external migration tools
