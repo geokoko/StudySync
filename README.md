@@ -55,7 +55,7 @@ StudySync provides comprehensive academic management with three main modules:
 ## ☁️ Google Drive Sync
 * **Google Sign-in**: Connect your personal Google account directly from the Profile window
 * **Drive Storage**: The embedded H2 database is uploaded to a private `StudySync` folder inside your Drive
-* **Multi-device ready**: Latest Drive copy is downloaded before the database bootstraps and uploaded whenever the app closes
+* **Multi-device ready**: Pull the Drive copy with `Download from Drive` and it is applied on the next launch; the local database is uploaded whenever the app closes
 * **Manual Sync**: Trigger `Sync to Drive now` anytime you want an extra backup mid-session
 * **Purely local**: No StudySync backend—OAuth tokens and the H2 file never leave your machine + Google Drive
 
@@ -88,7 +88,13 @@ After installation:
 
 To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
 
-> Tip: `studysync-linux.tar.gz` is a stable alias for latest release downloads. Versioned files (`studysync-<version>-linux.tar.gz`) are also attached to each release.
+> **Installing a beta:** `releases/latest` resolves to the newest *stable* release, so the commands above skip pre-releases. To install a specific version, use its tag:
+> ```bash
+> curl -LO https://github.com/geokoko/StudySync/releases/download/v0.1.6-beta/studysync-linux.tar.gz
+> curl -LO https://github.com/geokoko/StudySync/releases/download/v0.1.6-beta/studysync-linux.tar.gz.sha256
+> ```
+>
+> Tip: `studysync-linux.tar.gz` is a stable alias attached to every release. Versioned files (`studysync-<version>-linux.tar.gz`) are also attached.
 
 ---
 
@@ -157,9 +163,20 @@ To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
    * Launch the app, open the **Profile → Google Drive Sync** panel, and click **Sign in with Google**
    * Your browser will handle OAuth locally; tokens are stored in `~/.studysync/google`
 4. **Understand the sync flow**
-   * On startup, StudySync downloads the latest `studysync.mv.db` from your Drive folder *before* H2 is initialized
+   * Downloading is **manual**: press `Download from Drive`, then restart. The copy is verified against its checksum and applied before H2 opens, and your previous database is kept under `data/backups/`
    * When the app closes (or you press `Sync to Drive now`), the local database is uploaded back to Google Drive
-   * On a brand-new device, sign in once and restart StudySync so the Drive copy is used on the next launch
+   * StudySync never merges the two sides. If both have changed, pick one — `Download from Drive` replaces local, `Sync to Drive now` replaces remote
+
+### Setting up a second machine
+
+`drive.properties` holds your client ID/secret and is **not** part of the release tarball, which ships only the template. Copy it across yourself:
+
+```bash
+scp ~/.local/share/studysync/config/google/drive.properties \
+    other-machine:~/.local/share/studysync/config/google/
+```
+
+Then, on the new machine: launch StudySync → **Profile → Sign in with Google** → **Download from Drive** → **restart**. Until you download and restart you are looking at an empty database — nothing is fetched automatically. OAuth tokens under `~/.studysync/google` are per-machine; sign in again rather than copying them.
 
 > The actual database file lives inside `My Drive/StudySync/studysync.mv.db`. No remote StudySync server is involved—the desktop app talks to Google APIs directly.
 
