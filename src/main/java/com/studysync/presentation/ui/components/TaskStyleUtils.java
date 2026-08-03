@@ -8,7 +8,6 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
 import javafx.scene.paint.Color;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.Locale;
@@ -190,11 +189,11 @@ public final class TaskStyleUtils {
 
     /**
      * Returns {@code true} when the task's deadline is strictly before
-     * {@code date} and the task is still unresolved.  Recurring tasks are
-     * never considered overdue (they repeat and have no single deadline).
+     * {@code date} and the task is still unresolved.  Recurring tasks count
+     * too: their deadline is a real due date now, separate from the
+     * end-of-recurrence date.
      */
     public static boolean isOverdue(Task task, LocalDate date) {
-        if (task.isRecurring()) return false;
         LocalDate deadline = task.getDeadline();
         if (deadline == null) return false;
         TaskStatus s = task.getStatus();
@@ -205,10 +204,9 @@ public final class TaskStyleUtils {
 
     /**
      * Returns {@code true} when the task's deadline equals {@code date}
-     * and the task is still unresolved.  Recurring tasks are excluded.
+     * and the task is still unresolved.  Recurring tasks count too.
      */
     public static boolean isDueToday(Task task, LocalDate date) {
-        if (task.isRecurring()) return false;
         LocalDate deadline = task.getDeadline();
         if (deadline == null) return false;
         TaskStatus s = task.getStatus();
@@ -253,6 +251,25 @@ public final class TaskStyleUtils {
         badge.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 10;");
         fontBold(badge, 10);
         badge.setTextFill(Color.web(DUE_TODAY_COLOR));
+        return badge;
+    }
+
+    /** Blue used for reminder accents — informational, not a warning. */
+    public static final String REMINDER_COLOR = "#2980b9";
+
+    /**
+     * Creates a small blue badge showing how long is left before the deadline.
+     *
+     * @param daysLeft days between today and the deadline, never negative
+     * @return the badge label
+     */
+    public static Label createReminderBadge(long daysLeft) {
+        Label badge = new Label(daysLeft == 0 ? "Due today" : "In " + daysLeft + (daysLeft == 1 ? " day" : " days"));
+        badge.setGraphic(iconLabel("\u23F0", 10));
+        badge.setPadding(new Insets(2, 6, 2, 6));
+        badge.setStyle("-fx-background-color: #e3f2fd; -fx-background-radius: 10;");
+        fontBold(badge, 10);
+        badge.setTextFill(Color.web(REMINDER_COLOR));
         return badge;
     }
 

@@ -24,6 +24,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -72,18 +73,6 @@ public class TaskService {
         logger.info("TaskService caches reset after DB reload");
     }
 
-    private void markDirty() {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    googleDriveService.markLocalDbDirty();
-                }
-            });
-        } else {
-            googleDriveService.markLocalDbDirty();
-        }
-    }
 
     private void markDirtyAndSaveLocally(final String operation) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -124,7 +113,13 @@ public class TaskService {
         
         Task taskToSave = task;
         if (task.getPriority() == null) {
-            taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(), new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints(), task.getRecurringPattern(), task.getStartDate());
+            taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(),
+                    new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints(),
+                    task.getRecurringPattern(), task.getStartDate(), task.getRecurrenceEndDate());
+            // The constructor covers neither of these, and rebuilding the task
+            // here must not quietly drop fields the caller set.
+            taskToSave.setRemindDaysBefore(task.getRemindDaysBefore());
+            taskToSave.setCompletedAt(task.getCompletedAt());
             logger.debug("Set default priority for task: {}", taskToSave.getTitle());
         }
 
@@ -251,14 +246,13 @@ public class TaskService {
 
         // Resurface postponed tasks whose resume date (their deadline) has
         // arrived: OPEN when it resumes today, straight to DELAYED when the
-        // resume date was already missed (recurring tasks never go DELAYED,
-        // matching applyBusinessRules).
+        // resume date was already missed.
         int updatedCount = 0;
         for (Task task : Task.findByStatus(TaskStatus.POSTPONED)) {
             if (task.getDeadline() == null || task.getDeadline().isAfter(today)) {
                 continue;
             }
-            boolean missed = !task.isRecurring() && task.getDeadline().isBefore(today);
+            boolean missed = task.getDeadline().isBefore(today);
             task.updateStatus(missed ? TaskStatus.DELAYED : TaskStatus.OPEN);
             task.save();
             updatedCount++;
@@ -473,21 +467,32 @@ public class TaskService {
         boolean isPending = s == TaskStatus.DELAYED;
 
         if (task.isRecurring()) {
-            // Start date on a recurring task means "don't appear before this date"
+            // DELAYED counts as unresolved here too. Leaving it out used to make
+            // a late recurring task disappear from the planner entirely, which
+            // is why recurring tasks were kept out of DELAYED marking.
+            if (!(isActive || isPending)) return false;
+
+            // Nothing appears before the task's own start date - not even an
+            // overdue one. This guard has to sit above the deadline check
+            // below, not just inside isRecurringOccurrence, or a task whose
+            // deadline has passed would surface for every date back to the
+            // epoch.
             if (task.getStartDate() != null && date.isBefore(task.getStartDate())) {
                 return false;
             }
-            // Deadline on a recurring task means "stop recurring after this date"
-            if (task.getDeadline() != null && date.isAfter(task.getDeadline())) {
-                return false;
+
+            // On or after its own deadline and still unresolved: visible every
+            // day until resolved, exactly like a one-off overdue task. The
+            // deadline day itself is included on purpose - that is the due day.
+            // Deliberately not bounded by the end of recurrence - being late
+            // outlives the schedule, and the end of repeating must not hide a
+            // task the user never finished.
+            if (task.getDeadline() != null && !date.isBefore(task.getDeadline())) {
+                return true;
             }
-            // Reference Monday is derived from the task's recurrence
-            // anchor (startDate if set, otherwise createdAt), so that
-            // multi-week intervals are measured consistently.
-            LocalDate anchorMonday = task.getRecurrenceAnchor()
-                    .with(TemporalAdjusters
-                            .previousOrSame(DayOfWeek.MONDAY));
-            return isActive && recurringTaskAppliesTo(task, date, anchorMonday);
+
+            // Remaining bounds belong to the occurrence rule itself.
+            return isRecurringOccurrence(task, date);
         }
 
         // Non-recurring: must be unresolved
@@ -501,6 +506,55 @@ public class TaskService {
         // Tasks with a deadline: show on the due date and every day after
         // (so overdue tasks remain visible until resolved)
         return !date.isBefore(deadline);
+    }
+
+    /**
+     * Whether a recurring task's schedule actually lands on a date, ignoring
+     * status and deadline. "Has an occurrence here" and "shows up here" are
+     * different questions now that a late recurring task also surfaces between
+     * its occurrences.
+     *
+     * @param task the task to test; non-recurring returns {@code false}
+     * @param date the date to test
+     * @return {@code true} when the recurrence pattern produces an occurrence
+     *         on that date, within the task's start and end bounds
+     */
+    public boolean isRecurringOccurrence(Task task, LocalDate date) {
+        if (task == null || date == null || !task.isRecurring()) {
+            return false;
+        }
+        if (task.getStartDate() != null && date.isBefore(task.getStartDate())) {
+            return false;
+        }
+        if (task.getRecurrenceEndDate() != null && date.isAfter(task.getRecurrenceEndDate())) {
+            return false;
+        }
+        // Reference Monday is derived from the task's recurrence anchor
+        // (startDate if set, otherwise createdAt), so multi-week intervals are
+        // measured consistently.
+        LocalDate anchorMonday = task.getRecurrenceAnchor()
+                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        return recurringTaskAppliesTo(task, date, anchorMonday);
+    }
+
+    /**
+     * Tasks whose reminder has come due: the reminder day has arrived and the
+     * deadline has not yet passed. Tasks already past their deadline are left
+     * out - they are overdue, which the planner surfaces on its own, and
+     * showing both would double-report the same task.
+     *
+     * @param date the day to evaluate against
+     * @return unresolved tasks that should show a reminder, soonest deadline first
+     */
+    @Transactional(readOnly = true)
+    public List<Task> getTasksWithDueReminders(LocalDate date) {
+        if (date == null) {
+            return List.of();
+        }
+        return Task.findAll().stream()
+                .filter(task -> task.isReminderDue(date))
+                .sorted(Comparator.comparing(Task::getDeadline))
+                .toList();
     }
 
     public boolean isHealthy() {
@@ -574,25 +628,40 @@ public class TaskService {
         if (update.startDate() != null) {
             newStartDate = update.startDate();
         }
-        // If recurring pattern is being cleared, also clear start date
+        // End of recurrence: same convention as start date
+        LocalDate newRecurrenceEnd = task.getRecurrenceEndDate();
+        if (update.recurrenceEndDate() != null) {
+            newRecurrenceEnd = update.recurrenceEndDate();
+        }
+        // If recurring pattern is being cleared, the recurrence dates go with it
         if (newRecurringPattern == null) {
             newStartDate = null;
+            newRecurrenceEnd = null;
         }
-        return new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline, task.getStatus(), task.getPoints(), newRecurringPattern, newStartDate);
+        Task updated = new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline,
+                task.getStatus(), task.getPoints(), newRecurringPattern, newStartDate, newRecurrenceEnd);
+        updated.setCompletedAt(task.getCompletedAt());
+        // null keeps the existing reminder; CLEAR_REMINDER removes it.
+        // setRemindDaysBefore maps any negative value to "no reminder".
+        updated.setRemindDaysBefore(update.remindDaysBefore() != null
+                ? update.remindDaysBefore() : task.getRemindDaysBefore());
+        // The constructor stamps a fresh creation date; keep the real one, or
+        // the returned object reports a recurrence anchor the database does not
+        // agree with.
+        updated.setCreatedAt(task.getCreatedAt());
+        return updated;
     }
     
     private Task applyBusinessRules(Task task) {
         LocalDate today = dateTimeService.getCurrentDate();
-        // Only mark non-recurring tasks as DELAYED for overdue deadlines.
-        // For recurring tasks, the deadline is an end-of-recurrence boundary,
-        // not a due date, so it should not trigger DELAYED status.
+        // Recurring tasks go DELAYED like any other: their deadline is a real
+        // due date, and taskSurfacesOn() keeps a DELAYED recurring task visible.
         // COMPLETED and CANCELLED are terminal; POSTPONED keeps its resume
         // date until markDelayedTasks resurfaces it.
         boolean delayEligible = task.getStatus() != TaskStatus.COMPLETED
                 && task.getStatus() != TaskStatus.CANCELLED
                 && task.getStatus() != TaskStatus.POSTPONED;
-        if (!task.isRecurring()
-                && task.getDeadline() != null
+        if (task.getDeadline() != null
                 && task.getDeadline().isBefore(today)
                 && delayEligible) {
             logger.info("Task '{}' marked as DELAYED due to overdue deadline", task.getTitle());
@@ -694,6 +763,9 @@ public class TaskService {
         List<Task> activeTasks = Task.findActiveRecurring();
         List<MissedOccurrence> result = new ArrayList<>();
 
+        // Deliberately not isRecurringOccurrence(): carry-forward uses a
+        // stricter lower bound (createdAt when there is no start date), because
+        // a task cannot have missed an occurrence from before it existed.
         for (Task task : activeTasks) {
             LocalDate anchor = task.getRecurrenceAnchor();
             LocalDate anchorMonday = anchor
@@ -707,8 +779,8 @@ public class TaskService {
                 continue;
             }
 
-            // Respect deadline-as-end-of-recurrence
-            if (task.getDeadline() != null && yesterday.isAfter(task.getDeadline())) {
+            // Occurrences stop at the end of recurrence
+            if (task.getRecurrenceEndDate() != null && yesterday.isAfter(task.getRecurrenceEndDate())) {
                 continue;
             }
 

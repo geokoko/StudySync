@@ -94,23 +94,23 @@ Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordC
 | Entity | Table | Key Static Methods |
 |---|---|---|
 | `Task` | `tasks` | `findAll`, `findById`, `findByStatus`, `findByCategory`, `findDueBy`, `findOverdue`, `findByPriority`, `search`, `findHighPriority`, `findRecurring`, `findActiveRecurring`, `countByStatus`, `existsById`, `updateStatus`, `deleteById`, `deleteByIds`, `save`, `delete` |
-| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findByDateIncludingDelayed`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `deleteById`, `save`, `delete` |
+| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `deleteById`, `save`, `delete` |
 | `StudySession` | `study_sessions` | `findAll`, `findById`, `findByDate`, `findActiveSession`, `save`, `delete` |
 | `Project` | `projects` | `findAll`, `findById`, `findByStatus`, `save`, `delete` |
 | `ProjectSession` | `project_sessions` | `findAll`, `findById`, `findByProjectId`, `findByDate`, `save`, `delete` |
 | `DailyReflection` | `daily_reflections` | `findAll`, `findById`, `findByDate`, `findByDateRange`, `save`, `delete` |
 | `Category` | `task_categories` | `findAll`, `findById`, `findByName`, `save`, `delete` |
-| `TaskReminder` | (no table — in-memory) | Used by `ReminderService` for scheduling |
+| `OffDay` | `off_days` | `mark`, `unmark`, `labelFor`, `findLabelsInRange`, `findAllDates` (static only — a day is either off or not) |
 
 ### Services
 
 | Service | Responsibility |
 |---|---|
 | `TaskService` | Task CRUD, filtering, status transitions, bulk operations, recurring task date matching, missed occurrence detection, task statistics, async queries |
-| `StudyService` | Study sessions (start/end), study goals, daily reflections, delayed goal processing |
+| `StudyService` | Study sessions (start/end), study goals, daily reflections, delayed goal processing, off-day CRUD |
+| `ScoringService` | The only place that decides what counts towards a score. `scoreForDate` / `scoreForWindow` return a `ScoreBreakdown`; also `getStudyStreak` and `taskPoints` |
 | `ProjectService` | Project CRUD, project sessions (start/end), progress tracking |
-| `CategoryService` | Category CRUD for tasks and projects |
-| `ReminderService` | In-memory task deadline reminders |
+| `CategoryService` | Category creation and existence checks for tasks and projects |
 | `DateTimeService` | Date/time utilities, current date provider |
 
 Services call `googleDriveService.markLocalDbDirty()` after mutations (via `TransactionSynchronization.afterCommit`) to track unsaved changes for Drive sync.
@@ -123,6 +123,7 @@ Services call `googleDriveService.markLocalDbDirty()` after mutations (via `Tran
 | `StudySessionEnd` | `StudyService` | DTO for ending a study session |
 | `ProjectSessionEnd` | `ProjectService` | DTO for ending a project session |
 | `MissedOccurrence` | `TaskService` | DTO: a missed past occurrence of a recurring task (task + missedDate) |
+| `ScoreBreakdown` | `ScoringService` | DTO: points (split by source), productivity %, sessions, minutes, focus, goals, tasks, scoring days |
 
 ## Database
 
@@ -130,13 +131,15 @@ H2 file-based database at `./data/studysync.mv.db`. Schema is in `schema.sql` an
 
 ### Tables
 
-- **tasks** — id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, timestamps
-- **projects** — id, title, description, category, status, priority, dates, progress, hours, notes, timestamps
+- **tasks** — id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, recurrence_end_date, completed_at, remind_days_before, created_at (no updated_at — nothing ever wrote it)
+- **projects** — id, title, description, category, status, priority, dates, progress, hours, total_minutes_worked, total_sessions_count, last_worked_on, notes, timestamps. `total_minutes_worked` is authoritative; `actual_hours` is a rounded-down convenience column
 - **study_sessions** — id, date, times, duration, completion flags, focus/confidence levels, session notes, active tracking fields, timestamps
 - **project_sessions** — id, project_id (FK → projects), date, times, duration, objectives, progress, notes, timestamps
 - **study_goals** — id, date, description, achieved, delay tracking fields, task_id (FK → tasks), timestamps
 - **daily_reflections** — id, date (UNIQUE), focus level, notes, reflection text, reward flag, timestamps
 - **task_categories** — id, name (UNIQUE), description, timestamp; seeded with Work, Personal, Study, Health
+- **schema_migrations** — id (PK), applied_at; marks one-shot migrations that must not re-run (everything else in `schema.sql` is additive or recomputes derived data)
+- **off_days** — date (PK), label, timestamp; days excluded from global scores
 
 ## UI Architecture
 
@@ -187,13 +190,57 @@ Default tab order: Calendar View, Study Planner, Reflection Diary, Projects, Tas
 - Minimum size: 900 x 600 (set via `setMinWidth`/`setMinHeight`)
 - Stage is centered on screen at startup
 
+## Scoring
+
+`ScoringService` is the single source of truth; the calendar's per-day figures and the profile's 30-day figures are both `ScoreBreakdown`s over different date ranges.
+
+### Points
+
+| Source | Worth |
+|---|---|
+| Study session | `min(minutes, 240) / 2` scaled by focus (1 → 40%, 2 → 70%, 3 → 100%, 4 → 120%, 5 → 140%), `+10` if completed |
+| Project session | Same time base at neutral quality (no focus rating), `+10` if completed |
+| Achieved goal attempt | `+15` |
+| Completed task | `+20` on time, `-10` late, `-5` per reschedule, floored at `-15`. Zero without a deadline or while unfinished |
+
+Session points are stored in `points_earned` but treated as **derived**: `schema.sql` recomputes them from duration/focus on every startup, in integer SQL that mirrors `StudySession.calculatePoints()` exactly. `ScoringServiceTest.sessionPointsMatchTheSqlMigrationExactly` guards the pair.
+
+Tasks earn *timeliness only* — a flat completion bonus would double-count the sessions and goals that finished the task. Points land on `completed_at`, so off days exclude them.
+
+### Productivity % (0-100)
+
+`time 30 + focus 30 + consistency 20 + goals 20`, every term measured per scoring day — which is what lets one formula serve both a single day and a 30-day window.
+
+### Off days
+
+`off_days` rows are excluded from window scores and shrink the denominators, so a holiday is not a zero-productivity day. They are skipped by the streak rather than breaking it. Per-day figures and the profile charts still show what actually happened on an off day.
+
+
+## Reminders
+
+A reminder is one column, `tasks.remind_days_before`, and nothing else. The
+reminder date is derived (`deadline.minusDays(n)`), never stored, so moving a
+deadline moves the reminder with it and the two can never disagree.
+
+- `Task.isReminderDue(date)` — true from the reminder day up to and including
+  the deadline, for unresolved tasks only. Deliberately stops at the deadline:
+  past it the task is overdue, which is surfaced on its own, and reporting both
+  would double-count.
+- `TaskService.getTasksWithDueReminders(date)` — soonest deadline first.
+- Surfaced as a blue badge on task cards, plus a "Coming up" section in the
+  planner for tasks that do not otherwise appear today.
+
+
 ## Recurring Tasks
 
 Single-entity virtual-recurrence model — one DB row appears on multiple calendar dates. No task spawning.
 
 - **Pattern format**: `"intervalWeeks:daysOfWeek"` — e.g., `"2:1,4"` = every 2 weeks on Mon (`1`) and Thu (`4`)
 - **`startDate`** (`DATE`): First date the task can appear + recurrence interval anchor. Falls back to `createdAt` if null (backward compatibility). Set via `getRecurrenceAnchor()`.
-- **`deadline`** on recurring tasks = end-of-recurrence (task stops appearing after this date). NOT a due date.
+- **`recurrenceEndDate`** (`DATE`): Last date an occurrence may fall on. NULL = repeats forever. This is what stops the recurrence.
+- **`deadline`** means the same thing on recurring and one-off tasks: when the task is due. It drives overdue/due-today badges and the timeliness part of the score, and deliberately does NOT affect whether an occurrence appears. (Before 0.1.6 `deadline` was overloaded as the end-of-recurrence date; `schema.sql` migrates old rows once, guarded by the `schema_migrations` table.)
+- **Surfacing**: a recurring task appears on its scheduled occurrences, and — once past its deadline and still unresolved — every day until it is resolved, exactly like a one-off overdue task. The deadline check runs *before* the recurrence bounds, so the end of recurrence cannot hide a task the user never finished.
+- Recurring tasks go `DELAYED` like any other overdue task. `TaskService.isRecurringOccurrence()` answers "does the schedule land here", which is a different question from `taskSurfacesOn()` — anything counting missed occurrences must use the former.
 - **Completing** a recurring task is permanent — stops all future recurrences.
 - **Missed occurrence detection**: A past scheduled date is "missed" if no achieved `StudyGoal` is linked to the task (`task_id`) for that date. `TaskService.getMissedRecurringOccurrences()` walks back up to 28 days. Today's occurrence is never considered missed.
 - **Carry-forward** of missed occurrences is only shown in StudyPlannerPanel (not in CalendarViewPanel day cells).

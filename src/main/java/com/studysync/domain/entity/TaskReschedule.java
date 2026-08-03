@@ -113,6 +113,33 @@ public class TaskReschedule {
         return latest;
     }
 
+    /**
+     * How many times each of these tasks has been rescheduled. Tasks with no
+     * reschedules are absent from the map rather than mapped to zero.
+     *
+     * @param taskIds task ids to count for
+     * @return map of task id to reschedule count
+     */
+    public static Map<String, Integer> countByTaskIds(Collection<String> taskIds) {
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("JdbcTemplate not initialized");
+        }
+        if (taskIds == null || taskIds.isEmpty()) {
+            return Map.of();
+        }
+
+        String placeholders = String.join(",", Collections.nCopies(taskIds.size(), "?"));
+        String sql = "SELECT task_id, COUNT(*) AS reschedule_count FROM task_reschedules"
+                + " WHERE task_id IN (" + placeholders + ") GROUP BY task_id";
+        Map<String, Integer> counts = new HashMap<>();
+        for (Map.Entry<String, Integer> entry : jdbcTemplate.query(sql,
+                (rs, rowNum) -> Map.entry(rs.getString("task_id"), rs.getInt("reschedule_count")),
+                taskIds.toArray())) {
+            counts.put(entry.getKey(), entry.getValue());
+        }
+        return counts;
+    }
+
     private static RowMapper<TaskReschedule> getRowMapper() {
         return (rs, rowNum) -> {
             TaskReschedule reschedule = new TaskReschedule();

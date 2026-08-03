@@ -33,13 +33,15 @@ StudySync provides comprehensive academic management with three main modules:
 * **Daily Reflections**: Record daily study insights and progress notes
 * **Progress Tracking**: Visual progress indicators and session statistics
 * **Study Analytics**: Monitor completed sessions and goal achievements
+* **Off Days / Holidays**: Mark any calendar day as an off day — it shows as a holiday in the calendar and never counts towards your global scores or breaks your study streak
+* **Scoring**: Points reward time studied scaled by focus, achieved goals, and finishing tasks on time; the same formula drives both the per-day calendar score and your 30-day profile score
 
 ## 📋 Task & Project Management Features  
 * **Task Management**: Create, edit, and delete tasks with rich attributes (title, description, category, priority, deadline, status, recurring schedule)
-* **Recurring Tasks**: Mark any task as recurring with a weekly/bi-weekly/monthly pattern and specific day-of-week selection
+* **Recurring Tasks**: Mark any task as recurring with a weekly/bi-weekly/monthly pattern and specific day-of-week selection, with a separate "repeat until" date so a recurring task can still have a real deadline
 * **Project Management**: Comprehensive project lifecycle management with session logging and progress tracking
 * **Category Management**: Create and manage custom categories for better organization
-* **Task Reminders**: Set up automated reminders for important deadlines
+* **Task Reminders**: Choose how many days before a deadline a task starts reminding you; it shows a countdown badge and appears under "Coming up" in the planner
 * **Data Persistence**: All data stored reliably in embedded H2 database
 
 ## Google Calendar Integration (**not** finished as of version 0.1.0)

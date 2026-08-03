@@ -22,6 +22,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.Node;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.ArrayList;
@@ -475,6 +476,38 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             }
         }
 
+        // Deadlines coming up. Tasks already listed above keep their inline
+        // badge; this section exists so a reminder for a task that does not
+        // surface today is still seen.
+        if (dateScopedView && displayDate.equals(today)) {
+            Set<String> shownIds = tasks.stream().map(Task::getId).collect(Collectors.toSet());
+            List<Task> reminders = taskService.getTasksWithDueReminders(today).stream()
+                    .filter(task -> !shownIds.contains(task.getId()))
+                    .toList();
+
+            if (!reminders.isEmpty()) {
+                VBox reminderSection = new VBox(6);
+                reminderSection.setPadding(new Insets(10, 0, 0, 0));
+                Label reminderTitle = new Label("Coming up:");
+                reminderTitle.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 13));
+                TaskStyleUtils.fontBold(reminderTitle, 13);
+                reminderTitle.setTextFill(Color.web(TaskStyleUtils.REMINDER_COLOR));
+                reminderSection.getChildren().add(reminderTitle);
+
+                for (Task task : reminders) {
+                    long daysLeft = ChronoUnit.DAYS.between(today, task.getDeadline());
+                    HBox row = new HBox(8);
+                    row.setAlignment(Pos.CENTER_LEFT);
+                    row.setPadding(new Insets(0, 0, 0, 14));
+                    Label name = new Label(task.getTitle());
+                    TaskStyleUtils.fontNormal(name, 12);
+                    row.getChildren().addAll(name, TaskStyleUtils.createReminderBadge(daysLeft));
+                    reminderSection.getChildren().add(row);
+                }
+                tasksContainer.getChildren().add(reminderSection);
+            }
+        }
+
         VBox unlinkedRetrySection = buildUnlinkedRetrySection();
         if (unlinkedRetrySection != null) {
             tasksContainer.getChildren().add(unlinkedRetrySection);
@@ -652,15 +685,18 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private String reasonGroupKeyFor(Task task) {
-        if (task.isRecurring() && taskService.taskSurfacesOn(task, displayDate)) {
-            return "Recurring";
-        }
+        boolean surfaces = taskService.taskSurfacesOn(task, displayDate);
         LocalDate deadline = task.getDeadline();
-        if (deadline != null && deadline.equals(displayDate) && taskService.taskSurfacesOn(task, displayDate)) {
+        // Deadline state is checked before recurrence: a recurring task that is
+        // late is here because it is late, not because today is its day.
+        if (surfaces && deadline != null && deadline.isBefore(displayDate)) {
+            return "Overdue";
+        }
+        if (surfaces && deadline != null && deadline.equals(displayDate)) {
             return "Due";
         }
-        if (deadline != null && deadline.isBefore(displayDate) && taskService.taskSurfacesOn(task, displayDate)) {
-            return "Overdue";
+        if (surfaces && taskService.isRecurringOccurrence(task, displayDate)) {
+            return "Recurring";
         }
         if (hasGoalOnDisplayDate(task)) {
             return "Has goal";
@@ -723,11 +759,16 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         headerRow.getChildren().addAll(taskTitle, priorityLabel);
         headerRow.getChildren().add(spacer);
 
-        // Overdue / due-today badge (between spacer and status badge)
+        // Overdue / due-today / reminder badge (between spacer and status badge).
+        // A due reminder only shows while the deadline is still ahead, so it can
+        // never compete with the overdue badge for the same task.
         if (TaskStyleUtils.isOverdue(task, displayDate)) {
             headerRow.getChildren().add(TaskStyleUtils.createOverdueBadge());
         } else if (TaskStyleUtils.isDueToday(task, displayDate)) {
             headerRow.getChildren().add(TaskStyleUtils.createDueTodayBadge());
+        } else if (task.isReminderDue(displayDate)) {
+            headerRow.getChildren().add(TaskStyleUtils.createReminderBadge(
+                    ChronoUnit.DAYS.between(displayDate, task.getDeadline())));
         }
 
         headerRow.getChildren().add(statusBadge);
@@ -1444,9 +1485,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         DatePicker startDatePicker = new DatePicker(LocalDate.now());
         startDatePicker.setMaxWidth(Double.MAX_VALUE);
 
+        DatePicker recurrenceEndPicker = new DatePicker();
+        recurrenceEndPicker.setPromptText("Never ends");
+        recurrenceEndPicker.setMaxWidth(Double.MAX_VALUE);
+
         recurringOptions.getChildren().addAll(new Label("Repeat every:"), intervalRow,
                 new Label("On days:"), daysRow,
-                new Label("Start date:"), startDatePicker);
+                new Label("Start date:"), startDatePicker,
+                new Label("Repeat until:"), recurrenceEndPicker);
 
         Label deadlineHint = new Label("");
         TaskStyleUtils.fontNormal(deadlineHint, 10);
@@ -1460,7 +1506,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             recurringOptions.setManaged(n);
             deadlineHint.setVisible(n);
             deadlineHint.setManaged(n);
-            deadlineHint.setText(n ? "For recurring tasks, the deadline acts as the end-of-recurrence date." : "");
+            deadlineHint.setText(n
+                    ? "The deadline is when this task is due. \"Repeat until\" is what stops the repetition."
+                    : "");
         });
 
         // Buttons
@@ -1499,9 +1547,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
             try {
                 LocalDate startDate = recurringCheck.isSelected() ? startDatePicker.getValue() : null;
+                LocalDate recurrenceEnd = recurringCheck.isSelected() ? recurrenceEndPicker.getValue() : null;
                 Task newTask = new Task(null, title, descArea.getText().trim(),
                         cat.name(), new TaskPriority(prio),
-                        deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern, startDate);
+                        deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern, startDate, recurrenceEnd);
                 taskService.addTask(newTask);
                 closeModal.run();
                 updateTasksDisplay();
@@ -1680,7 +1729,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         focusSlider.valueProperty().addListener((obs, o, nv) -> {
             int lv = nv.intValue();
             if (lv <= 2) {
-                focusWarning.setText("Low focus \u2014 point penalties will apply.");
+                focusWarning.setText("Low focus \u2014 this session scores less per minute.");
                 focusWarning.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 11));
                 focusWarning.setTextFill(Color.web("#e74c3c"));
             } else if (lv == 3) {
@@ -1688,7 +1737,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 focusWarning.setGraphic(null);
                 focusWarning.setTextFill(Color.web("#f39c12"));
             } else {
-                focusWarning.setText("Great focus! Bonus points incoming.");
+                focusWarning.setText("Great focus \u2014 this session scores more per minute.");
                 focusWarning.setGraphic(TaskStyleUtils.iconLabel("\u2713", 11));
                 focusWarning.setTextFill(Color.web("#27ae60"));
             }

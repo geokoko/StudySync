@@ -2,6 +2,7 @@ package com.studysync.domain.service;
 
 import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.entity.DailyReflection;
+import com.studysync.domain.entity.OffDay;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.Task;
@@ -17,7 +18,6 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -57,41 +57,46 @@ public class StudyService {
         logger.info("StudyService caches reset after DB reload");
     }
 
-    private void markDirty() {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    googleDriveService.markLocalDbDirty();
-                }
-            });
-        } else {
-            googleDriveService.markLocalDbDirty();
-        }
-    }
 
     private void markDirtyAndSaveLocally(String operation) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    googleDriveService.markLocalDbDirty();
-                    if (!googleDriveService.saveLocally()) {
-                        logger.warn("Local checkpoint failed after {}", operation);
-                    }
-                }
-            });
-        } else {
-            googleDriveService.markLocalDbDirty();
+        flushLocally(operation, true);
+    }
+
+    /**
+     * Persist to disk without flagging unsaved local changes.
+     *
+     * <p>For derived maintenance - work every machine recomputes for itself on
+     * startup. Flagging it makes a machine that merely opened the app look like
+     * it has edits waiting to be uploaded, which is enough to raise a sync
+     * conflict against a Drive copy that is genuinely ahead.</p>
+     *
+     * <p>Suppressing the flag around the call site instead would not work: the
+     * flush is deferred to {@code afterCommit}, and the surrounding transaction
+     * commits after any such wrapper has already exited.</p>
+     */
+    private void saveLocallyWithoutDirtyFlag(String operation) {
+        flushLocally(operation, false);
+    }
+
+    private void flushLocally(String operation, boolean markDirty) {
+        Runnable flush = () -> {
+            if (markDirty) {
+                googleDriveService.markLocalDbDirty();
+            }
             if (!googleDriveService.saveLocally()) {
                 logger.warn("Local checkpoint failed after {}", operation);
             }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    flush.run();
+                }
+            });
+        } else {
+            flush.run();
         }
-    }
-
-    @Transactional(readOnly = true)
-    public List<StudySession> getStudySessions() {
-        return StudySession.findAll();
     }
 
     @Transactional(readOnly = true)
@@ -100,8 +105,8 @@ public class StudyService {
     }
 
     public List<StudyGoal> getStudyGoalsForDate(LocalDate date) {
-        ensureDelayedGoalsProcessedToday();
-        return StudyGoal.findByDateIncludingDelayed(date);
+        ensureOverdueAttemptsProcessed();
+        return StudyGoal.findByDate(date);
     }
 
     /**
@@ -109,8 +114,8 @@ public class StudyService {
      * Used by calendar view which shows the complete history for each day.
      */
     public List<StudyGoal> getAllGoalsForDate(LocalDate date) {
-        ensureDelayedGoalsProcessedToday();
-        return StudyGoal.findAllByDateIncludingDelayed(date);
+        ensureOverdueAttemptsProcessed();
+        return StudyGoal.findAllByDate(date);
     }
 
     /**
@@ -128,41 +133,23 @@ public class StudyService {
         return StudyGoal.findAllByDate(date);
     }
 
-    /**
-     * Get study goals planned for a future date.
-     * Skips delay processing since future dates cannot have delayed goals.
-     * 
-     * @param date a future date to retrieve planned goals for
-     * @return list of study goals planned for that date
-     * @throws ValidationException if {@code date} is null or not strictly in the future
-     */
-    @Transactional(readOnly = true)
-    public List<StudyGoal> getStudyGoalsForFutureDate(LocalDate date) {
-        if (date == null) {
-            throw ValidationException.requiredFieldMissing("date");
-        }
-        if (!date.isAfter(dateTimeService.getCurrentDate())) {
-            throw ValidationException.invalidDateRange(
-                date.toString(), "a future date (use getStudyGoalsForDate for past/present)");
-        }
-        return StudyGoal.findByDate(date);
-    }
 
-    @Transactional(readOnly = true)
-    public List<DailyReflection> getDailyReflections() {
-        return DailyReflection.findAll();
-    }
 
     public List<StudyGoal> getTodayGoals() {
-        ensureDelayedGoalsProcessedToday();
+        ensureOverdueAttemptsProcessed();
         return StudyGoal.findByDate(dateTimeService.getCurrentDate());
     }
 
     /**
      * Runs processAllDelayedGoals() at most once per calendar day.
      * Subsequent calls on the same day are no-ops.
+     *
+     * <p>Public because scoring has to be able to guarantee the sweep has run
+     * before it reads attempt outcomes: an overdue attempt still sitting at
+     * PENDING counts as neither achieved nor missed, which silently inflates
+     * the goal component of the score.</p>
      */
-    private void ensureDelayedGoalsProcessedToday() {
+    public void ensureOverdueAttemptsProcessed() {
         LocalDate today = dateTimeService.getCurrentDate();
         synchronized (this) {
             if (!today.equals(lastDelayProcessingDate)) {
@@ -423,10 +410,6 @@ public class StudyService {
         }
     }
 
-    @Transactional(readOnly = true)
-    public boolean reflectionExistsForDate(LocalDate date) {
-        return DailyReflection.findByDate(date).isPresent();
-    }
 
     @Transactional(readOnly = true)
     public int calculateDailyProgress() {
@@ -456,10 +439,6 @@ public class StudyService {
         return StudySession.findActiveSession();
     }
 
-    @Transactional(readOnly = true)
-    public List<StudySession> getSessionsInDateRange(LocalDate startDate, LocalDate endDate) {
-        return StudySession.findInDateRange(startDate, endDate);
-    }
 
     @Transactional(readOnly = true)
     public List<StudySession> getRecentStudySessions(int days) {
@@ -472,6 +451,87 @@ public class StudyService {
                 .collect(Collectors.groupingBy(StudySession::getDate, Collectors.toList()));
     }
     
+    // ================================================================
+    // OFF DAYS (HOLIDAYS) AND GLOBAL SCORING
+    // ================================================================
+
+    /**
+     * Off days and their labels in a date range, for calendar rendering.
+     *
+     * @param start first day of the range, inclusive
+     * @param end last day of the range, inclusive
+     * @return map of off day to label
+     */
+    @Transactional(readOnly = true)
+    public Map<LocalDate, String> getOffDays(LocalDate start, LocalDate end) {
+        return OffDay.findLabelsInRange(start, end);
+    }
+
+    /**
+     * The off-day label of a single date.
+     *
+     * @param date the date to check
+     * @return the label, or empty when the date is a normal day
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> getOffDayLabel(LocalDate date) {
+        return OffDay.labelFor(date);
+    }
+
+    /**
+     * Marks a day as off. Work already logged on it is kept but stops counting
+     * towards global scores.
+     *
+     * @param date the day to mark
+     * @param label optional description such as "Holiday" or "Sick day"
+     */
+    public void markOffDay(LocalDate date, String label) {
+        if (date == null) {
+            throw ValidationException.requiredFieldMissing("date");
+        }
+        OffDay.mark(date, label);
+        markDirtyAndSaveLocally("off day marking");
+    }
+
+    /**
+     * Turns an off day back into a normal, scored day.
+     *
+     * @param date the day to clear
+     * @return {@code true} when the day was marked off before
+     */
+    public boolean clearOffDay(LocalDate date) {
+        if (date == null) {
+            throw ValidationException.requiredFieldMissing("date");
+        }
+        boolean cleared = OffDay.unmark(date);
+        if (cleared) {
+            markDirtyAndSaveLocally("off day removal");
+        }
+        return cleared;
+    }
+
+    /**
+     * The goal attempts planned for a calendar day.
+     *
+     * <p>Scoring and display share this one definition so the count under a
+     * day's score always matches the list rendered next to it.</p>
+     *
+     * <p>Not {@code readOnly}: for today and the past this first runs the
+     * once-per-day sweep that marks overdue attempts as missed, which writes.
+     * Future dates skip the sweep - an attempt planned for tomorrow cannot be
+     * overdue.</p>
+     *
+     * @param date the day to list goals for
+     * @return goal attempts planned for that day
+     */
+    @Transactional
+    public List<StudyGoal> getGoalsForDate(LocalDate date) {
+        if (!date.isAfter(dateTimeService.getCurrentDate())) {
+            ensureOverdueAttemptsProcessed();
+        }
+        return StudyGoal.findAllByDate(date);
+    }
+
     // ================================================================
     // DELAYED GOAL MANAGEMENT
     // ================================================================
@@ -489,7 +549,7 @@ public class StudyService {
         int missedAttempts = StudyGoal.markPendingAttemptsBefore(today);
 
         if (missedAttempts > 0) {
-            markDirtyAndSaveLocally("delayed goal processing");
+            saveLocallyWithoutDirtyFlag("delayed goal processing");
             logger.info("Marked {} overdue study goal attempt(s) as MISSED", missedAttempts);
         }
 

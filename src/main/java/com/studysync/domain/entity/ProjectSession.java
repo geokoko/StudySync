@@ -1,9 +1,7 @@
 package com.studysync.domain.entity;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,13 +80,17 @@ public class ProjectSession {
         this.lastUpdateTime = LocalDateTime.now();
     }
 
+    /**
+     * Points for a project session, on the same time-based scale as a study
+     * session at neutral focus (project sessions carry no focus rating).
+     *
+     * <p>The old "wrote something in the progress/notes field" bonuses are
+     * gone: they rewarded typing, not work, and made project sessions worth
+     * more than study sessions of the same length.</p>
+     */
     public void calculatePoints() {
-        int basePoints = Math.min(durationMinutes / 10, 60);
-        int completionBonus = completed ? 30 : 0;
-        int progressBonus = (progress != null && !progress.trim().isEmpty()) ? 20 : 0;
-        int notesBonus = (notes != null && !notes.trim().isEmpty()) ? 10 : 0;
-        
-        this.pointsEarned = basePoints + completionBonus + progressBonus + notesBonus;
+        int base = Math.min(Math.max(durationMinutes, 0), StudySession.MAX_SCORED_MINUTES) / 2;
+        this.pointsEarned = base + (completed ? StudySession.COMPLETION_BONUS : 0);
     }
 
     // Real-time tracking methods
@@ -109,22 +111,7 @@ public class ProjectSession {
         calculatePoints();
     }
 
-    public void pauseSession() {
-        if (this.isActive && this.startTime != null) {
-            this.currentElapsedMinutes = (int) Duration.between(this.startTime, LocalDateTime.now()).toMinutes();
-            this.durationMinutes = this.currentElapsedMinutes;
-            this.isActive = false;
-        }
-    }
 
-    public void resumeSession() {
-        if (!this.isActive) {
-            // Adjust start time to account for already elapsed time
-            this.startTime = LocalDateTime.now().minusMinutes(this.currentElapsedMinutes);
-            this.isActive = true;
-            this.lastUpdateTime = LocalDateTime.now();
-        }
-    }
 
     public void updateRealTimeProgress() {
         if (this.isActive && this.startTime != null) {

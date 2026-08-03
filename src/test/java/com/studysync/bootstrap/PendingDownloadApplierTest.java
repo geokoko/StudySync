@@ -1,5 +1,7 @@
 package com.studysync.bootstrap;
 
+import com.studysync.integration.drive.DriveSyncState;
+import com.studysync.integration.drive.DriveSyncStateStore;
 import com.studysync.integration.drive.PendingDownloadMetadata;
 import com.studysync.integration.drive.PendingDownloadSupport;
 import org.junit.jupiter.api.Test;
@@ -37,6 +39,9 @@ class PendingDownloadApplierTest {
         assertEquals("drive-db", Files.readString(liveDatabase));
         assertFalse(Files.exists(PendingDownloadSupport.pendingMetadataPath(liveDatabase)));
         assertFalse(Files.exists(stagedDatabase));
+        DriveSyncState syncState = DriveSyncStateStore.read(liveDatabase).orElseThrow();
+        assertEquals(123456789L, syncState.remoteModifiedTimeEpochMillis());
+        assertFalse(syncState.localChangesPending());
         try (var backups = Files.list(PendingDownloadSupport.backupsDirectory(liveDatabase))) {
             assertTrue(backups.anyMatch(Files::isRegularFile));
         }
