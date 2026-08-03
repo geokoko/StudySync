@@ -59,24 +59,45 @@ public class StudyService {
 
 
     private void markDirtyAndSaveLocally(String operation) {
+        flushLocally(operation, true);
+    }
+
+    /**
+     * Persist to disk without flagging unsaved local changes.
+     *
+     * <p>For derived maintenance - work every machine recomputes for itself on
+     * startup. Flagging it makes a machine that merely opened the app look like
+     * it has edits waiting to be uploaded, which is enough to raise a sync
+     * conflict against a Drive copy that is genuinely ahead.</p>
+     *
+     * <p>Suppressing the flag around the call site instead would not work: the
+     * flush is deferred to {@code afterCommit}, and the surrounding transaction
+     * commits after any such wrapper has already exited.</p>
+     */
+    private void saveLocallyWithoutDirtyFlag(String operation) {
+        flushLocally(operation, false);
+    }
+
+    private void flushLocally(String operation, boolean markDirty) {
+        Runnable flush = () -> {
+            if (markDirty) {
+                googleDriveService.markLocalDbDirty();
+            }
+            if (!googleDriveService.saveLocally()) {
+                logger.warn("Local checkpoint failed after {}", operation);
+            }
+        };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    googleDriveService.markLocalDbDirty();
-                    if (!googleDriveService.saveLocally()) {
-                        logger.warn("Local checkpoint failed after {}", operation);
-                    }
+                    flush.run();
                 }
             });
         } else {
-            googleDriveService.markLocalDbDirty();
-            if (!googleDriveService.saveLocally()) {
-                logger.warn("Local checkpoint failed after {}", operation);
-            }
+            flush.run();
         }
     }
-
 
     @Transactional(readOnly = true)
     public List<StudyGoal> getStudyGoals() {
@@ -523,7 +544,7 @@ public class StudyService {
         int missedAttempts = StudyGoal.markPendingAttemptsBefore(today);
 
         if (missedAttempts > 0) {
-            markDirtyAndSaveLocally("delayed goal processing");
+            saveLocallyWithoutDirtyFlag("delayed goal processing");
             logger.info("Marked {} overdue study goal attempt(s) as MISSED", missedAttempts);
         }
 

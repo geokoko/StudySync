@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -464,6 +465,25 @@ class StudyServicePersistenceTest {
         assertEquals(startTime, restored.getStartTime());
         assertTrue(restored.isActive());
         assertFalse(restored.isCompleted());
+    }
+
+    @Test
+    void theOverdueGoalSweepSavesWithoutFlaggingUnsavedChanges() {
+        StudyGoal goal = new StudyGoal("Swept on startup");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.save();
+
+        reset(googleDriveService);
+        when(googleDriveService.saveLocally()).thenReturn(true);
+
+        assertEquals(1, studyService.processAllDelayedGoals().missedAttempts());
+
+        // The sweep is derived maintenance: every machine recomputes it on
+        // startup. Flagging it makes simply opening the app look like unsaved
+        // local edits, which raises a phantom conflict against a Drive copy
+        // that is genuinely ahead.
+        verify(googleDriveService).saveLocally();
+        verify(googleDriveService, never()).markLocalDbDirty();
     }
 
     @Test
