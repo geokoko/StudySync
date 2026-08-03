@@ -482,10 +482,10 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         return dayCell;
     }
     
-    // ponytail: one score query per rendered day cell (~31 per month), same
-    // order of magnitude as before against embedded H2. If month rendering ever
-    // drags, give ScoringService a scoreForEachDate(range) that batches the way
-    // findHandledTaskDatePairs already does.
+    // Deliberately one score query per rendered day cell (~31 per month) - the
+    // same order of magnitude as before, against an embedded database. If month
+    // rendering ever drags, the fix is a ScoringService.scoreForEachDate(range)
+    // that batches the way findHandledTaskDatePairs already does.
     private DayData getDayData(LocalDate date) {
         DayData data = new DayData();
         data.date = date;

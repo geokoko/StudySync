@@ -307,9 +307,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         actions.getChildren().addAll(editBtn, deleteBtn);
 
         titleRow.getChildren().addAll(titleLabel, priorityLabel, statusBadge);
-        if (task.isReminderDue(LocalDate.now())) {
+        LocalDate today = LocalDate.now();
+        if (task.isReminderDue(today)) {
             titleRow.getChildren().add(TaskStyleUtils.createReminderBadge(
-                    ChronoUnit.DAYS.between(LocalDate.now(), task.getDeadline())));
+                    ChronoUnit.DAYS.between(today, task.getDeadline())));
         }
         if (task.isRecurring()) {
             Label recurBadge = new Label("Recurring");

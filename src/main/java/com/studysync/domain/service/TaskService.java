@@ -481,8 +481,9 @@ public class TaskService {
                 return false;
             }
 
-            // Past its own deadline and still unresolved: visible every day
-            // until it is resolved, exactly like a one-off overdue task.
+            // On or after its own deadline and still unresolved: visible every
+            // day until resolved, exactly like a one-off overdue task. The
+            // deadline day itself is included on purpose - that is the due day.
             // Deliberately not bounded by the end of recurrence - being late
             // outlives the schedule, and the end of repeating must not hide a
             // task the user never finished.

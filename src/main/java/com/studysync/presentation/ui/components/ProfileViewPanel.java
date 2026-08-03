@@ -884,7 +884,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     
     private void updateProfileSummary(ScoreBreakdown score) {
         try {
-            if (score.sessions() == 0) {
+            if (!score.hasActivity()) {
                 profileSummaryLabel.setText("Welcome to StudySync! Start your first study session to see your progress here.");
                 productivityRating.setProgress(0);
                 productivityLabel.setText("No data yet");

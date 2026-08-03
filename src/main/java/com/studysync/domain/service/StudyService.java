@@ -105,7 +105,7 @@ public class StudyService {
     }
 
     public List<StudyGoal> getStudyGoalsForDate(LocalDate date) {
-        ensureDelayedGoalsProcessedToday();
+        ensureOverdueAttemptsProcessed();
         return StudyGoal.findByDate(date);
     }
 
@@ -114,7 +114,7 @@ public class StudyService {
      * Used by calendar view which shows the complete history for each day.
      */
     public List<StudyGoal> getAllGoalsForDate(LocalDate date) {
-        ensureDelayedGoalsProcessedToday();
+        ensureOverdueAttemptsProcessed();
         return StudyGoal.findAllByDate(date);
     }
 
@@ -136,15 +136,20 @@ public class StudyService {
 
 
     public List<StudyGoal> getTodayGoals() {
-        ensureDelayedGoalsProcessedToday();
+        ensureOverdueAttemptsProcessed();
         return StudyGoal.findByDate(dateTimeService.getCurrentDate());
     }
 
     /**
      * Runs processAllDelayedGoals() at most once per calendar day.
      * Subsequent calls on the same day are no-ops.
+     *
+     * <p>Public because scoring has to be able to guarantee the sweep has run
+     * before it reads attempt outcomes: an overdue attempt still sitting at
+     * PENDING counts as neither achieved nor missed, which silently inflates
+     * the goal component of the score.</p>
      */
-    private void ensureDelayedGoalsProcessedToday() {
+    public void ensureOverdueAttemptsProcessed() {
         LocalDate today = dateTimeService.getCurrentDate();
         synchronized (this) {
             if (!today.equals(lastDelayProcessingDate)) {
@@ -522,7 +527,7 @@ public class StudyService {
     @Transactional
     public List<StudyGoal> getGoalsForDate(LocalDate date) {
         if (!date.isAfter(dateTimeService.getCurrentDate())) {
-            ensureDelayedGoalsProcessedToday();
+            ensureOverdueAttemptsProcessed();
         }
         return StudyGoal.findAllByDate(date);
     }

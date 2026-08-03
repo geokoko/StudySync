@@ -41,6 +41,17 @@ public record ScoreBreakdown(
         return new ScoreBreakdown(0, 0, 0, 0, 0.0, 0, 0, 0.0, 0, 0, 0, 0, scoringDays);
     }
 
+    /**
+     * Whether anything at all happened in this period. Sessions alone are not
+     * the test: a window can hold completed tasks or achieved goals and no
+     * logged session, and calling that "no data yet" hides real progress.
+     *
+     * @return {@code true} when the period has any session, task or goal
+     */
+    public boolean hasActivity() {
+        return sessions > 0 || tasksCompleted > 0 || goalsTotal > 0;
+    }
+
     /** Points per hour logged, the efficiency figure shown in the profile. */
     public double pointsPerHour() {
         return minutes > 0 ? points * 60.0 / minutes : 0.0;

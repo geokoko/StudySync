@@ -97,6 +97,11 @@ public class ScoringService {
      * @return the window's breakdown
      */
     public ScoreBreakdown scoreForWindow(int days) {
+        // Unlike scoreForDate, this reads attempts straight from the table, so
+        // it has to run the sweep itself rather than inherit it from
+        // getGoalsForDate.
+        studyService.ensureOverdueAttemptsProcessed();
+
         Set<LocalDate> offDays = OffDay.findAllDates();
         List<LocalDate> dates = windowDates(days).stream()
                 .filter(date -> !offDays.contains(date))
