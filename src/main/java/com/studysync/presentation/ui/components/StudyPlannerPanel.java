@@ -2088,10 +2088,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         String text = reflectionArea.getText().trim();
         if (text.isEmpty()) return;
 
-        DailyReflection reflection = new DailyReflection();
-        reflection.setDate(displayDate);
-        reflection.setReflectionText(text);
-        studyService.addDailyReflection(reflection);
+        studyService.saveReflectionText(displayDate, text);
 
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));

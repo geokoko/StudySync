@@ -30,7 +30,7 @@ StudySync provides comprehensive academic management with three main modules:
 * **Study Goals**: Set and manage daily study objectives with future date planning
 * **Future Goal Planning**: Navigate to any future date and plan goals ahead via DatePicker
 * **Recurring Tasks**: Define repeating task schedules (e.g. every week on Mon/Wed/Fri)
-* **Daily Reflections**: Record daily study insights and progress notes
+* **Daily Reflections**: A diary tab holding every entry you have ever written — search them, write a day at a time with autosave, or read the whole diary back as a thread of dated entries
 * **Progress Tracking**: Visual progress indicators and session statistics
 * **Study Analytics**: Monitor completed sessions and goal achievements
 * **Off Days / Holidays**: Mark any calendar day as an off day — it shows as a holiday in the calendar and never counts towards your global scores or breaks your study streak

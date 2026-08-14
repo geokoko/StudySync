@@ -403,6 +403,29 @@ public class StudyService {
         return DailyReflection.findRecent(days);
     }
 
+    /** Every reflection ever written, most recent first. */
+    @Transactional(readOnly = true)
+    public List<DailyReflection> getAllDailyReflections() {
+        return DailyReflection.findAll();
+    }
+
+    /**
+     * Writes the reflection text for a date; blank text deletes the entry.
+     * Every reflection editor goes through here so an existing row keeps its
+     * other fields instead of being replaced by a blank entity.
+     */
+    public void saveReflectionText(LocalDate date, String text) {
+        String trimmed = text == null ? "" : text.trim();
+        if (trimmed.isEmpty()) {
+            deleteDailyReflection(date);
+            return;
+        }
+        DailyReflection reflection = DailyReflection.findByDate(date).orElseGet(DailyReflection::new);
+        reflection.setDate(date);
+        reflection.setReflectionText(trimmed);
+        addDailyReflection(reflection);
+    }
+
     public void deleteDailyReflection(LocalDate date) {
         boolean deleted = DailyReflection.deleteByDate(date);
         if (deleted) {
