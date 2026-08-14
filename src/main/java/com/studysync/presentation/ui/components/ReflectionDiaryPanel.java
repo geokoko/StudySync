@@ -4,32 +4,58 @@ import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.service.DateTimeService;
 import com.studysync.domain.service.StudyService;
 import javafx.animation.PauseTransition;
+import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
+import javafx.concurrent.Worker;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Cursor;
 import javafx.scene.Node;
-import javafx.scene.control.*;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.DatePicker;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ListView;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
+import javafx.scene.web.WebView;
+import javafx.stage.DirectoryChooser;
+import javafx.stage.FileChooser;
 import javafx.util.Duration;
+import netscape.javascript.JSObject;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 /**
  * The diary: every past reflection in one browsable, searchable list on the
- * left; on the right either one day open for writing, or the whole diary as a
- * scrolling thread of dated entries.
+ * left; on the right either one day open for writing, or the whole diary
+ * rendered as a scrolling thread of dated entries.
+ *
+ * <p>Entries are markdown — tables included — written as source in the editor
+ * and read rendered, the way a note in Obsidian works. They can be exported as
+ * one {@code YYYY-MM-DD.md} file per day.</p>
  *
  * <p>Entries save themselves — a short pause in typing, leaving the editor,
  * or moving to another day all flush the text. Clearing an entry deletes it.</p>
@@ -42,6 +68,8 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
             DateTimeFormatter.ofPattern("EEE, d MMM yyyy");
     private static final DateTimeFormatter SAVED_AT_FORMAT =
             DateTimeFormatter.ofPattern("HH:mm");
+    /** Column counts offered by the "Table" button. */
+    private static final int[] TABLE_COLUMNS = {2, 3, 4, 5, 6};
 
     private final StudyService studyService;
     private final DateTimeService dateTimeService;
@@ -56,10 +84,12 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
     private final TextArea editor = new TextArea();
     private final Label wordCount = new Label();
     private final Label status = new Label();
-    private final ScrollPane feed = new ScrollPane();
+    private final WebView feed = new WebView();
     private final ToggleButton writeToggle = new ToggleButton("Write");
     private final ToggleButton readToggle = new ToggleButton("Read");
     private final PauseTransition autosave = new PauseTransition(Duration.seconds(1.5));
+    /** Held in a field: {@code JSObject.setMember} does not keep the bridge alive. */
+    private final DiaryBridge bridge = new DiaryBridge();
 
     private LocalDate openDate;
     /** Text currently persisted for {@link #openDate}; the editor is dirty when it differs. */
@@ -157,19 +187,46 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
             showFeed(selected == readToggle);
         });
 
+        MenuButton tableButton = new MenuButton("Table");
+        tableButton.setGraphic(TaskStyleUtils.iconLabel("▦", 12));
+        tableButton.getStyleClass().add("btn-primary");
+        for (int columns : TABLE_COLUMNS) {
+            MenuItem item = new MenuItem(columns + " columns");
+            int cols = columns;
+            item.setOnAction(e -> insertTable(cols));
+            tableButton.getItems().add(item);
+        }
+        tableButton.disableProperty().bind(readToggle.selectedProperty());
+
+        MenuButton exportButton = new MenuButton("Export");
+        exportButton.setGraphic(TaskStyleUtils.iconLabel("⇩", 12));
+        exportButton.getStyleClass().add("btn-purple");
+        MenuItem exportOne = new MenuItem("This entry…");
+        exportOne.setOnAction(e -> exportEntry());
+        MenuItem exportAll = new MenuItem("All shown entries…");
+        exportAll.setOnAction(e -> exportAll());
+        exportButton.getItems().addAll(exportOne, exportAll);
+
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox header = new HBox(10, prev, next, dateHeader, spacer,
-                writeToggle, readToggle, datePicker, today);
+        HBox header = new HBox(10, prev, next, dateHeader, spacer, datePicker, today);
         header.setAlignment(Pos.CENTER_LEFT);
+
+        Region toolbarSpacer = new Region();
+        HBox.setHgrow(toolbarSpacer, Priority.ALWAYS);
+        HBox toolbar = new HBox(10, writeToggle, readToggle, toolbarSpacer, tableButton, exportButton);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
 
         editor.setPromptText("""
                 How did today go?
 
-                • What went well?
-                • What got in the way?
-                • What did you learn?
-                • What would you do differently tomorrow?""");
+                - What went well?
+                - What got in the way?
+                - What did you learn?
+                - What would you do differently tomorrow?
+
+                Markdown works here: **bold**, # headings, lists, and tables
+                (the Table button drops one in). Read shows it rendered.""");
         editor.setWrapText(true);
         editor.setStyle("-fx-font-family: 'Georgia', 'Times New Roman', serif; "
                 + "-fx-font-size: 14px; -fx-line-spacing: 0.35em;");
@@ -189,10 +246,22 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
                 e.consume();
             }
         });
-        feed.setFitToWidth(true);
-        feed.getStyleClass().add("section-card-flat");
         feed.setVisible(false);
         feed.setManaged(false);
+        feed.setContextMenuEnabled(false);
+        // The rendered page calls back through window.studysync to open a day.
+        // Only the document this panel generated gets the bridge — never a page
+        // the view was navigated to.
+        feed.getEngine().getLoadWorker().stateProperty().addListener((obs, was, state) -> {
+            if (state == Worker.State.SUCCEEDED && isGeneratedPage()) {
+                try {
+                    JSObject window = (JSObject) feed.getEngine().executeScript("window");
+                    window.setMember("studysync", bridge);
+                } catch (RuntimeException ex) {
+                    // Reading still works; the sidebar remains the way in.
+                }
+            }
+        });
 
         StackPane body = new StackPane(editor, feed);
         VBox.setVgrow(body, Priority.ALWAYS);
@@ -206,11 +275,17 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
         HBox footer = new HBox(10, wordCount, footSpacer, status);
         footer.setAlignment(Pos.CENTER_LEFT);
 
-        pane.getChildren().addAll(header, body, footer);
+        pane.getChildren().addAll(header, toolbar, body, footer);
         return pane;
     }
 
     // ── Behaviour ───────────────────────────────────────────────
+
+    /** True while the view holds the document this panel built, not a remote page. */
+    private boolean isGeneratedPage() {
+        String location = feed.getEngine().getLocation();
+        return location == null || location.isEmpty() || location.startsWith("about:");
+    }
 
     /** Navigating to a specific day means writing in it — reading is the thread. */
     private void goTo(LocalDate date) {
@@ -219,9 +294,16 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
         editor.requestFocus();
     }
 
-    /** Flushes the open entry, then swaps the editor over to {@code date}. */
+    /**
+     * Flushes the open entry, then swaps the editor over to {@code date}.
+     * A failed save aborts the move, so the unsaved text stays on screen.
+     */
     private void open(LocalDate date) {
-        flush();
+        if (!flush()) {
+            datePicker.setValue(openDate);
+            syncSelection();
+            return;
+        }
         openDate = date;
 
         String text = studyService.getDailyReflectionForDate(date)
@@ -240,25 +322,30 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
         syncSelection();
     }
 
-    /** Persists the editor's text when it differs from what is stored. */
-    private void flush() {
+    /**
+     * Persists the editor's text when it differs from what is stored.
+     *
+     * @return {@code false} when the write failed — the caller must not move
+     *         off this day or act on the stored entries, the editor still
+     *         holds the only copy of the text
+     */
+    private boolean flush() {
         autosave.stop();
-        if (openDate == null) return;
+        if (openDate == null) return true;
 
-        String text = editor.getText() == null ? "" : editor.getText().trim();
-        if (text.equals(savedText.trim())) return;
+        String text = editor.getText() == null ? "" : editor.getText();
+        if (text.equals(savedText)) return true;
 
         try {
             studyService.saveReflectionText(openDate, text);
             savedText = text;
-            status.setText(text.isEmpty()
-                    ? "Entry deleted"
-                    : "Saved " + LocalTime.now().format(SAVED_AT_FORMAT));
-            status.setTextFill(Color.web(TaskStyleUtils.COLOR_SUCCESS));
+            report(text.isBlank() ? "Entry deleted" : "Saved " + LocalTime.now().format(SAVED_AT_FORMAT),
+                    TaskStyleUtils.COLOR_SUCCESS);
             reloadEntries();
+            return true;
         } catch (Exception ex) {
-            status.setText("Not saved: " + ex.getMessage());
-            status.setTextFill(Color.web(TaskStyleUtils.COLOR_DANGER));
+            report("Not saved, text kept here: " + ex.getMessage(), TaskStyleUtils.COLOR_DANGER);
+            return false;
         }
     }
 
@@ -288,47 +375,131 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
     }
 
     /**
-     * Renders every entry that survives the current search as one dated card,
-     * newest first — the diary read back as a thread.
+     * Renders every entry that survives the current search, newest first — the
+     * diary read back as one markdown document. Each date links back to its day.
      */
     private void renderFeed() {
-        VBox thread = new VBox(16);
-        thread.setPadding(new Insets(4, 16, 12, 4));
-
-        // ponytail: builds a card per entry, no virtualisation. Move to a
-        // ListView with a wrapping cell if a few thousand entries ever lag.
+        StringBuilder body = new StringBuilder();
+        // ponytail: one document holding every entry, no virtualisation. Page it
+        // by month if a few thousand entries ever make loading it sluggish.
         for (DailyReflection entry : matches) {
-            thread.getChildren().add(feedCard(entry));
+            body.append("<article><h2><a href=\"#\" onclick=\"studysync.open('")
+                    .append(entry.getDate())
+                    .append("'); return false;\">")
+                    .append(describe(entry.getDate()))
+                    .append("</a></h2>")
+                    .append(Markdown.toHtml(entry.getReflectionText()))
+                    .append("</article><hr>");
         }
-        if (thread.getChildren().isEmpty()) {
-            Label empty = new Label(searchField.getText() == null || searchField.getText().isBlank()
-                    ? "Nothing written yet — switch to Write and start today's entry."
-                    : "No entries match that search.");
-            TaskStyleUtils.fontItalic(empty, 12);
-            empty.setTextFill(Color.web(TaskStyleUtils.COLOR_MUTED));
-            thread.getChildren().add(empty);
+        if (body.isEmpty()) {
+            body.append("<p class=\"empty\">")
+                    .append(searchField.getText() == null || searchField.getText().isBlank()
+                            ? "Nothing written yet — switch to Write and start today's entry."
+                            : "No entries match that search.")
+                    .append("</p>");
         }
-        feed.setContent(thread);
+        feed.getEngine().loadContent(Markdown.page(body.toString()));
     }
 
-    /** One entry in the thread: its date, its text, and a click to go edit it. */
-    private VBox feedCard(DailyReflection entry) {
-        Label when = new Label(describe(entry.getDate()));
-        TaskStyleUtils.fontSemiBold(when, 13);
-        when.setTextFill(Color.web(TaskStyleUtils.COLOR_PRIMARY));
+    /** Drops a markdown table skeleton in at the caret. */
+    private void insertTable(int columns) {
+        int caret = editor.getCaretPosition();
+        editor.insertText(caret, Markdown.tableSkeleton(columns));
+        editor.requestFocus();
+    }
 
-        Label text = new Label(entry.getReflectionText() == null ? "" : entry.getReflectionText());
-        text.setWrapText(true);
-        text.setStyle("-fx-font-family: 'Georgia', 'Times New Roman', serif; "
-                + "-fx-font-size: 13px; -fx-line-spacing: 0.3em;");
+    /** Writes the open day to a single {@code .md} file the user picks. */
+    private void exportEntry() {
+        if (!flush()) return;
+        String text = editor.getText() == null ? "" : editor.getText();
+        if (text.isBlank()) {
+            report("Nothing to export for this day", TaskStyleUtils.COLOR_MUTED);
+            return;
+        }
 
-        VBox card = new VBox(6, when, text);
-        card.getStyleClass().add("section-card-light");
-        card.setPadding(new Insets(12, 14, 12, 14));
-        card.setCursor(Cursor.HAND);
-        Tooltip.install(card, new Tooltip("Open this day for editing"));
-        card.setOnMouseClicked(e -> goTo(entry.getDate()));
-        return card;
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Export reflection");
+        chooser.setInitialFileName(openDate + ".md");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Markdown", "*.md"));
+        File target = chooser.showSaveDialog(getScene() == null ? null : getScene().getWindow());
+        if (target == null) {
+            return;
+        }
+        try {
+            Files.writeString(target.toPath(), endWithNewline(text));
+            report("Exported to " + target.getName(), TaskStyleUtils.COLOR_SUCCESS);
+        } catch (IOException ex) {
+            report("Export failed: " + ex.getMessage(), TaskStyleUtils.COLOR_DANGER);
+        }
+    }
+
+    /**
+     * Writes every entry the search currently shows into a folder, one
+     * {@code YYYY-MM-DD.md} per day — an Obsidian vault of daily notes.
+     */
+    private void exportAll() {
+        if (!flush()) return;
+        List<DailyReflection> exportable = new ArrayList<>(matches);
+        if (exportable.isEmpty()) {
+            report("No entries to export", TaskStyleUtils.COLOR_MUTED);
+            return;
+        }
+
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle("Export " + exportable.size() + " reflections to folder");
+        File folder = chooser.showDialog(getScene() == null ? null : getScene().getWindow());
+        if (folder == null) {
+            return;
+        }
+
+        List<String> clashes = new ArrayList<>();
+        for (DailyReflection entry : exportable) {
+            if (Files.exists(folder.toPath().resolve(entry.getDate() + ".md"))) {
+                clashes.add(entry.getDate() + ".md");
+            }
+        }
+        if (!clashes.isEmpty() && !confirmOverwrite(clashes, folder)) {
+            return;
+        }
+
+        int written = 0;
+        try {
+            for (DailyReflection entry : exportable) {
+                Path file = folder.toPath().resolve(entry.getDate() + ".md");
+                String text = entry.getReflectionText() == null ? "" : entry.getReflectionText();
+                Files.writeString(file, endWithNewline(text));
+                written++;
+            }
+            report("Exported " + written + " entries to " + folder.getName(), TaskStyleUtils.COLOR_SUCCESS);
+        } catch (IOException ex) {
+            report("Stopped after " + written + " entries: " + ex.getMessage(), TaskStyleUtils.COLOR_DANGER);
+        }
+    }
+
+    /** Export never silently replaces notes that are already in the folder. */
+    private boolean confirmOverwrite(List<String> clashes, File folder) {
+        String sample = String.join(", ", clashes.subList(0, Math.min(5, clashes.size())));
+        if (clashes.size() > 5) {
+            sample += ", …";
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                clashes.size() + " file(s) in " + folder.getName() + " will be overwritten: "
+                        + sample + "\n\nContinue?",
+                ButtonType.CANCEL, ButtonType.OK);
+        confirm.initOwner(getScene() == null ? null : getScene().getWindow());
+        confirm.setHeaderText(null);
+        confirm.setTitle("Overwrite existing notes?");
+        return confirm.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK;
+    }
+
+    /** Exported files end with exactly one newline, without touching the markdown. */
+    private static String endWithNewline(String text) {
+        return text.endsWith("\n") ? text : text + System.lineSeparator();
+    }
+
+    private void report(String message, String color) {
+        status.setText(message);
+        status.setTextFill(Color.web(color));
     }
 
     private void applyFilter(String query) {
@@ -388,6 +559,18 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
         return this;
     }
 
+    /**
+     * Exposed to the rendered diary page as {@code window.studysync}, so a date
+     * in the thread opens that day in the editor. Must stay public for the
+     * WebView bridge to reach it.
+     */
+    public final class DiaryBridge {
+        /** @param isoDate the entry's date, as {@code YYYY-MM-DD} */
+        public void open(String isoDate) {
+            Platform.runLater(() -> goTo(LocalDate.parse(isoDate)));
+        }
+    }
+
     /** Date line plus a one-line preview, so the list reads like a diary index. */
     private final class EntryCell extends ListCell<DailyReflection> {
         @Override
@@ -402,7 +585,7 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
             Label date = new Label(entry.getDate().format(LIST_FORMAT) + relativeSuffix(entry.getDate()));
             TaskStyleUtils.fontSemiBold(date, 12);
 
-            String text = entry.getReflectionText() == null ? "" : entry.getReflectionText().replaceAll("\\s+", " ").trim();
+            String text = Markdown.previewLine(entry.getReflectionText());
             Label preview = new Label(text.length() > 70 ? text.substring(0, 70) + "…" : text);
             TaskStyleUtils.fontNormal(preview, 11);
             preview.setTextFill(Color.web(TaskStyleUtils.COLOR_MUTED));

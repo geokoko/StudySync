@@ -413,16 +413,19 @@ public class StudyService {
      * Writes the reflection text for a date; blank text deletes the entry.
      * Every reflection editor goes through here so an existing row keeps its
      * other fields instead of being replaced by a blank entity.
+     *
+     * <p>The text is stored exactly as written — reflections are markdown, and
+     * leading whitespace is significant there (indented code blocks, nested
+     * list items), so blankness decides deletion but never rewrites the text.</p>
      */
     public void saveReflectionText(LocalDate date, String text) {
-        String trimmed = text == null ? "" : text.trim();
-        if (trimmed.isEmpty()) {
+        if (text == null || text.isBlank()) {
             deleteDailyReflection(date);
             return;
         }
         DailyReflection reflection = DailyReflection.findByDate(date).orElseGet(DailyReflection::new);
         reflection.setDate(date);
-        reflection.setReflectionText(trimmed);
+        reflection.setReflectionText(text);
         addDailyReflection(reflection);
     }
 

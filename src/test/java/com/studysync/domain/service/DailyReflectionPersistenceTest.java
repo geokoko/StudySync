@@ -89,7 +89,7 @@ class DailyReflectionPersistenceTest {
 
     @Test
     void saveReflectionTextUpsertsThenDeletesWhenBlanked() {
-        studyService.saveReflectionText(DAY, "  Got through the whole chapter.  ");
+        studyService.saveReflectionText(DAY, "Got through the whole chapter.");
         assertEquals("Got through the whole chapter.",
                 DailyReflection.findByDate(DAY).orElseThrow().getReflectionText());
 
@@ -100,5 +100,16 @@ class DailyReflectionPersistenceTest {
 
         studyService.saveReflectionText(DAY, "   ");
         assertTrue(DailyReflection.findByDate(DAY).isEmpty());
+    }
+
+    @Test
+    void markdownWhitespaceSurvivesTheRoundTrip() {
+        // Leading spaces make a code block, trailing ones a hard line break:
+        // trimming either would render something the user did not write.
+        String entry = "# Day\n\n    indented code block\n\nline with break  \nnext line\n";
+
+        studyService.saveReflectionText(DAY, entry);
+
+        assertEquals(entry, DailyReflection.findByDate(DAY).orElseThrow().getReflectionText());
     }
 }
