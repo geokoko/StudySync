@@ -121,15 +121,21 @@ public class DailyReflection {
     
     /**
      * Save this daily reflection to the database (insert or update).
+     *
+     * <p>Merged on {@code date}, not {@code id}: a day has exactly one
+     * reflection (the column is UNIQUE), and callers that build a fresh
+     * entity for an already-written day would otherwise hit a constraint
+     * violation and lose the edit.</p>
      */
     public DailyReflection save() {
         if (jdbcTemplate == null) {
             throw new IllegalStateException("JdbcTemplate not initialized. Make sure Spring context is loaded.");
         }
-        
+
         String sql = """
-            MERGE INTO daily_reflections (id, date, overall_focus_level, what_to_change_tomorrow, 
+            MERGE INTO daily_reflections (id, date, overall_focus_level, what_to_change_tomorrow,
                                          completed_sessions, total_goals_achieved, notes, reflection_text, deserve_reward, updated_at)
+            KEY (date)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         

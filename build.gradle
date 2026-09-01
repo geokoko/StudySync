@@ -36,6 +36,10 @@ dependencies {
     
     // Jackson for JSON annotations used in entities
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+
+    // Markdown rendering for reflection entries (GFM tables included)
+    implementation 'org.commonmark:commonmark:0.21.0'
+    implementation 'org.commonmark:commonmark-ext-gfm-tables:0.21.0'
     
     // Google OAuth 2.0 + Drive API
     implementation 'com.google.api-client:google-api-client:2.2.0'

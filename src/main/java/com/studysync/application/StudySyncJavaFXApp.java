@@ -5,8 +5,6 @@ import com.studysync.integration.drive.GoogleDriveService;
 import com.studysync.presentation.ui.StudySyncUI;
 import javafx.application.Application;
 import javafx.application.Platform;
-import javafx.scene.Cursor;
-import javafx.scene.Parent;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
@@ -20,6 +18,7 @@ import java.io.InputStream;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * JavaFX Application class that integrates with Spring Boot dependency injection.
@@ -29,6 +28,7 @@ public class StudySyncJavaFXApp extends Application {
     private static final Logger logger = LoggerFactory.getLogger(StudySyncJavaFXApp.class);
 
     private ConfigurableApplicationContext springContext;
+    private StudySyncUI studySyncUI;
     private volatile boolean shutdownInProgress;
 
     @Override
@@ -76,7 +76,7 @@ public class StudySyncJavaFXApp extends Application {
 
             Platform.runLater(() -> {
                 try {
-                    final StudySyncUI studySyncUI = springContext.getBean(StudySyncUI.class);
+                    studySyncUI = springContext.getBean(StudySyncUI.class);
                     studySyncUI.start(primaryStage);
                     logger.info("StudySync application started successfully");
                 } catch (final Exception e) {
@@ -107,6 +107,9 @@ public class StudySyncJavaFXApp extends Application {
             GoogleDriveService driveService = springContext.getBean(GoogleDriveService.class);
 
             if (!driveService.isSignedIn()) {
+                if (!flushPendingUiChanges(primaryStage)) {
+                    return;
+                }
                 if (driveService.saveLocally()) {
                     Platform.exit();
                 } else {
@@ -135,9 +138,15 @@ public class StudySyncJavaFXApp extends Application {
 
             if (result.get() == buttonDrive) {
                 logger.info("User chose to push to Drive and exit");
+                if (!flushPendingUiChanges(primaryStage)) {
+                    return;
+                }
                 uploadToDriveAndExit(primaryStage, driveService);
             } else if (result.get() == buttonLocal) {
                 logger.info("User chose to save locally and exit");
+                if (!flushPendingUiChanges(primaryStage)) {
+                    return;
+                }
                 if (driveService.saveLocally()) {
                     Platform.exit();
                 } else {
@@ -153,51 +162,64 @@ public class StudySyncJavaFXApp extends Application {
         }
     }
 
+    private boolean flushPendingUiChanges(Stage primaryStage) {
+        if (studySyncUI == null || studySyncUI.flushPendingChanges()) {
+            return true;
+        }
+        showErrorAlert(primaryStage,
+                "Some pending edits could not be saved. StudySync will stay open so you can retry.");
+        return false;
+    }
+
     private void uploadToDriveAndExit(Stage primaryStage, GoogleDriveService driveService) {
         shutdownInProgress = true;
-        setRootDisabled(primaryStage, true);
 
         Alert progressAlert = new Alert(Alert.AlertType.INFORMATION);
         progressAlert.initOwner(primaryStage);
         progressAlert.setTitle("StudySync");
         progressAlert.setHeaderText("Uploading database to Google Drive");
-        progressAlert.setContentText("StudySync will close after the upload completes.");
-        progressAlert.getButtonTypes().clear();
+        progressAlert.setContentText("StudySync will close after the upload completes. "
+                + "Choose Keep App Open to dismiss this window and continue using StudySync.");
+        ButtonType buttonKeepOpen = new ButtonType("Keep App Open", ButtonBar.ButtonData.CANCEL_CLOSE);
+        progressAlert.getButtonTypes().setAll(buttonKeepOpen);
+
+        AtomicBoolean completionClosing = new AtomicBoolean();
+        AtomicBoolean exitAbandoned = new AtomicBoolean();
+        progressAlert.setOnHidden(event -> {
+            if (!completionClosing.get()) {
+                exitAbandoned.set(true);
+                shutdownInProgress = false;
+                logger.info("User kept StudySync open while the Drive upload finishes in the background");
+            }
+        });
         progressAlert.show();
 
         // The timeout backstop guarantees whenComplete fires even if the upload
-        // hangs, so the disabled UI and button-less progress alert always recover.
+        // hangs. The user can also dismiss the progress window without waiting.
         CompletableFuture.supplyAsync(driveService::uploadDatabaseSnapshot)
                 .orTimeout(3, TimeUnit.MINUTES)
                 .whenComplete((result, error) -> Platform.runLater(() -> {
+                    if (exitAbandoned.get()) {
+                        return;
+                    }
+                    completionClosing.set(true);
                     progressAlert.close();
                     shutdownInProgress = false;
-                    setRootDisabled(primaryStage, false);
 
                     if (error != null) {
                         logger.error("Drive upload failed during shutdown", error);
-                        showErrorAlert(primaryStage, "Google Drive upload failed. StudySync will stay open.");
+                        showErrorAlert(primaryStage, "Google Drive upload failed or timed out. "
+                                + "Your local database is saved, and StudySync will stay open so you can retry.");
                         return;
                     }
                     if (!Boolean.TRUE.equals(result)) {
-                        showErrorAlert(primaryStage, "Google Drive upload failed. StudySync will stay open.");
+                        showErrorAlert(primaryStage, "Google Drive upload failed. Your local database is saved, "
+                                + "and StudySync will stay open so you can retry.");
                         return;
                     }
 
                     Platform.exit();
                 }));
-    }
-
-    private void setRootDisabled(Stage primaryStage, boolean disabled) {
-        if (primaryStage.getScene() == null) {
-            return;
-        }
-        Parent root = primaryStage.getScene().getRoot();
-        if (root == null) {
-            return;
-        }
-        root.setDisable(disabled);
-        root.setCursor(disabled ? Cursor.WAIT : Cursor.DEFAULT);
     }
 
     private void showErrorAlert(Stage owner, String message) {
