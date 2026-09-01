@@ -3,7 +3,9 @@ package com.studysync.presentation.ui.components;
 import org.commonmark.Extension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.parser.Parser;
+import org.commonmark.renderer.html.DefaultUrlSanitizer;
 import org.commonmark.renderer.html.HtmlRenderer;
+import org.commonmark.renderer.html.UrlSanitizer;
 
 import java.util.List;
 
@@ -15,6 +17,20 @@ final class Markdown {
 
     private static final List<Extension> EXTENSIONS = List.of(TablesExtension.create());
     private static final Parser PARSER = Parser.builder().extensions(EXTENSIONS).build();
+    private static final UrlSanitizer URL_SANITIZER = new UrlSanitizer() {
+        private final UrlSanitizer links = new DefaultUrlSanitizer();
+
+        @Override
+        public String sanitizeLinkUrl(String url) {
+            return links.sanitizeLinkUrl(url);
+        }
+
+        @Override
+        public String sanitizeImageUrl(String url) {
+            // WebView would fetch HTTP(S) images as soon as the reading view opens.
+            return "";
+        }
+    };
     /**
      * Entry text is rendered into a JavaScript-enabled document holding every
      * other entry, so raw HTML in an entry is escaped rather than executed and
@@ -25,6 +41,7 @@ final class Markdown {
             .extensions(EXTENSIONS)
             .escapeHtml(true)
             .sanitizeUrls(true)
+            .urlSanitizer(URL_SANITIZER)
             .build();
 
     /**

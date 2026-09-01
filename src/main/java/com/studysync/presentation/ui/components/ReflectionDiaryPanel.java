@@ -364,7 +364,10 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
     /** Swaps the right-hand pane between the day editor and the reading thread. */
     private void showFeed(boolean reading) {
         if (reading) {
-            flush();
+            if (!flush()) {
+                writeToggle.setSelected(true);
+                return;
+            }
             renderFeed();
         }
         feed.setVisible(reading);
@@ -552,6 +555,11 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
         if (editor.getText() != null && editor.getText().trim().equals(savedText.trim())) {
             open(openDate);
         }
+    }
+
+    @Override
+    public boolean flushPendingChanges() {
+        return flush();
     }
 
     @Override

@@ -53,6 +53,14 @@ class MarkdownTest {
     }
 
     @Test
+    void remoteImagesCannotTriggerRequestsFromTheReadingView() {
+        String html = Markdown.toHtml("![tracking pixel](https://attacker.example/pixel?id=42)");
+
+        assertFalse(html.contains("attacker.example"), html);
+        assertTrue(html.contains("alt=\"tracking pixel\""), html);
+    }
+
+    @Test
     void previewLineSkipsTableRowsAndStripsMarkers() {
         assertEquals("Rough afternoon", Markdown.previewLine("## Rough afternoon\n\n| a | b |\n| - | - |"));
         assertEquals("bold start", Markdown.previewLine("**bold start**"));

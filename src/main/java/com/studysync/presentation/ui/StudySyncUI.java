@@ -380,6 +380,21 @@ public class StudySyncUI {
         }
     }
 
+    /** Flushes unsaved editor state before a local checkpoint or Drive upload. */
+    public boolean flushPendingChanges() {
+        for (RefreshablePanel panel : panelMap.values()) {
+            try {
+                if (!panel.flushPendingChanges()) {
+                    return false;
+                }
+            } catch (RuntimeException e) {
+                logger.warn("Failed to flush pending changes from {}", panel.getClass().getSimpleName(), e);
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void showProfileWindow() {
         Stage profileStage = new Stage();
         profileStage.setTitle("Study Profile & Analytics");

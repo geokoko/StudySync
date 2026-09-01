@@ -2085,8 +2085,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private void saveReflection() {
-        String text = reflectionArea.getText().trim();
-        if (text.isEmpty()) return;
+        String text = reflectionArea.getText();
+        boolean deleting = text == null || text.isBlank();
 
         studyService.saveReflectionText(displayDate, text);
 
@@ -2095,14 +2095,17 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         content.getStyleClass().add("modal-content");
         content.setMaxWidth(300);
         content.setMaxHeight(Region.USE_PREF_SIZE);
-        Label titleL = new Label("Reflection Saved");
+        Label titleL = new Label(deleting ? "Reflection Deleted" : "Reflection Saved");
         TaskStyleUtils.fontBold(titleL, 16);
         Button okBtn = new Button("OK");
         okBtn.getStyleClass().add("btn-primary");
         okBtn.setOnAction(e -> closeModal.run());
         HBox btnRow = new HBox(okBtn);
         btnRow.setAlignment(Pos.CENTER_RIGHT);
-        content.getChildren().addAll(titleL, new Label("Your reflection has been saved!"), btnRow);
+        String confirmation = deleting
+                ? "Your reflection has been deleted."
+                : "Your reflection has been saved!";
+        content.getChildren().addAll(titleL, new Label(confirmation), btnRow);
         showModal.accept(content);
     }
 
