@@ -975,6 +975,10 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         // Performance breakdown
         VBox metricsBreakdown = new VBox(10);
 
+        Label sessionCountLabel = new Label("Sessions logged: " + dayData.totalSessions());
+        TaskStyleUtils.fontBold(sessionCountLabel, 13);
+        metricsBreakdown.getChildren().add(sessionCountLabel);
+
         // Where the day's points came from — worth spelling out now that
         // finishing a task late can subtract from the total.
         ScoreBreakdown score = dayData.score;
@@ -1222,7 +1226,9 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private String formatGoalAttemptSummary(StudyGoal goal) {
-        String summary = "Attempt " + goal.getAttemptNumber() + " planned for " + goal.getDate();
+        int sessions = StudySession.countByGoalId(goal.getId());
+        String summary = "Attempt " + goal.getAttemptNumber() + " planned for " + goal.getDate()
+                + " | worked on in " + sessions + (sessions == 1 ? " session" : " sessions");
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
             summary += " | parent abandoned";
         }
@@ -1256,7 +1262,13 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         pointsLabel.setTextFill(Color.web("#27ae60"));
         
         sessionBox.getChildren().addAll(timeLabel, focusLabel, pointsLabel);
-        
+
+        // What this session was working on
+        Label linkLabel = TaskStyleUtils.sessionLinkLabel(session);
+        if (linkLabel != null) {
+            sessionBox.getChildren().add(linkLabel);
+        }
+
         // Subject and topic if available
         if (session.getSubject() != null && !session.getSubject().trim().isEmpty()) {
             Label subjectLabel = new Label("📖 Subject: " + session.getSubject());

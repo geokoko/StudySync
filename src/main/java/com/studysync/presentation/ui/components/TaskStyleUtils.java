@@ -2,10 +2,12 @@ package com.studysync.presentation.ui.components;
 
 import com.studysync.domain.entity.Task;
 import com.studysync.domain.entity.StudyGoal;
+import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.valueobject.TaskStatus;
 import javafx.geometry.Insets;
 import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
+import javafx.scene.control.Tooltip;
 import javafx.scene.paint.Color;
 
 import java.time.LocalDate;
@@ -102,6 +104,31 @@ public final class TaskStyleUtils {
         } else {
             node.setStyle(existing + " " + css);
         }
+    }
+
+    /**
+     * Small muted label naming the goal (or, failing that, the task) a session
+     * worked on, or {@code null} when the session is linked to neither.
+     */
+    public static Label sessionLinkLabel(StudySession session) {
+        String text = null;
+        if (session.getGoalId() != null) {
+            text = StudyGoal.findById(session.getGoalId())
+                    .map(g -> "Goal: " + g.getDescription()).orElse(null);
+        }
+        if (text == null && session.getTaskId() != null) {
+            text = Task.findById(session.getTaskId())
+                    .map(t -> "Task: " + t.getTitle()).orElse(null);
+        }
+        if (text == null) {
+            return null;
+        }
+        Label link = new Label(text.length() > 40 ? text.substring(0, 37) + "\u2026" : text);
+        link.setGraphic(iconLabel("\u29BF", 10));
+        fontNormal(link, 11);
+        link.setTextFill(Color.web(COLOR_MUTED));
+        link.setTooltip(new Tooltip(text));
+        return link;
     }
 
     // ── Border / accent colour keyed by status ──────────────────

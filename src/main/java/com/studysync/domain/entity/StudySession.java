@@ -234,6 +234,19 @@ public class StudySession {
     }
     
     /**
+     * How many sessions logged work on a goal, across every attempt of it and
+     * regardless of whether the goal was ever achieved.
+     */
+    public static int countByGoalId(String goalId) {
+        if (jdbcTemplate == null || goalId == null) {
+            return 0;
+        }
+        Integer count = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM study_sessions WHERE goal_id = ?", Integer.class, goalId);
+        return count != null ? count : 0;
+    }
+
+    /**
      * Find a study session by its ID.
      */
     public static Optional<StudySession> findById(String id) {

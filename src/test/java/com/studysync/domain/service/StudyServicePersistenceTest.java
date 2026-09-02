@@ -119,6 +119,29 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void countByGoalIdCountsEverySessionOnTheGoalWhateverItsOutcome() {
+        recurringMondayTask("task-count", LocalDate.of(2026, 3, 23));
+        StudyGoal goal = new StudyGoal("Counted goal", "task-count");
+        goal.setDate(LocalDate.of(2026, 3, 28));
+        goal.save();
+
+        StudySession first = studyService.startStudySession(goal.getId(), null);
+        studyService.endStudySession(first, new StudySessionEnd(4, "one"));
+        StudySession second = studyService.startStudySession(goal.getId(), null);
+        studyService.endStudySession(second, new StudySessionEnd(4, "two"));
+        studyService.startStudySession(null, "task-count");
+
+        assertEquals(2, StudySession.countByGoalId(goal.getId()));
+
+        // Achieving the goal must not change how many sessions worked on it.
+        studyService.updateStudyGoalAchievement(goal.getId(), true, null);
+        assertEquals(2, StudySession.countByGoalId(goal.getId()));
+
+        assertEquals(0, StudySession.countByGoalId(null));
+        assertEquals(0, StudySession.countByGoalId("no-such-goal"));
+    }
+
+    @Test
     void endStudySessionSurvivesDeletionOfLinkedGoal() {
         recurringMondayTask("task-2", LocalDate.of(2026, 3, 23));
         StudyGoal goal = new StudyGoal("Deleted mid-session", "task-2");
