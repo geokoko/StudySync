@@ -1234,7 +1234,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         btnRow.getChildren().addAll(detailsBtn, deleteBtn);
         card.getChildren().addAll(timeLabel, durationLabel, focusLabel, pointsLabel, btnRow);
-        Label linkLabel = buildSessionLinkLabel(session);
+        Label linkLabel = TaskStyleUtils.sessionLinkLabel(session);
         if (linkLabel != null) {
             card.getChildren().add(card.getChildren().size() - 1, linkLabel);
         }
@@ -1298,27 +1298,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         return false;
     }
 
-    /** Small muted label describing the session's goal/task link, or null when unlinked. */
-    private Label buildSessionLinkLabel(StudySession session) {
-        String text = null;
-        if (session.getGoalId() != null) {
-            text = StudyGoal.findById(session.getGoalId())
-                    .map(g -> "Goal: " + g.getDescription()).orElse(null);
-        }
-        if (text == null && session.getTaskId() != null) {
-            text = Task.findById(session.getTaskId())
-                    .map(t -> "Task: " + t.getTitle()).orElse(null);
-        }
-        if (text == null) {
-            return null;
-        }
-        Label link = new Label(text.length() > 40 ? text.substring(0, 37) + "\u2026" : text);
-        link.setGraphic(TaskStyleUtils.iconLabel("\u29BF", 10));
-        TaskStyleUtils.fontNormal(link, 11);
-        link.setTextFill(Color.web("#7f8c8d"));
-        return link;
-    }
-
     private VBox buildIncompleteSessionCard(StudySession session) {
         VBox card = new VBox(5);
         card.setPadding(new Insets(10, 12, 10, 12));
@@ -1380,7 +1359,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         btnRow.setAlignment(Pos.CENTER_RIGHT);
 
         card.getChildren().addAll(statusLabel, timeLabel, durationLabel, btnRow);
-        Label linkLabel = buildSessionLinkLabel(session);
+        Label linkLabel = TaskStyleUtils.sessionLinkLabel(session);
         if (linkLabel != null) {
             card.getChildren().add(card.getChildren().size() - 1, linkLabel);
         }

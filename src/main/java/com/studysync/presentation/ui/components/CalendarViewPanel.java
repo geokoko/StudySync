@@ -1163,6 +1163,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         descriptionLabel.setWrapText(true);
 
         Label attemptLabel = new Label(formatGoalAttemptSummary(goal));
+        attemptLabel.setWrapText(true);
         TaskStyleUtils.fontNormal(attemptLabel, 11);
         attemptLabel.setTextFill(goal.getMissedAttemptCount() > 0 ? Color.web("#ff5722") : Color.web("#6c757d"));
 
@@ -1221,8 +1222,13 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         return goalBox;
     }
 
-    private String formatGoalAttemptSummary(StudyGoal goal) {
+    static String formatGoalAttemptSummary(StudyGoal goal) {
+        long sessions = StudySession.countByGoalId(goal.getId());
         String summary = "Attempt " + goal.getAttemptNumber() + " planned for " + goal.getDate();
+        if (sessions > 0) {
+            summary += " | Goal: " + sessions + (sessions == 1 ? " linked session" : " linked sessions")
+                    + " across all attempts (including incomplete)";
+        }
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
             summary += " | parent abandoned";
         }
@@ -1256,7 +1262,13 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         pointsLabel.setTextFill(Color.web("#27ae60"));
         
         sessionBox.getChildren().addAll(timeLabel, focusLabel, pointsLabel);
-        
+
+        // What this session was working on
+        Label linkLabel = TaskStyleUtils.sessionLinkLabel(session);
+        if (linkLabel != null) {
+            sessionBox.getChildren().add(linkLabel);
+        }
+
         // Subject and topic if available
         if (session.getSubject() != null && !session.getSubject().trim().isEmpty()) {
             Label subjectLabel = new Label("📖 Subject: " + session.getSubject());

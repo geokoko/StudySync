@@ -119,6 +119,36 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void countByGoalIdCountsEverySessionOnTheGoalWhateverItsOutcome() {
+        recurringMondayTask("task-count", LocalDate.of(2026, 3, 23));
+        StudyGoal goal = new StudyGoal("Counted goal", "task-count");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.save();
+        assertEquals(0L, StudySession.countByGoalId(goal.getId()));
+
+        StudySession first = studyService.startStudySession(goal.getId(), null);
+        studyService.endStudySession(first, new StudySessionEnd(4, "one"));
+        studyService.processAllDelayedGoals();
+        assertTrue(studyService.replanGoalForToday(goal.getId()));
+        assertEquals(2, StudyGoal.findById(goal.getId()).orElseThrow().getAttemptNumber());
+        StudySession second = studyService.startStudySession(goal.getId(), null);
+        studyService.endStudySession(second, new StudySessionEnd(4, "two"));
+        StudySession incomplete = studyService.startStudySession(goal.getId(), null);
+        assertFalse(StudySession.findById(incomplete.getId()).orElseThrow().isCompleted());
+        studyService.startStudySession(null, "task-count");
+
+        assertEquals(3L, StudySession.countByGoalId(goal.getId()));
+
+        // Achieving the goal must not change how many sessions are linked to it.
+        studyService.updateStudyGoalAchievement(goal.getId(), true, null);
+        assertTrue(StudyGoal.findById(goal.getId()).orElseThrow().isAchieved());
+        assertEquals(3L, StudySession.countByGoalId(goal.getId()));
+
+        assertEquals(0L, StudySession.countByGoalId(null));
+        assertEquals(0L, StudySession.countByGoalId("no-such-goal"));
+    }
+
+    @Test
     void endStudySessionSurvivesDeletionOfLinkedGoal() {
         recurringMondayTask("task-2", LocalDate.of(2026, 3, 23));
         StudyGoal goal = new StudyGoal("Deleted mid-session", "task-2");

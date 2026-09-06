@@ -35,7 +35,7 @@ jobs:
         run: ./gradlew build -x test --warning-mode all
 
       - name: Run tests
-        run: ./gradlew test
+        run: xvfb-run -a ./gradlew test
 
       - name: Run checkstyle
         run: ./gradlew checkstyleMain checkstyleTest
