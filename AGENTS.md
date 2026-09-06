@@ -95,7 +95,7 @@ Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordC
 |---|---|---|
 | `Task` | `tasks` | `findAll`, `findById`, `findByStatus`, `findByCategory`, `findDueBy`, `findOverdue`, `findByPriority`, `search`, `findHighPriority`, `findRecurring`, `findActiveRecurring`, `countByStatus`, `existsById`, `updateStatus`, `deleteById`, `deleteByIds`, `save`, `delete` |
 | `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `deleteById`, `save`, `delete` |
-| `StudySession` | `study_sessions` | `findAll`, `findById`, `findByDate`, `findActiveSession`, `save`, `delete` |
+| `StudySession` | `study_sessions` | `findAll`, `findById`, `findByDate`, `findActiveSession`, `countByGoalId`, `save`, `delete` |
 | `Project` | `projects` | `findAll`, `findById`, `findByStatus`, `save`, `delete` |
 | `ProjectSession` | `project_sessions` | `findAll`, `findById`, `findByProjectId`, `findByDate`, `save`, `delete` |
 | `DailyReflection` | `daily_reflections` | `findAll`, `findById`, `findByDate`, `findByDateRange`, `save`, `delete` |

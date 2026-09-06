@@ -16,7 +16,7 @@ import java.util.Locale;
 
 /**
  * Shared styling helpers for task status rendering and CSS-safe font
- * application.
+ * application, plus shared session-link labels.
  *
  * <p><strong>Why {@code setFont()} is unsafe:</strong> JavaFX re-applies
  * CSS on every scene-graph pulse (tab switch, focus change, window
@@ -123,11 +123,14 @@ public final class TaskStyleUtils {
         if (text == null) {
             return null;
         }
-        Label link = new Label(text.length() > 40 ? text.substring(0, 37) + "\u2026" : text);
+        boolean truncated = text.codePointCount(0, text.length()) > 40;
+        Label link = new Label(truncated ? text.substring(0, text.offsetByCodePoints(0, 37)) + "\u2026" : text);
         link.setGraphic(iconLabel("\u29BF", 10));
         fontNormal(link, 11);
         link.setTextFill(Color.web(COLOR_MUTED));
-        link.setTooltip(new Tooltip(text));
+        if (truncated) {
+            link.setTooltip(new Tooltip(text));
+        }
         return link;
     }
 

@@ -234,15 +234,15 @@ public class StudySession {
     }
     
     /**
-     * How many sessions logged work on a goal, across every attempt of it and
-     * regardless of whether the goal was ever achieved.
+     * Number of sessions linked to a goal across all attempts, including active
+     * and incomplete sessions, regardless of whether the goal was achieved.
      */
-    public static int countByGoalId(String goalId) {
+    public static long countByGoalId(String goalId) {
         if (jdbcTemplate == null || goalId == null) {
             return 0;
         }
-        Integer count = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM study_sessions WHERE goal_id = ?", Integer.class, goalId);
+        Long count = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM study_sessions WHERE goal_id = ?", Long.class, goalId);
         return count != null ? count : 0;
     }
 

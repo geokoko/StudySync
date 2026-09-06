@@ -975,10 +975,6 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         // Performance breakdown
         VBox metricsBreakdown = new VBox(10);
 
-        Label sessionCountLabel = new Label("Sessions logged: " + dayData.totalSessions());
-        TaskStyleUtils.fontBold(sessionCountLabel, 13);
-        metricsBreakdown.getChildren().add(sessionCountLabel);
-
         // Where the day's points came from — worth spelling out now that
         // finishing a task late can subtract from the total.
         ScoreBreakdown score = dayData.score;
@@ -1167,6 +1163,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         descriptionLabel.setWrapText(true);
 
         Label attemptLabel = new Label(formatGoalAttemptSummary(goal));
+        attemptLabel.setWrapText(true);
         TaskStyleUtils.fontNormal(attemptLabel, 11);
         attemptLabel.setTextFill(goal.getMissedAttemptCount() > 0 ? Color.web("#ff5722") : Color.web("#6c757d"));
 
@@ -1225,10 +1222,13 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         return goalBox;
     }
 
-    private String formatGoalAttemptSummary(StudyGoal goal) {
-        int sessions = StudySession.countByGoalId(goal.getId());
-        String summary = "Attempt " + goal.getAttemptNumber() + " planned for " + goal.getDate()
-                + " | worked on in " + sessions + (sessions == 1 ? " session" : " sessions");
+    static String formatGoalAttemptSummary(StudyGoal goal) {
+        long sessions = StudySession.countByGoalId(goal.getId());
+        String summary = "Attempt " + goal.getAttemptNumber() + " planned for " + goal.getDate();
+        if (sessions > 0) {
+            summary += " | Goal: " + sessions + (sessions == 1 ? " linked session" : " linked sessions")
+                    + " across all attempts (including incomplete)";
+        }
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
             summary += " | parent abandoned";
         }
