@@ -1024,7 +1024,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             updateProgress();
         });
 
-        row.getChildren().addAll(textBox, spacer, replanBtn);
+        row.getChildren().addAll(textBox, spacer, editGoalButton(goal), replanBtn);
         return row;
     }
 
@@ -1074,12 +1074,15 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         textBox.getChildren().add(attemptLabel);
         HBox.setHgrow(textBox, Priority.ALWAYS);
 
+        row.getChildren().addAll(check, textBox, editGoalButton(goal));
+        return row;
+    }
+
+    private Button editGoalButton(StudyGoal goal) {
         Button editBtn = new Button("Edit");
         editBtn.getStyleClass().addAll("btn-gray", "btn-small");
         editBtn.setOnAction(e -> showEditGoalDialog(goal));
-
-        row.getChildren().addAll(check, textBox, editBtn);
-        return row;
+        return editBtn;
     }
 
     /** Edit an existing goal's description, done-when checklist and (while pending) its date. */
@@ -1188,7 +1191,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             TaskStyleUtils.fontNormal(attempts, 10);
             textBox.getChildren().add(attempts);
 
-            row.getChildren().addAll(check, textBox);
+            HBox.setHgrow(textBox, Priority.ALWAYS);
+            row.getChildren().addAll(check, textBox, editGoalButton(goal));
             itemsBox.getChildren().add(row);
         }
 

@@ -1261,7 +1261,11 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         dialog.showAndWait().filter(bt -> bt == ButtonType.OK).ifPresent(bt -> {
             StudyGoal.findById(goal.getId()).ifPresent(updated -> {
                 VBox parent = (VBox) goalBox.getParent();
-                parent.getChildren().set(parent.getChildren().indexOf(goalBox), createStudyGoalBox(updated));
+                if (updated.getDate().equals(goal.getDate())) {
+                    parent.getChildren().set(parent.getChildren().indexOf(goalBox), createStudyGoalBox(updated));
+                } else {
+                    parent.getChildren().remove(goalBox); // moved to another day, so it leaves this pane
+                }
             });
             updateCalendarDisplay();
         });
