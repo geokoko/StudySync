@@ -534,6 +534,16 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void editingAPendingGoalRefusesAPastDate() {
+        studyService.addStudyGoal("Read chapter", LocalDate.of(2026, 3, 28), "task-12");
+        StudyGoal pending = StudyGoal.findByTaskId("task-12").getFirst();
+
+        assertThrows(ValidationException.class, () -> studyService.updateStudyGoalDetails(
+                pending.getId(), "Read chapter", LocalDate.of(2026, 3, 27), null));
+        assertEquals(LocalDate.of(2026, 3, 28), StudyGoal.findById(pending.getId()).orElseThrow().getDate());
+    }
+
+    @Test
     void invalidCriterionIndexLeavesAManuallyAchievedGoalAlone() {
         studyService.addStudyGoal("Finish chapter 8", LocalDate.of(2026, 3, 28), "task-8", "Read\nExercises");
         StudyGoal goal = StudyGoal.findByTaskId("task-8").getFirst();
