@@ -323,8 +323,10 @@ public class StudyGoal {
         List<Criterion> out = new ArrayList<>();
         for (Criterion typed : parseCriteria(plainLines)) {
             Deque<Boolean> ticks = previous.get(typed.text());
-            boolean done = typed.done() || (ticks != null && !ticks.isEmpty() && ticks.poll());
-            out.add(new Criterion(typed.text(), done));
+            // Always consume the matching previous tick, even when the typed line
+            // is already "[x]", or it would leak to the next duplicate line.
+            boolean previouslyDone = ticks != null && !ticks.isEmpty() && ticks.poll();
+            out.add(new Criterion(typed.text(), typed.done() || previouslyDone));
         }
         return serializeCriteria(out);
     }

@@ -576,6 +576,14 @@ class StudyServicePersistenceTest {
 
         assertEquals(List.of(new StudyGoal.Criterion("Lap", false), new StudyGoal.Criterion("Lap", true)),
                 StudyGoal.findById(goal.getId()).orElseThrow().getCriteria());
+
+        // an explicit "[x]" on the first line must not hand its previous tick to the second
+        studyService.setGoalCriterionDone(goal.getId(), 0, true);
+        studyService.setGoalCriterionDone(goal.getId(), 1, false);
+        assertTrue(studyService.updateStudyGoalDetails(goal.getId(), "Two laps, renamed",
+                LocalDate.of(2026, 3, 28), "[x] Lap\nLap"));
+        assertEquals(List.of(new StudyGoal.Criterion("Lap", true), new StudyGoal.Criterion("Lap", false)),
+                StudyGoal.findById(goal.getId()).orElseThrow().getCriteria());
     }
 
     @Test
