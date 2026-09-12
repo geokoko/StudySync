@@ -5,14 +5,19 @@ import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.valueobject.TaskStatus;
 import javafx.geometry.Insets;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 
 import java.time.LocalDate;
 import java.time.format.TextStyle;
+import java.util.List;
 import java.util.Locale;
+import java.util.function.BiConsumer;
 
 /**
  * Shared styling helpers for task status rendering and CSS-safe font
@@ -377,5 +382,54 @@ public final class TaskStyleUtils {
         fontBold(badge, 10);
         badge.setTextFill(Color.web(MISSED_COLOR));
         return badge;
+    }
+
+    /**
+     * A goal's "what done means" checklist, one checkbox per criterion. With a
+     * handler each box is live and reports (index, ticked); without one the
+     * boxes are inert, which reads as the same list without inviting clicks.
+     */
+    public static VBox criteriaChecklist(List<StudyGoal.Criterion> criteria, BiConsumer<Integer, Boolean> onToggle) {
+        VBox box = new VBox(2);
+        for (int i = 0; i < criteria.size(); i++) {
+            StudyGoal.Criterion c = criteria.get(i);
+            CheckBox check = new CheckBox(c.text());
+            check.setSelected(c.done());
+            check.setWrapText(true);
+            fontNormal(check, 11);
+            if (c.done()) {
+                check.setTextFill(Color.web(COLOR_MUTED));
+            }
+            if (onToggle != null) {
+                int index = i;
+                check.setOnAction(e -> onToggle.accept(index, check.isSelected()));
+            } else {
+                check.setMouseTransparent(true);
+                check.setFocusTraversable(false);
+            }
+            box.getChildren().add(check);
+        }
+        return box;
+    }
+
+    /** Suffix such as {@code " \u00B7 2/3"} to append to a goal summary, or {@code ""} when there is no checklist. */
+    public static String criteriaProgress(List<StudyGoal.Criterion> criteria) {
+        if (criteria.isEmpty()) {
+            return "";
+        }
+        long done = criteria.stream().filter(StudyGoal.Criterion::done).count();
+        return " \u00B7 " + done + "/" + criteria.size();
+    }
+
+    /** Label text for the goal checklist field, shared by every goal form. */
+    public static final String CRITERIA_LABEL = "Done when (one criterion per line, optional):";
+
+    /** The goal checklist input, prefilled with one criterion per line. */
+    public static TextArea criteriaArea(String initialLines) {
+        TextArea area = new TextArea(initialLines == null ? "" : initialLines);
+        area.setPromptText("e.g. Solved all exercises / Can explain the theorem without notes");
+        area.setPrefRowCount(3);
+        area.setWrapText(true);
+        return area;
     }
 }

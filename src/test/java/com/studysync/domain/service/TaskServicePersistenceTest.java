@@ -60,6 +60,7 @@ class TaskServicePersistenceTest {
                     recurrence_end_date DATE,
                     completed_at DATE,
                     remind_days_before INTEGER,
+                    done_criteria TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
@@ -111,6 +112,21 @@ class TaskServicePersistenceTest {
         assertEquals(1, history.size());
         assertEquals(TODAY.minusDays(8), history.get(0).getOldDeadline());
         assertEquals(TODAY.plusDays(2), history.get(0).getNewDeadline());
+    }
+
+    @Test
+    void doneCriteriaRoundTripsNullKeepsAndBlankClears() {
+        Task task = new Task(null, "Write thesis intro", "desc", "Study", new TaskPriority(3),
+                TODAY.plusDays(7), TaskStatus.OPEN, 0, null, null, null);
+        task.setDoneCriteria("  Supervisor has signed off  ");
+        Task saved = taskService.addTask(task);
+        assertEquals("Supervisor has signed off", Task.findById(saved.getId()).orElseThrow().getDoneCriteria());
+
+        taskService.updateTask(saved, new TaskUpdate("Write thesis intro", null, null, null, null));
+        assertEquals("Supervisor has signed off", Task.findById(saved.getId()).orElseThrow().getDoneCriteria());
+
+        taskService.updateTask(saved, new TaskUpdate(null, null, null, null, null, null, null, null, null, ""));
+        assertNull(Task.findById(saved.getId()).orElseThrow().getDoneCriteria());
     }
 
     @Test
@@ -365,7 +381,7 @@ class TaskServicePersistenceTest {
         // null means "leave alone", so clearing needs the explicit sentinel.
         taskService.updateTask(Task.findById("clearable").orElseThrow(),
                 new TaskUpdate("Still named", null, null, null, null, null, null, null,
-                        TaskUpdate.CLEAR_REMINDER));
+                        TaskUpdate.CLEAR_REMINDER, null));
 
         assertNull(Task.findById("clearable").orElseThrow().getRemindDaysBefore());
         assertFalse(Task.findById("clearable").orElseThrow().isReminderDue(TODAY.plusDays(5)));

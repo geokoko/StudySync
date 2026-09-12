@@ -280,6 +280,7 @@ class ScoringServiceTest {
                     recurrence_end_date DATE,
                     completed_at DATE,
                     remind_days_before INTEGER,
+                    done_criteria TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
@@ -308,6 +309,7 @@ class ScoringServiceTest {
                     status VARCHAR(20) DEFAULT 'ACTIVE',
                     abandoned_explicitly BOOLEAN DEFAULT FALSE,
                     achieved_attempt_id VARCHAR(50),
+                    done_criteria TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )

@@ -94,7 +94,7 @@ Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordC
 | Entity | Table | Key Static Methods |
 |---|---|---|
 | `Task` | `tasks` | `findAll`, `findById`, `findByStatus`, `findByCategory`, `findDueBy`, `findOverdue`, `findByPriority`, `search`, `findHighPriority`, `findRecurring`, `findActiveRecurring`, `countByStatus`, `existsById`, `updateStatus`, `deleteById`, `deleteByIds`, `save`, `delete` |
-| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `deleteById`, `save`, `delete` |
+| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `updateDetails`, `setCriterionDone`, `deleteById`, `save`, `delete`; pure `parseCriteria` / `serializeCriteria` / `criteriaFromLines` |
 | `StudySession` | `study_sessions` | `findAll`, `findById`, `findByDate`, `findActiveSession`, `countByGoalId`, `save`, `delete` |
 | `Project` | `projects` | `findAll`, `findById`, `findByStatus`, `save`, `delete` |
 | `ProjectSession` | `project_sessions` | `findAll`, `findById`, `findByProjectId`, `findByDate`, `save`, `delete` |
@@ -131,11 +131,11 @@ H2 file-based database at `./data/studysync.mv.db`. Schema is in `schema.sql` an
 
 ### Tables
 
-- **tasks** — id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, recurrence_end_date, completed_at, remind_days_before, created_at (no updated_at — nothing ever wrote it)
+- **tasks** — id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, recurrence_end_date, completed_at, remind_days_before, done_criteria (free text), created_at (no updated_at — nothing ever wrote it)
 - **projects** — id, title, description, category, status, priority, dates, progress, hours, total_minutes_worked, total_sessions_count, last_worked_on, notes, timestamps. `total_minutes_worked` is authoritative; `actual_hours` is a rounded-down convenience column
 - **study_sessions** — id, date, times, duration, completion flags, focus/confidence levels, session notes, active tracking fields, timestamps
 - **project_sessions** — id, project_id (FK → projects), date, times, duration, objectives, progress, notes, timestamps
-- **study_goals** — id, date, description, achieved, delay tracking fields, task_id (FK → tasks), timestamps
+- **study_goals** — id, date, description, achieved, delay tracking fields, task_id (FK → tasks), done_criteria (checklist, see Definition of Done), timestamps
 - **daily_reflections** — id, date (UNIQUE), focus level, notes, reflection text, reward flag, timestamps
 - **task_categories** — id, name (UNIQUE), description, timestamp; seeded with Work, Personal, Study, Health
 - **schema_migrations** — id (PK), applied_at; marks one-shot migrations that must not re-run (everything else in `schema.sql` is additive or recomputes derived data)
@@ -231,6 +231,32 @@ deadline moves the reminder with it and the two can never disagree.
   planner for tasks that do not otherwise appear today.
 
 
+## Definition of Done
+
+Every goal (and, as free text, every task) can say what "done" means.
+
+- **Goals** carry a checklist in `study_goals.done_criteria`: one criterion per
+  line, prefixed `[x] ` (ticked) or `[ ] `. `StudyGoal.parseCriteria` /
+  `serializeCriteria` are the only two places that know the format;
+  `criteriaFromLines` turns user-typed lines into it, keeping the tick of any
+  line whose trimmed text is unchanged. It lives on the **parent goal**, not
+  the attempt, so a retry continues from the ticks the previous attempt left.
+- `StudyService.setGoalCriterionDone` ticks one line and then reuses the
+  achieved-checkbox semantics: all ticked → `markCurrentAttemptAchieved`,
+  otherwise `reopenAchievedGoal` (a no-op unless the goal was achieved). The
+  main checkbox still works on its own, so a goal can be achieved with a
+  criterion left open, or have no checklist at all.
+- Scoring is untouched: an attempt is worth the same whether it was achieved
+  by the last tick or by the checkbox. Partial credit is deliberately not a
+  thing.
+- **Tasks** get `tasks.done_criteria` as plain text, shown on the card as
+  "Done when: …". `TaskUpdate.doneCriteria` follows the record's convention:
+  `null` keeps, blank clears (the `Task` setter normalises blank to `null`).
+- UI helpers live in `TaskStyleUtils`: `criteriaChecklist` (live with a
+  handler, inert without), `criteriaProgress` (the " · 2/3" suffix, empty
+  when there is no checklist) and `criteriaArea` + `CRITERIA_LABEL`, the one
+  input field every goal form uses.
+
 ## Recurring Tasks
 
 Single-entity virtual-recurrence model — one DB row appears on multiple calendar dates. No task spawning.
@@ -276,7 +302,7 @@ Optional feature for syncing the H2 database file to Google Drive.
 - Test config: `src/test/resources/application-test.properties`
 - Coverage: JaCoCo with HTML/XML reports (excludes config classes and entry points)
 - Code style: Checkstyle 10.12.1 (config at `config/checkstyle/checkstyle.xml`)
-- No test source files currently exist (only the test resources directory)
+- Tests live under `src/test/java`: `*PersistenceTest` classes run services against an in-memory H2 with the schema inlined per test class (so a new column must be added to those DDL blocks too), `ScoringServiceTest` guards the points formulas, and `SessionVisibilityTest` / `MarkdownTest` cover UI helpers
 
 ## Key Patterns
 

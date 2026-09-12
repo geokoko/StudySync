@@ -169,10 +169,18 @@ public class StudyService {
     }
     
     public void addStudyGoal(String description, LocalDate date, String taskId) {
+        addStudyGoal(description, date, taskId, null);
+    }
+
+    /**
+     * @param doneCriteriaLines what "done" means, one criterion per line; blank or null for none
+     */
+    public void addStudyGoal(String description, LocalDate date, String taskId, String doneCriteriaLines) {
         if (description == null || description.trim().isEmpty()) {
             throw ValidationException.requiredFieldMissing("description");
         }
         StudyGoal goal = new StudyGoal(null, date, description, false, null, 0, false, 0, taskId);
+        goal.setDoneCriteria(StudyGoal.criteriaFromLines(doneCriteriaLines, null));
         goal.save();
 
         // When a goal is created for an OPEN task, automatically transition it
@@ -278,7 +286,12 @@ public class StudyService {
         return created;
     }
 
-    public boolean updateStudyGoalDetails(String goalId, String description, LocalDate pendingPlannedForDate) {
+    /**
+     * @param doneCriteriaLines new checklist, one criterion per line; {@code null} keeps the
+     *                          existing one, blank removes it. Ticks survive for unchanged lines.
+     */
+    public boolean updateStudyGoalDetails(String goalId, String description, LocalDate pendingPlannedForDate,
+                                          String doneCriteriaLines) {
         if (goalId == null || goalId.isBlank()) {
             throw ValidationException.requiredFieldMissing("goalId");
         }
@@ -294,20 +307,49 @@ public class StudyService {
         if (goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING && pendingPlannedForDate == null) {
             throw ValidationException.requiredFieldMissing("plannedForDate");
         }
-        boolean updated = StudyGoal.updateDetails(goalId, description, pendingPlannedForDate);
+        String doneCriteria = doneCriteriaLines == null
+                ? goal.getDoneCriteria()
+                : StudyGoal.criteriaFromLines(doneCriteriaLines, goal.getDoneCriteria());
+        boolean updated = StudyGoal.updateDetails(goalId, description, pendingPlannedForDate, doneCriteria);
         if (updated) {
             markDirtyAndSaveLocally("study goal details update");
         }
         return updated;
     }
 
+    /**
+     * Ticks or unticks one line of a goal's checklist. Ticking the last open
+     * line achieves the current attempt; unticking any line on an achieved
+     * goal reopens it, with exactly the semantics of the achieved checkbox.
+     * Ticking a line never reopens anything: a goal achieved by hand with
+     * open criteria stays achieved while the remaining lines are filled in.
+     * An unknown goal or index changes nothing, achievement included.
+     */
+    public void setGoalCriterionDone(String goalId, int index, boolean done) {
+        Optional<List<StudyGoal.Criterion>> changed = StudyGoal.setCriterionDone(goalId, index, done);
+        if (changed.isEmpty()) {
+            return;
+        }
+        boolean allDone = changed.get().stream().allMatch(StudyGoal.Criterion::done);
+        if (allDone) {
+            applyAchievement(goalId, true, null);
+        } else if (!done) {
+            applyAchievement(goalId, false, null); // no-op unless the goal is achieved
+        }
+        markDirtyAndSaveLocally("study goal criterion update");
+    }
+
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
-        boolean updated = achieved
-                ? StudyGoal.markCurrentAttemptAchieved(goalId, reasonIfNot)
-                : StudyGoal.reopenAchievedGoal(goalId);
-        if (updated) {
+        if (applyAchievement(goalId, achieved, reasonIfNot)) {
             markDirtyAndSaveLocally("study goal achievement update");
         }
+    }
+
+    /** The one place that flips a goal's current attempt between achieved and pending. */
+    private boolean applyAchievement(String goalId, boolean achieved, String reasonIfNot) {
+        return achieved
+                ? StudyGoal.markCurrentAttemptAchieved(goalId, reasonIfNot)
+                : StudyGoal.reopenAchievedGoal(goalId);
     }
 
     /**

@@ -374,6 +374,13 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             desc.setTextFill(Color.web("#9aa0a6"));
             info.getChildren().addAll(titleRow, metaRow, desc);
         }
+        if (task.getDoneCriteria() != null) {
+            Label doneWhen = new Label("Done when: " + task.getDoneCriteria());
+            TaskStyleUtils.fontItalic(doneWhen, 12);
+            doneWhen.setTextFill(Color.web(TaskStyleUtils.COLOR_MUTED));
+            doneWhen.setWrapText(true);
+            info.getChildren().add(doneWhen);
+        }
 
         // Goal History toggle button
         VBox goalHistoryPane = new VBox(6);
@@ -488,7 +495,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         HBox header = new HBox(8);
         header.setAlignment(Pos.CENTER_LEFT);
 
-        Label title = new Label(shorten(latest.getDescription(), 90));
+        Label title = new Label(shorten(latest.getDescription(), 90)
+                + TaskStyleUtils.criteriaProgress(latest.getCriteria()));
         TaskStyleUtils.fontSemiBold(title, 12);
         title.setTextFill(Color.web("#2c3e50"));
         title.setWrapText(true);
@@ -684,6 +692,9 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         descriptionArea.setPrefRowCount(3);
         descriptionArea.setWrapText(true);
 
+        TextArea criteriaArea = TaskStyleUtils.criteriaArea(isNew ? null : existingGoal.getCriteria().stream()
+                .map(StudyGoal.Criterion::text).collect(Collectors.joining("\n")));
+
         boolean canEditDate = isNew || existingGoal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING;
         DatePicker datePicker = new DatePicker(isNew ? LocalDate.now() : existingGoal.getDate());
         datePicker.setMaxWidth(Double.MAX_VALUE);
@@ -716,10 +727,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
             try {
                 if (isNew) {
-                    studyService.addStudyGoal(description, plannedDate, task.getId());
+                    studyService.addStudyGoal(description, plannedDate, task.getId(), criteriaArea.getText());
                 } else {
                     studyService.updateStudyGoalDetails(existingGoal.getId(), description,
-                            canEditDate ? plannedDate : null);
+                            canEditDate ? plannedDate : null, criteriaArea.getText());
                 }
                 closeModal.run();
                 populateGoalHistory(ownerPane, task);
@@ -733,6 +744,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         form.getChildren().addAll(title, new Label("Task:"), taskLabel,
                 new Label("Description:"), descriptionArea,
+                new Label(TaskStyleUtils.CRITERIA_LABEL), criteriaArea,
                 new Label("Planned date:"), datePicker, dateHint, buttons);
 
         showModal.accept(wrapGoalModal(form));
@@ -836,6 +848,11 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         descArea.setPromptText("Description (optional)");
         descArea.setPrefRowCount(3);
         descArea.setWrapText(true);
+
+        TextArea doneArea = new TextArea(isNew ? "" : nvl(existingTask.getDoneCriteria()));
+        doneArea.setPromptText("What done means (optional)");
+        doneArea.setPrefRowCount(2);
+        doneArea.setWrapText(true);
 
         // Category
         ComboBox<TaskCategory> catCombo = new ComboBox<>();
@@ -1033,12 +1050,14 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                             cat.name(), new TaskPriority(prio),
                             deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern, startDate, recurrenceEnd);
                     newTask.setRemindDaysBefore(deadlinePicker.getValue() != null ? reminderCombo.getValue() : null);
+                    newTask.setDoneCriteria(doneArea.getText());
                     taskService.addTask(newTask);
                 } else {
                     TaskUpdate update = new TaskUpdate(title, descArea.getText().trim(),
                             cat.name(), new TaskPriority(prio),
                             deadlinePicker.getValue(), recurPattern, startDate, recurrenceEnd,
-                            reminderSelection(deadlinePicker.getValue(), reminderCombo.getValue()));
+                            reminderSelection(deadlinePicker.getValue(), reminderCombo.getValue()),
+                            doneArea.getText().trim());
                     taskService.updateTask(existingTask, update);
                     // Apply status change separately if editing
                     if (statusCombo.getValue() != null && statusCombo.getValue() != existingTask.getStatus()) {
@@ -1059,6 +1078,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         form.getChildren().addAll(formTitle,
                 new Label("Title:"), titleField,
                 new Label("Description:"), descArea,
+                new Label("Done when:"), doneArea,
                 new Label("Category:"), catCombo, newCatRow,
                 new Label("Priority:"), priorityCombo,
                 new Label("Deadline:"), deadlinePicker, deadlineHint,

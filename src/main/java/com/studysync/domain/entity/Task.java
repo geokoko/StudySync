@@ -99,6 +99,7 @@ public class Task {
      * than stored, so moving the deadline moves the reminder with it.
      */
     private Integer remindDaysBefore;
+    private String doneCriteria;
 
     // Default constructor
     public Task() {
@@ -359,6 +360,16 @@ public class Task {
         this.remindDaysBefore = (remindDaysBefore != null && remindDaysBefore >= 0) ? remindDaysBefore : null;
     }
 
+    /** Free text saying what finishing this task means, or {@code null} when nothing was written down. */
+    public String getDoneCriteria() {
+        return doneCriteria;
+    }
+
+    /** Blank text is stored as {@code null}, so clearing the field in the form clears the column. */
+    public void setDoneCriteria(String doneCriteria) {
+        this.doneCriteria = (doneCriteria == null || doneCriteria.isBlank()) ? null : doneCriteria.trim();
+    }
+
     /**
      * The day this task starts reminding, derived from the deadline.
      *
@@ -467,8 +478,8 @@ public class Task {
         String sql = """
             MERGE INTO tasks (id, title, description, category, priority, deadline, status, points,
                               recurring_pattern, start_date, recurrence_end_date, completed_at,
-                              remind_days_before)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              remind_days_before, done_criteria)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
         jdbcTemplate.update(sql,
@@ -484,7 +495,8 @@ public class Task {
             this.startDate,
             this.recurrenceEndDate,
             this.completedAt,
-            this.remindDaysBefore
+            this.remindDaysBefore,
+            this.doneCriteria
         );
         
         logger.debug("Task saved: {} - {}", id, this.title);
@@ -799,6 +811,7 @@ public class Task {
             );
             task.completedAt = rs.getObject("completed_at", LocalDate.class);
             task.remindDaysBefore = rs.getObject("remind_days_before", Integer.class);
+            task.doneCriteria = rs.getString("done_criteria");
             java.sql.Timestamp createdTs = rs.getTimestamp("created_at");
             if (createdTs != null) {
                 task.setCreatedAt(createdTs.toLocalDateTime());
