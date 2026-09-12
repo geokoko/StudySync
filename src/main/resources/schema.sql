@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     recurrence_end_date DATE,
     completed_at DATE,
     remind_days_before INTEGER,
+    done_criteria TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -134,6 +135,7 @@ CREATE TABLE IF NOT EXISTS study_goals (
     status VARCHAR(20) DEFAULT 'ACTIVE',
     abandoned_explicitly BOOLEAN DEFAULT FALSE,
     achieved_attempt_id VARCHAR(50),
+    done_criteria TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
@@ -460,3 +462,12 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS remind_days_before INTEGER;
 -- row's insert time while looking like a modification timestamp - which is what
 -- made an earlier completed_at backfill read it as one.
 ALTER TABLE tasks DROP COLUMN IF EXISTS updated_at;
+
+-- What "done" means. On a goal it is a checklist: one criterion per line,
+-- each prefixed "[x] " (ticked) or "[ ] ". It lives on the parent goal, not
+-- the attempt, so a retry picks up the ticks the previous attempt left
+-- behind. Ticking the last criterion achieves the current attempt; unticking
+-- one on an achieved goal reopens it. On a task it is free text. NULL means
+-- nothing was written down, which behaves exactly as before.
+ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS done_criteria TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS done_criteria TEXT;

@@ -1062,6 +1062,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         }
         TaskStyleUtils.fontNormal(goalLabel, 13);
         textBox.getChildren().add(goalLabel);
+        if (!goal.getCriteria().isEmpty()) {
+            textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), (i, ticked) -> {
+                studyService.setGoalCriterionDone(goal.getId(), i, ticked);
+                updateProgress();
+                updateTasksDisplay();
+            }));
+        }
 
         Label attemptLabel = new Label(formatAttemptSummary(goal));
         attemptLabel.setStyle("-fx-text-fill: "
@@ -1082,7 +1089,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         } else {
             summary += " - pending";
         }
-        return summary;
+        String progress = TaskStyleUtils.criteriaProgress(goal.getCriteria());
+        return progress == null ? summary : summary + " \u00B7 " + progress;
     }
 
     /**
@@ -1129,6 +1137,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
             VBox textBox = new VBox(2);
             textBox.getChildren().add(label);
+            if (!goal.getCriteria().isEmpty()) {
+                textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), (i, ticked) -> {
+                    studyService.setGoalCriterionDone(goal.getId(), i, ticked);
+                    updateProgress();
+                    updateTasksDisplay();
+                }));
+            }
             Label attempts = new Label(formatAttemptSummary(goal));
             attempts.setTextFill(Color.web("#7f8c8d"));
             TaskStyleUtils.fontNormal(attempts, 10);
@@ -1616,6 +1631,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         descArea.setPrefRowCount(3);
         descArea.setWrapText(true);
 
+        TextArea criteriaArea = new TextArea();
+        criteriaArea.setPromptText("What done means - one criterion per line (optional)");
+        criteriaArea.setPrefRowCount(3);
+        criteriaArea.setWrapText(true);
+        Label criteriaLabel = new Label("Done when:");
+
         // Task selector (only when no task pre-linked)
         ComboBox<Task> taskCombo = new ComboBox<>();
         VBox taskSection = new VBox(4);
@@ -1642,10 +1663,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             });
             taskSection.getChildren().addAll(taskLabel, taskCombo);
             content.getChildren().addAll(headerLabel, dateRow,
-                    new Label("Description:"), descArea, taskSection);
+                    new Label("Description:"), descArea, criteriaLabel, criteriaArea, taskSection);
         } else {
             content.getChildren().addAll(headerLabel, dateRow,
-                    new Label("Description:"), descArea);
+                    new Label("Description:"), descArea, criteriaLabel, criteriaArea);
         }
 
         Button okBtn = new Button("Add Goal");
@@ -1664,7 +1685,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             String taskId = linkedTask != null ? linkedTask.getId()
                     : (taskCombo.getValue() != null ? taskCombo.getValue().getId() : null);
             try {
-                studyService.addStudyGoal(desc, date, taskId);
+                studyService.addStudyGoal(desc, date, taskId, criteriaArea.getText());
                 closeModal.run();
                 updateTasksDisplay();
                 updateProgress();

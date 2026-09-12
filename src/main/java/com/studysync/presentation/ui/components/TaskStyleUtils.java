@@ -5,14 +5,18 @@ import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.valueobject.TaskStatus;
 import javafx.geometry.Insets;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 
 import java.time.LocalDate;
 import java.time.format.TextStyle;
+import java.util.List;
 import java.util.Locale;
+import java.util.function.BiConsumer;
 
 /**
  * Shared styling helpers for task status rendering and CSS-safe font
@@ -377,5 +381,42 @@ public final class TaskStyleUtils {
         fontBold(badge, 10);
         badge.setTextFill(Color.web(MISSED_COLOR));
         return badge;
+    }
+
+    /**
+     * A goal's "what done means" checklist, one checkbox per criterion. With a
+     * handler each box is live and reports (index, ticked); without one the
+     * boxes are inert, which reads as the same list without inviting clicks.
+     */
+    public static VBox criteriaChecklist(List<StudyGoal.Criterion> criteria, BiConsumer<Integer, Boolean> onToggle) {
+        VBox box = new VBox(2);
+        for (int i = 0; i < criteria.size(); i++) {
+            StudyGoal.Criterion c = criteria.get(i);
+            CheckBox check = new CheckBox(c.text());
+            check.setSelected(c.done());
+            check.setWrapText(true);
+            fontNormal(check, 11);
+            if (c.done()) {
+                check.setTextFill(Color.web(COLOR_MUTED));
+            }
+            if (onToggle != null) {
+                int index = i;
+                check.setOnAction(e -> onToggle.accept(index, check.isSelected()));
+            } else {
+                check.setMouseTransparent(true);
+                check.setFocusTraversable(false);
+            }
+            box.getChildren().add(check);
+        }
+        return box;
+    }
+
+    /** "2/3" for a checklist, or {@code null} when the goal has none. */
+    public static String criteriaProgress(List<StudyGoal.Criterion> criteria) {
+        if (criteria.isEmpty()) {
+            return null;
+        }
+        long done = criteria.stream().filter(StudyGoal.Criterion::done).count();
+        return done + "/" + criteria.size();
     }
 }

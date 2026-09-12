@@ -1167,7 +1167,11 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(attemptLabel, 11);
         attemptLabel.setTextFill(goal.getMissedAttemptCount() > 0 ? Color.web("#ff5722") : Color.web("#6c757d"));
 
-        goalBox.getChildren().addAll(statusLabel, descriptionLabel, attemptLabel);
+        goalBox.getChildren().addAll(statusLabel, descriptionLabel);
+        if (!goal.getCriteria().isEmpty()) {
+            goalBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), null));
+        }
+        goalBox.getChildren().add(attemptLabel);
 
         // Action buttons
         HBox actionBox = new HBox(8);
@@ -1390,6 +1394,13 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         goalTextArea.setPrefRowCount(3);
         goalTextArea.setWrapText(true);
 
+        Label criteriaLabel = new Label("Done when (one criterion per line, optional):");
+        TaskStyleUtils.fontBold(criteriaLabel, 12);
+        TextArea criteriaArea = new TextArea();
+        criteriaArea.setPromptText("e.g., Solved all exercises, Can explain the theorem without notes...");
+        criteriaArea.setPrefRowCount(3);
+        criteriaArea.setWrapText(true);
+
         Label taskLabel = new Label("Link to task (optional):");
         TaskStyleUtils.fontBold(taskLabel, 12);
         ComboBox<Task> taskCombo = new ComboBox<>();
@@ -1412,7 +1423,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             }
         });
 
-        content.getChildren().addAll(instructionLabel, goalTextArea, taskLabel, taskCombo);
+        content.getChildren().addAll(instructionLabel, goalTextArea, criteriaLabel, criteriaArea, taskLabel, taskCombo);
         dialogPane.setContent(content);
         
         // Enable/disable OK button based on input
@@ -1434,7 +1445,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                 try {
                     Task linkedTask = taskCombo.getValue();
                     studyService.addStudyGoal(goalDescription, date,
-                            linkedTask != null ? linkedTask.getId() : null);
+                            linkedTask != null ? linkedTask.getId() : null, criteriaArea.getText());
                     updateCalendarDisplay();
                     
                     // Show confirmation

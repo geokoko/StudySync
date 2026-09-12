@@ -10,7 +10,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![JavaFX](https://img.shields.io/badge/JavaFX-21-blue.svg)](https://openjfx.io/)
 [![H2 Database](https://img.shields.io/badge/Database-H2-blue.svg)](https://www.h2database.com/)
-[![Version](https://img.shields.io/badge/Version-0.1.7-red.svg)](https://github.com/geokoko/StudySync/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.8-red.svg)](https://github.com/geokoko/StudySync/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
@@ -19,7 +19,7 @@ StudySync is a comprehensive Study Management System built with modern Java tech
 
 Perfect for students who want to integrate their academic calendar with task management and study tracking! 📚✨
 
-> **⚠️ Beta Release**: This is version 0.1.7 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
+> **⚠️ Beta Release**: This is version 0.1.8 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
 
 ## Key Features
 
@@ -27,7 +27,7 @@ StudySync provides comprehensive academic management with three main modules:
 
 ## 📚 Study Planner Features, with Daily Reflections Logging
 * **Study Sessions**: Track study time with built-in timer and focus level monitoring
-* **Study Goals**: Set and manage daily study objectives with future date planning
+* **Study Goals**: Set and manage daily study objectives with future date planning, each with an optional checklist of what "done" means — tick the last item and the goal is achieved
 * **Future Goal Planning**: Navigate to any future date and plan goals ahead via DatePicker
 * **Recurring Tasks**: Define repeating task schedules (e.g. every week on Mon/Wed/Fri)
 * **Daily Reflections**: A diary tab holding every entry you have ever written — search them, write a day at a time with autosave, or read the whole diary back as a thread of dated entries

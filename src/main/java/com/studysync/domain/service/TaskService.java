@@ -120,6 +120,7 @@ public class TaskService {
             // here must not quietly drop fields the caller set.
             taskToSave.setRemindDaysBefore(task.getRemindDaysBefore());
             taskToSave.setCompletedAt(task.getCompletedAt());
+            taskToSave.setDoneCriteria(task.getDoneCriteria());
             logger.debug("Set default priority for task: {}", taskToSave.getTitle());
         }
 
@@ -645,6 +646,8 @@ public class TaskService {
         // setRemindDaysBefore maps any negative value to "no reminder".
         updated.setRemindDaysBefore(update.remindDaysBefore() != null
                 ? update.remindDaysBefore() : task.getRemindDaysBefore());
+        // null keeps the existing text; the setter turns blank into "cleared".
+        updated.setDoneCriteria(update.doneCriteria() != null ? update.doneCriteria() : task.getDoneCriteria());
         // The constructor stamps a fresh creation date; keep the real one, or
         // the returned object reports a recurrence anchor the database does not
         // agree with.

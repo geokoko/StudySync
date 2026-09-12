@@ -9,8 +9,13 @@ import org.springframework.jdbc.core.RowMapper;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -40,11 +45,18 @@ public class StudyGoal {
         MISSED
     }
 
+    /** One line of a goal's "what done means" checklist. */
+    public record Criterion(String text, boolean done) { }
+
+    private static final String TICKED = "[x] ";
+    private static final String UNTICKED = "[ ] ";
+
     private static final String SELECT_ATTEMPT_VIEW = """
         SELECT
             g.id,
             g.description,
             g.task_id,
+            g.done_criteria,
             COALESCE(g.status, 'ACTIVE') AS status,
             COALESCE(g.abandoned_explicitly, FALSE) AS abandoned_explicitly,
             g.achieved_attempt_id,
@@ -96,6 +108,7 @@ public class StudyGoal {
     private LocalDateTime outcomeAt;
     private int attemptNumber = 1;
     private int missedAttemptCount = 0;
+    private String doneCriteria;
 
     public static void setJdbcTemplate(JdbcTemplate template) {
         jdbcTemplate = template;
@@ -171,8 +184,9 @@ public class StudyGoal {
                       GoalStatus status, boolean abandonedExplicitly, String achievedAttemptId,
                       String attemptId, String replannedFromAttemptId, AttemptOutcome attemptOutcome,
                       String reasonIfNotAchieved, LocalDateTime outcomeAt,
-                      int attemptNumber, int missedAttemptCount) {
+                      int attemptNumber, int missedAttemptCount, String doneCriteria) {
         this.id = id;
+        this.doneCriteria = doneCriteria;
         this.date = date;
         this.description = description;
         this.taskId = taskId;
@@ -255,6 +269,73 @@ public class StudyGoal {
     public int getAttemptNumber() { return attemptNumber; }
     public int getMissedAttemptCount() { return missedAttemptCount; }
 
+    public String getDoneCriteria() { return doneCriteria; }
+    public void setDoneCriteria(String doneCriteria) { this.doneCriteria = doneCriteria; }
+
+    /** The checklist behind {@link #getDoneCriteria()}; empty when none was written. */
+    public List<Criterion> getCriteria() { return parseCriteria(doneCriteria); }
+
+    // ponytail: checklist stored as "[x] line" text on the parent goal, not a
+    // table - move to a study_goal_criteria table only if criteria ever need
+    // ids or history.
+    public static List<Criterion> parseCriteria(String stored) {
+        if (stored == null || stored.isBlank()) {
+            return List.of();
+        }
+        List<Criterion> out = new ArrayList<>();
+        for (String line : stored.split("\\R")) {
+            if (line.isBlank()) {
+                continue;
+            }
+            boolean done = line.startsWith(TICKED);
+            String text = done || line.startsWith(UNTICKED) ? line.substring(TICKED.length()) : line;
+            out.add(new Criterion(text.trim(), done));
+        }
+        return out;
+    }
+
+    public static String serializeCriteria(List<Criterion> criteria) {
+        if (criteria == null || criteria.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Criterion c : criteria) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(c.done() ? TICKED : UNTICKED).append(c.text());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Turns user-typed lines (one criterion per line) into stored checklist
+     * text, keeping the tick of every line that already existed with exactly
+     * the same text. Duplicate lines are matched in order, so each keeps its
+     * own tick. Blank input means no checklist.
+     */
+    // ponytail: ticks re-matched by exact trimmed text; a reworded done
+    // criterion comes back unticked.
+    public static String criteriaFromLines(String plainLines, String previousStored) {
+        if (plainLines == null) {
+            return null;
+        }
+        Map<String, Deque<Boolean>> previous = new HashMap<>();
+        for (Criterion c : parseCriteria(previousStored)) {
+            previous.computeIfAbsent(c.text(), k -> new ArrayDeque<>()).add(c.done());
+        }
+        List<Criterion> out = new ArrayList<>();
+        for (String line : plainLines.split("\\R")) {
+            String text = line.trim();
+            if (!text.isEmpty()) {
+                Deque<Boolean> ticks = previous.get(text);
+                boolean done = ticks != null && !ticks.isEmpty() && ticks.poll();
+                out.add(new Criterion(text, done));
+            }
+        }
+        return serializeCriteria(out);
+    }
+
     public int calculateDelayPenalty() {
         return missedAttemptCount;
     }
@@ -313,15 +394,15 @@ public class StudyGoal {
                 id, date, description, achieved, reason_if_not_achieved,
                 days_delayed, is_delayed, points_deducted, task_id,
                 replanned_for_date, failed, status, abandoned_explicitly,
-                achieved_attempt_id, updated_at
+                achieved_attempt_id, done_criteria, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         jdbcTemplate.update(sql,
                 id, date, description, status == GoalStatus.ACHIEVED, reasonIfNotAchieved,
                 daysDelayed, isDelayed, pointsDeducted, taskId,
                 replannedForDate, attemptOutcome == AttemptOutcome.MISSED, status.name(),
-                abandonedExplicitly, achievedAttemptId);
+                abandonedExplicitly, achievedAttemptId, doneCriteria);
     }
 
     private void upsertAttempt() {
@@ -480,16 +561,17 @@ public class StudyGoal {
         return jdbcTemplate.query(sql, getAttemptViewMapper(), taskId);
     }
 
-    public static boolean updateDetails(String goalId, String description, LocalDate pendingPlannedForDate) {
+    public static boolean updateDetails(String goalId, String description, LocalDate pendingPlannedForDate,
+                                        String doneCriteria) {
         if (jdbcTemplate == null || goalId == null || goalId.isBlank()
                 || description == null || description.isBlank()) {
             return false;
         }
         int parentRows = jdbcTemplate.update("""
             UPDATE study_goals
-            SET description = ?, updated_at = CURRENT_TIMESTAMP
+            SET description = ?, done_criteria = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-            """, description.trim(), goalId);
+            """, description.trim(), doneCriteria, goalId);
         if (pendingPlannedForDate != null) {
             jdbcTemplate.update("""
                 UPDATE study_goal_attempts
@@ -695,6 +777,31 @@ public class StudyGoal {
         return rows > 0;
     }
 
+    /**
+     * Ticks or unticks one checklist line on the parent goal and returns the
+     * checklist as now stored, or empty when the goal or index is unknown and
+     * nothing was written.
+     */
+    public static Optional<List<Criterion>> setCriterionDone(String goalId, int index, boolean done) {
+        if (jdbcTemplate == null || goalId == null || goalId.isBlank()) {
+            return Optional.empty();
+        }
+        String stored = jdbcTemplate.query("""
+            SELECT done_criteria FROM study_goals WHERE id = ?
+            """, rs -> rs.next() ? rs.getString("done_criteria") : null, goalId);
+        List<Criterion> criteria = new ArrayList<>(parseCriteria(stored));
+        if (index < 0 || index >= criteria.size()) {
+            return Optional.empty();
+        }
+        criteria.set(index, new Criterion(criteria.get(index).text(), done));
+        jdbcTemplate.update("""
+            UPDATE study_goals
+            SET done_criteria = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, serializeCriteria(criteria), goalId);
+        return Optional.of(criteria);
+    }
+
     public static boolean markCurrentAttemptAchieved(String goalId, String reasonIfNot) {
         Optional<StudyGoal> goalOpt = findById(goalId);
         if (goalOpt.isEmpty()) {
@@ -786,7 +893,8 @@ public class StudyGoal {
                 rs.getString("reason_if_not_achieved"),
                 rs.getObject("outcome_at", LocalDateTime.class),
                 rs.getInt("attempt_number"),
-                rs.getInt("missed_attempt_count")
+                rs.getInt("missed_attempt_count"),
+                rs.getString("done_criteria")
         );
     }
 
