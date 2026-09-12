@@ -2,6 +2,7 @@ package com.studysync.presentation.ui.components;
 
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.service.StudyService;
+import javafx.scene.control.DateCell;
 import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
@@ -47,6 +48,13 @@ final class GoalEditFields {
         date = new DatePicker(isNew ? defaultDate : goal.getDate());
         date.setMaxWidth(Double.MAX_VALUE);
         date.setDisable(!canEditDate);
+        date.setDayCellFactory(picker -> new DateCell() {
+            @Override
+            public void updateItem(LocalDate item, boolean empty) {
+                super.updateItem(item, empty);
+                setDisable(empty || item.isBefore(LocalDate.now())); // the service refuses past dates too
+            }
+        });
 
         Label dateHint = new Label(canEditDate
                 ? "Choose when this attempt should appear in the planner."

@@ -307,6 +307,11 @@ public class StudyService {
         if (goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING && pendingPlannedForDate == null) {
             throw ValidationException.requiredFieldMissing("plannedForDate");
         }
+        // A pending attempt moved into the past would be swept to MISSED on the next
+        // refresh, which is not what "reschedule" means; planGoalAttempt refuses the same.
+        if (pendingPlannedForDate != null && pendingPlannedForDate.isBefore(dateTimeService.getCurrentDate())) {
+            throw ValidationException.invalidDateRange(pendingPlannedForDate.toString(), "today or a future date");
+        }
         String doneCriteria = doneCriteriaLines == null
                 ? goal.getDoneCriteria()
                 : StudyGoal.criteriaFromLines(doneCriteriaLines, goal.getDoneCriteria());
