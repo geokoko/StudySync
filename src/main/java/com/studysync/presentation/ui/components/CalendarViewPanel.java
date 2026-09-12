@@ -29,6 +29,7 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.util.List;
+import java.util.Objects;
 import java.util.Locale;
 import java.util.Map;
 
@@ -1259,14 +1260,16 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         });
 
         dialog.showAndWait().filter(bt -> bt == ButtonType.OK).ifPresent(bt -> {
-            StudyGoal.findById(goal.getId()).ifPresent(updated -> {
-                VBox parent = (VBox) goalBox.getParent();
-                if (updated.getDate().equals(goal.getDate())) {
-                    parent.getChildren().set(parent.getChildren().indexOf(goalBox), createStudyGoalBox(updated));
-                } else {
-                    parent.getChildren().remove(goalBox); // moved to another day, so it leaves this pane
-                }
-            });
+            // Reload the very attempt this pane listed, through the same query that built
+            // the pane; findById would prefer a later pending retry over the one shown here.
+            VBox parent = (VBox) goalBox.getParent();
+            studyService.getGoalsForDate(goal.getDate()).stream()
+                    .filter(g -> Objects.equals(g.getAttemptId(), goal.getAttemptId()))
+                    .findFirst()
+                    .ifPresentOrElse(
+                            updated -> parent.getChildren().set(parent.getChildren().indexOf(goalBox),
+                                    createStudyGoalBox(updated)),
+                            () -> parent.getChildren().remove(goalBox)); // moved to another day
             updateCalendarDisplay();
         });
     }

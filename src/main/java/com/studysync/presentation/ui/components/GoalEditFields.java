@@ -12,9 +12,11 @@ import java.time.LocalDate;
 import java.util.stream.Collectors;
 
 /**
- * The fields every goal form shares: description, the "done when" checklist
- * and the planned date. Build one, drop {@link #view()} into any dialog, then
- * call {@link #save} or {@link #create} from its confirm button.
+ * The fields the goal edit dialogs and the task panel's plan-goal form share:
+ * description, the "done when" checklist and the planned date. Build one, drop
+ * {@link #view()} into any dialog, then call {@link #save} or {@link #create}
+ * from its confirm button. The two quick "Add Goal" dialogs keep their own
+ * simpler controls (task picker, future-only dates) on purpose.
  */
 final class GoalEditFields {
 
