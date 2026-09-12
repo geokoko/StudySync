@@ -18,6 +18,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
+import javafx.event.ActionEvent;
 import javafx.scene.Node;
 
 import org.slf4j.Logger;
@@ -1177,6 +1178,11 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
 
+        Button editBtn = new Button("Edit");
+        editBtn.getStyleClass().addAll("btn-primary", "btn-small");
+        editBtn.setOnAction(e -> showEditGoalDialog(goal, goalBox));
+        actionBox.getChildren().add(editBtn);
+
         // "Abandon" button — keeps the attempt timeline but stops future replanning.
         if (!goal.isAchieved() && !goal.isFailed()) {
             Button failBtn = new Button("Abandon Goal");
@@ -1224,6 +1230,41 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         goalBox.getChildren().add(actionBox);
 
         return goalBox;
+    }
+
+    /**
+     * Edit a goal's description, done-when checklist and (while pending) its
+     * date, then redraw its box in place so the day view stays open.
+     */
+    private void showEditGoalDialog(StudyGoal goal, VBox goalBox) {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
+        dialog.setTitle("Edit Goal");
+        dialog.setHeaderText("Edit goal planned for "
+                + goal.getDate().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy")));
+
+        GoalEditFields fields = new GoalEditFields(goal, goal.getDate());
+        DialogPane pane = dialog.getDialogPane();
+        pane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        pane.setContent(fields.view());
+
+        // Consuming the action keeps the dialog open when the fields do not validate.
+        pane.lookupButton(ButtonType.OK).addEventFilter(ActionEvent.ACTION, ev -> {
+            try {
+                fields.save(studyService, goal);
+            } catch (Exception ex) {
+                fields.showError(ex.getMessage());
+                ev.consume();
+            }
+        });
+
+        dialog.showAndWait().filter(bt -> bt == ButtonType.OK).ifPresent(bt -> {
+            StudyGoal.findById(goal.getId()).ifPresent(updated -> {
+                VBox parent = (VBox) goalBox.getParent();
+                parent.getChildren().set(parent.getChildren().indexOf(goalBox), createStudyGoalBox(updated));
+            });
+            updateCalendarDisplay();
+        });
     }
 
     static String formatGoalAttemptSummary(StudyGoal goal) {

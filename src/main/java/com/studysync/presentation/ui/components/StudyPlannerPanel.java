@@ -1072,9 +1072,48 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 + (goal.getMissedAttemptCount() > 0 ? TaskStyleUtils.COLOR_DANGER : "#6c757d") + ";");
         TaskStyleUtils.fontNormal(attemptLabel, 11);
         textBox.getChildren().add(attemptLabel);
+        HBox.setHgrow(textBox, Priority.ALWAYS);
 
-        row.getChildren().addAll(check, textBox);
+        Button editBtn = new Button("Edit");
+        editBtn.getStyleClass().addAll("btn-gray", "btn-small");
+        editBtn.setOnAction(e -> showEditGoalDialog(goal));
+
+        row.getChildren().addAll(check, textBox, editBtn);
         return row;
+    }
+
+    /** Edit an existing goal's description, done-when checklist and (while pending) its date. */
+    private void showEditGoalDialog(StudyGoal goal) {
+        VBox content = new VBox(12);
+        content.setPadding(new Insets(20));
+        content.getStyleClass().add("modal-content");
+        content.setMaxWidth(450);
+        content.setMaxHeight(Region.USE_PREF_SIZE);
+
+        Label headerLabel = new Label("Edit goal");
+        TaskStyleUtils.fontBold(headerLabel, 16);
+        GoalEditFields fields = new GoalEditFields(goal, displayDate);
+
+        Button saveBtn = new Button("Save");
+        saveBtn.getStyleClass().add("btn-primary");
+        saveBtn.setOnAction(e -> {
+            try {
+                fields.save(studyService, goal);
+                closeModal.run();
+                updateTasksDisplay();
+                updateProgress();
+            } catch (Exception ex) {
+                fields.showError(ex.getMessage());
+            }
+        });
+        Button cancelBtn = new Button("Cancel");
+        cancelBtn.getStyleClass().add("btn-cancel");
+        cancelBtn.setOnAction(e -> closeModal.run());
+        HBox btnRow = new HBox(10, saveBtn, cancelBtn);
+        btnRow.setAlignment(Pos.CENTER_RIGHT);
+
+        content.getChildren().addAll(headerLabel, fields.view(), btnRow);
+        showModal.accept(content);
     }
 
     private String formatAttemptSummary(StudyGoal goal) {

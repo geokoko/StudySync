@@ -256,6 +256,10 @@ Every goal (and, as free text, every task) can say what "done" means.
   handler, inert without), `criteriaProgress` (the " · 2/3" suffix, empty
   when there is no checklist) and `criteriaArea` + `CRITERIA_LABEL`, the one
   input field every goal form uses.
+- Existing goals are edited through `GoalEditFields` (description, checklist,
+  planned date while the attempt is pending), shown from an Edit button on the
+  planner goal row, the calendar goal box and the task panel's goal history.
+  It is the single place those three fields are built and validated.
 
 ## Recurring Tasks
 

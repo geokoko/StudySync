@@ -687,25 +687,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         taskLabel.setTextFill(Color.web("#495057"));
         taskLabel.setWrapText(true);
 
-        TextArea descriptionArea = new TextArea(isNew ? "" : nvl(existingGoal.getDescription()));
-        descriptionArea.setPromptText("Goal description");
-        descriptionArea.setPrefRowCount(3);
-        descriptionArea.setWrapText(true);
-
-        TextArea criteriaArea = TaskStyleUtils.criteriaArea(isNew ? null : existingGoal.getCriteria().stream()
-                .map(StudyGoal.Criterion::text).collect(Collectors.joining("\n")));
-
-        boolean canEditDate = isNew || existingGoal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING;
-        DatePicker datePicker = new DatePicker(isNew ? LocalDate.now() : existingGoal.getDate());
-        datePicker.setMaxWidth(Double.MAX_VALUE);
-        datePicker.setDisable(!canEditDate);
-
-        Label dateHint = new Label(canEditDate
-                ? "Choose when this attempt should appear in the planner."
-                : "Only pending attempts can be rescheduled. Use Plan to create a new dated attempt.");
-        TaskStyleUtils.fontNormal(dateHint, 11);
-        dateHint.setTextFill(Color.web("#6c757d"));
-        dateHint.setWrapText(true);
+        GoalEditFields fields = new GoalEditFields(existingGoal, LocalDate.now());
 
         Button saveBtn = new Button(isNew ? "Plan Goal" : "Save Goal");
         saveBtn.getStyleClass().add("btn-primary");
@@ -714,38 +696,23 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         cancelBtn.setOnAction(e -> closeModal.run());
 
         saveBtn.setOnAction(e -> {
-            String description = descriptionArea.getText().trim();
-            LocalDate plannedDate = datePicker.getValue();
-            if (description.isEmpty()) {
-                showInlineError(form, "Description is required.");
-                return;
-            }
-            if (canEditDate && plannedDate == null) {
-                showInlineError(form, "Planned date is required.");
-                return;
-            }
-
             try {
                 if (isNew) {
-                    studyService.addStudyGoal(description, plannedDate, task.getId(), criteriaArea.getText());
+                    fields.create(studyService, task.getId());
                 } else {
-                    studyService.updateStudyGoalDetails(existingGoal.getId(), description,
-                            canEditDate ? plannedDate : null, criteriaArea.getText());
+                    fields.save(studyService, existingGoal);
                 }
                 closeModal.run();
                 populateGoalHistory(ownerPane, task);
             } catch (Exception ex) {
-                showInlineError(form, ex.getMessage());
+                fields.showError(ex.getMessage());
             }
         });
 
         HBox buttons = new HBox(10, saveBtn, cancelBtn);
         buttons.setAlignment(Pos.CENTER_RIGHT);
 
-        form.getChildren().addAll(title, new Label("Task:"), taskLabel,
-                new Label("Description:"), descriptionArea,
-                new Label(TaskStyleUtils.CRITERIA_LABEL), criteriaArea,
-                new Label("Planned date:"), datePicker, dateHint, buttons);
+        form.getChildren().addAll(title, new Label("Task:"), taskLabel, fields.view(), buttons);
 
         showModal.accept(wrapGoalModal(form));
     }
