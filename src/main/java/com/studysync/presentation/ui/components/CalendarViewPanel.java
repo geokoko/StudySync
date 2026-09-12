@@ -1236,7 +1236,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
             summary += " | parent abandoned";
         }
-        return summary;
+        return summary + TaskStyleUtils.criteriaProgress(goal.getCriteria());
     }
     
     private VBox createStudySessionBox(StudySession session) {
@@ -1394,12 +1394,9 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         goalTextArea.setPrefRowCount(3);
         goalTextArea.setWrapText(true);
 
-        Label criteriaLabel = new Label("Done when (one criterion per line, optional):");
+        Label criteriaLabel = new Label(TaskStyleUtils.CRITERIA_LABEL);
         TaskStyleUtils.fontBold(criteriaLabel, 12);
-        TextArea criteriaArea = new TextArea();
-        criteriaArea.setPromptText("e.g., Solved all exercises, Can explain the theorem without notes...");
-        criteriaArea.setPrefRowCount(3);
-        criteriaArea.setWrapText(true);
+        TextArea criteriaArea = TaskStyleUtils.criteriaArea(null);
 
         Label taskLabel = new Label("Link to task (optional):");
         TaskStyleUtils.fontBold(taskLabel, 12);

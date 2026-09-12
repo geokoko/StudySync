@@ -377,7 +377,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         if (task.getDoneCriteria() != null) {
             Label doneWhen = new Label("Done when: " + task.getDoneCriteria());
             TaskStyleUtils.fontItalic(doneWhen, 12);
-            doneWhen.setTextFill(Color.web("#7f8c8d"));
+            doneWhen.setTextFill(Color.web(TaskStyleUtils.COLOR_MUTED));
             doneWhen.setWrapText(true);
             info.getChildren().add(doneWhen);
         }
@@ -495,9 +495,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         HBox header = new HBox(8);
         header.setAlignment(Pos.CENTER_LEFT);
 
-        String progress = TaskStyleUtils.criteriaProgress(latest.getCriteria());
         Label title = new Label(shorten(latest.getDescription(), 90)
-                + (progress == null ? "" : " \u00B7 " + progress));
+                + TaskStyleUtils.criteriaProgress(latest.getCriteria()));
         TaskStyleUtils.fontSemiBold(title, 12);
         title.setTextFill(Color.web("#2c3e50"));
         title.setWrapText(true);
@@ -693,11 +692,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         descriptionArea.setPrefRowCount(3);
         descriptionArea.setWrapText(true);
 
-        TextArea criteriaArea = new TextArea(isNew ? "" : existingGoal.getCriteria().stream()
+        TextArea criteriaArea = TaskStyleUtils.criteriaArea(isNew ? null : existingGoal.getCriteria().stream()
                 .map(StudyGoal.Criterion::text).collect(Collectors.joining("\n")));
-        criteriaArea.setPromptText("What done means - one criterion per line (optional)");
-        criteriaArea.setPrefRowCount(3);
-        criteriaArea.setWrapText(true);
 
         boolean canEditDate = isNew || existingGoal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING;
         DatePicker datePicker = new DatePicker(isNew ? LocalDate.now() : existingGoal.getDate());
@@ -748,7 +744,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         form.getChildren().addAll(title, new Label("Task:"), taskLabel,
                 new Label("Description:"), descriptionArea,
-                new Label("Done when:"), criteriaArea,
+                new Label(TaskStyleUtils.CRITERIA_LABEL), criteriaArea,
                 new Label("Planned date:"), datePicker, dateHint, buttons);
 
         showModal.accept(wrapGoalModal(form));

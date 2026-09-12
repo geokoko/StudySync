@@ -252,8 +252,10 @@ Every goal (and, as free text, every task) can say what "done" means.
 - **Tasks** get `tasks.done_criteria` as plain text, shown on the card as
   "Done when: …". `TaskUpdate.doneCriteria` follows the record's convention:
   `null` keeps, blank clears (the `Task` setter normalises blank to `null`).
-- The UI helper for the list is `TaskStyleUtils.criteriaChecklist` (live with
-  a handler, inert without) plus `criteriaProgress` for the "2/3" badge.
+- UI helpers live in `TaskStyleUtils`: `criteriaChecklist` (live with a
+  handler, inert without), `criteriaProgress` (the " · 2/3" suffix, empty
+  when there is no checklist) and `criteriaArea` + `CRITERIA_LABEL`, the one
+  input field every goal form uses.
 
 ## Recurring Tasks
 

@@ -549,6 +549,23 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void tickingACriterionOnAManuallyAchievedGoalKeepsItAchieved() {
+        studyService.addStudyGoal("Finish chapter 10", LocalDate.of(2026, 3, 28), "task-10", "Read\nExercises");
+        StudyGoal goal = StudyGoal.findByTaskId("task-10").getFirst();
+        studyService.updateStudyGoalAchievement(goal.getId(), true, null);
+
+        studyService.setGoalCriterionDone(goal.getId(), 0, true);
+
+        StudyGoal stillAchieved = StudyGoal.findById(goal.getId()).orElseThrow();
+        assertTrue(stillAchieved.isAchieved());
+        assertEquals(List.of(new StudyGoal.Criterion("Read", true), new StudyGoal.Criterion("Exercises", false)),
+                stillAchieved.getCriteria());
+
+        studyService.setGoalCriterionDone(goal.getId(), 0, false);
+        assertFalse(StudyGoal.findById(goal.getId()).orElseThrow().isAchieved());
+    }
+
+    @Test
     void duplicateChecklistLinesKeepTheirOwnTicks() {
         studyService.addStudyGoal("Two laps", LocalDate.of(2026, 3, 28), "task-9", "Lap\nLap");
         StudyGoal goal = StudyGoal.findByTaskId("task-9").getFirst();

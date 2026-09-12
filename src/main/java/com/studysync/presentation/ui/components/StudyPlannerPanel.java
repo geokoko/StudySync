@@ -25,6 +25,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.function.BiConsumer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -1063,11 +1064,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(goalLabel, 13);
         textBox.getChildren().add(goalLabel);
         if (!goal.getCriteria().isEmpty()) {
-            textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), (i, ticked) -> {
-                studyService.setGoalCriterionDone(goal.getId(), i, ticked);
-                updateProgress();
-                updateTasksDisplay();
-            }));
+            textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), criterionToggle(goal)));
         }
 
         Label attemptLabel = new Label(formatAttemptSummary(goal));
@@ -1089,8 +1086,15 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         } else {
             summary += " - pending";
         }
-        String progress = TaskStyleUtils.criteriaProgress(goal.getCriteria());
-        return progress == null ? summary : summary + " \u00B7 " + progress;
+        return summary + TaskStyleUtils.criteriaProgress(goal.getCriteria());
+    }
+
+    private BiConsumer<Integer, Boolean> criterionToggle(StudyGoal goal) {
+        return (index, ticked) -> {
+            studyService.setGoalCriterionDone(goal.getId(), index, ticked);
+            updateProgress();
+            updateTasksDisplay();
+        };
     }
 
     /**
@@ -1138,11 +1142,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             VBox textBox = new VBox(2);
             textBox.getChildren().add(label);
             if (!goal.getCriteria().isEmpty()) {
-                textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), (i, ticked) -> {
-                    studyService.setGoalCriterionDone(goal.getId(), i, ticked);
-                    updateProgress();
-                    updateTasksDisplay();
-                }));
+                textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), criterionToggle(goal)));
             }
             Label attempts = new Label(formatAttemptSummary(goal));
             attempts.setTextFill(Color.web("#7f8c8d"));
@@ -1631,11 +1631,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         descArea.setPrefRowCount(3);
         descArea.setWrapText(true);
 
-        TextArea criteriaArea = new TextArea();
-        criteriaArea.setPromptText("What done means - one criterion per line (optional)");
-        criteriaArea.setPrefRowCount(3);
-        criteriaArea.setWrapText(true);
-        Label criteriaLabel = new Label("Done when:");
+        TextArea criteriaArea = TaskStyleUtils.criteriaArea(null);
+        Label criteriaLabel = new Label(TaskStyleUtils.CRITERIA_LABEL);
 
         // Task selector (only when no task pre-linked)
         ComboBox<Task> taskCombo = new ComboBox<>();

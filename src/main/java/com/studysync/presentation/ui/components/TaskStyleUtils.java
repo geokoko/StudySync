@@ -8,6 +8,7 @@ import javafx.geometry.Insets;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
@@ -411,12 +412,24 @@ public final class TaskStyleUtils {
         return box;
     }
 
-    /** "2/3" for a checklist, or {@code null} when the goal has none. */
+    /** Suffix such as {@code " \u00B7 2/3"} to append to a goal summary, or {@code ""} when there is no checklist. */
     public static String criteriaProgress(List<StudyGoal.Criterion> criteria) {
         if (criteria.isEmpty()) {
-            return null;
+            return "";
         }
         long done = criteria.stream().filter(StudyGoal.Criterion::done).count();
-        return done + "/" + criteria.size();
+        return " \u00B7 " + done + "/" + criteria.size();
+    }
+
+    /** Label text for the goal checklist field, shared by every goal form. */
+    public static final String CRITERIA_LABEL = "Done when (one criterion per line, optional):";
+
+    /** The goal checklist input, prefilled with one criterion per line. */
+    public static TextArea criteriaArea(String initialLines) {
+        TextArea area = new TextArea(initialLines == null ? "" : initialLines);
+        area.setPromptText("e.g. Solved all exercises / Can explain the theorem without notes");
+        area.setPrefRowCount(3);
+        area.setWrapText(true);
+        return area;
     }
 }

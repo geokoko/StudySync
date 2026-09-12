@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Domain entity representing a study goal.
@@ -298,14 +299,9 @@ public class StudyGoal {
         if (criteria == null || criteria.isEmpty()) {
             return null;
         }
-        StringBuilder sb = new StringBuilder();
-        for (Criterion c : criteria) {
-            if (sb.length() > 0) {
-                sb.append('\n');
-            }
-            sb.append(c.done() ? TICKED : UNTICKED).append(c.text());
-        }
-        return sb.toString();
+        return criteria.stream()
+                .map(c -> (c.done() ? TICKED : UNTICKED) + c.text())
+                .collect(Collectors.joining("\n"));
     }
 
     /**
@@ -325,13 +321,10 @@ public class StudyGoal {
             previous.computeIfAbsent(c.text(), k -> new ArrayDeque<>()).add(c.done());
         }
         List<Criterion> out = new ArrayList<>();
-        for (String line : plainLines.split("\\R")) {
-            String text = line.trim();
-            if (!text.isEmpty()) {
-                Deque<Boolean> ticks = previous.get(text);
-                boolean done = ticks != null && !ticks.isEmpty() && ticks.poll();
-                out.add(new Criterion(text, done));
-            }
+        for (Criterion typed : parseCriteria(plainLines)) {
+            Deque<Boolean> ticks = previous.get(typed.text());
+            boolean done = typed.done() || (ticks != null && !ticks.isEmpty() && ticks.poll());
+            out.add(new Criterion(typed.text(), done));
         }
         return serializeCriteria(out);
     }

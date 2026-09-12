@@ -321,6 +321,8 @@ public class StudyService {
      * Ticks or unticks one line of a goal's checklist. Ticking the last open
      * line achieves the current attempt; unticking any line on an achieved
      * goal reopens it, with exactly the semantics of the achieved checkbox.
+     * Ticking a line never reopens anything: a goal achieved by hand with
+     * open criteria stays achieved while the remaining lines are filled in.
      * An unknown goal or index changes nothing, achievement included.
      */
     public void setGoalCriterionDone(String goalId, int index, boolean done) {
@@ -328,23 +330,26 @@ public class StudyService {
         if (changed.isEmpty()) {
             return;
         }
-        List<StudyGoal.Criterion> criteria = changed.get();
-        boolean allDone = !criteria.isEmpty() && criteria.stream().allMatch(StudyGoal.Criterion::done);
+        boolean allDone = changed.get().stream().allMatch(StudyGoal.Criterion::done);
         if (allDone) {
-            StudyGoal.markCurrentAttemptAchieved(goalId, null);
-        } else {
-            StudyGoal.reopenAchievedGoal(goalId); // no-op unless the goal is achieved
+            applyAchievement(goalId, true, null);
+        } else if (!done) {
+            applyAchievement(goalId, false, null); // no-op unless the goal is achieved
         }
         markDirtyAndSaveLocally("study goal criterion update");
     }
 
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
-        boolean updated = achieved
-                ? StudyGoal.markCurrentAttemptAchieved(goalId, reasonIfNot)
-                : StudyGoal.reopenAchievedGoal(goalId);
-        if (updated) {
+        if (applyAchievement(goalId, achieved, reasonIfNot)) {
             markDirtyAndSaveLocally("study goal achievement update");
         }
+    }
+
+    /** The one place that flips a goal's current attempt between achieved and pending. */
+    private boolean applyAchievement(String goalId, boolean achieved, String reasonIfNot) {
+        return achieved
+                ? StudyGoal.markCurrentAttemptAchieved(goalId, reasonIfNot)
+                : StudyGoal.reopenAchievedGoal(goalId);
     }
 
     /**
