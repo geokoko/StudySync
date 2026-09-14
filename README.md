@@ -74,12 +74,23 @@ cd studysync-*-linux
 ./install.sh
 ```
 
-**Build from source** (requires Gradle):
+**Build from source** (requires JDK 21; the Gradle wrapper is included):
+
+Install JDK 21 and select it in your terminal before building. Replace `/path/to/jdk-21` below with your JDK 21 installation directory (the directory containing `bin/java` and `bin/javac`).
+
 ```bash
 git clone https://github.com/geokoko/StudySync.git
 cd StudySync
+export JAVA_HOME="/path/to/jdk-21"
+export PATH="$JAVA_HOME/bin:$PATH"
+java -version   # Should report Java 21
+javac -version  # Should report javac 21
 ./scripts/install.sh --build
 ```
+
+No separate Gradle installation is needed. These Java settings apply to the current terminal session.
+
+> **Build fails with `Unsupported class file major version 69`?** Class file major version 69 corresponds to Java 25, which cannot run the bundled Gradle 8.12.1. Select JDK 21 using both `JAVA_HOME` and `PATH` above, then rerun the installer. The installer's “Java 21 or later” check also accepts Java versions that cannot run this Gradle version. The project's Java 21 toolchain controls compilation; it does not select the Java version that starts Gradle. See the [Gradle Java compatibility matrix](https://docs.gradle.org/current/userguide/compatibility.html).
 
 After installation:
 - **Launch from app menu**: Search "StudySync" in your application launcher (KDE, GNOME, etc.)
@@ -98,6 +109,8 @@ To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
 ---
 
 ### Running with Gradle (Development)
+
+Use JDK 21 and set `JAVA_HOME` and `PATH` as shown in the source installation instructions above.
 
 1. Clone the Repository
     ``` bash
@@ -119,12 +132,12 @@ To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
         ```
 
     * Use Gradle if you have it installed:
-        If you have Gradle>=8.5, then run:
+        Use Gradle 8.12.1 with JDK 21 to match the wrapper, then run:
         ``` bash
         gradle build
         gradle run
         ```
-        **Note**: Some dependencies of this application are not compatible with the latest version of Gradle (9.0.0) as of right now.
+        **Note**: Prefer the included wrapper to use the project's configured Gradle version.
 
     Gradle will:
     * Automatically download all dependencies (JavaFX, H2 Database, Spring Boot, etc.)
