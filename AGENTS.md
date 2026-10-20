@@ -77,7 +77,10 @@ Syncs the whole H2 file. OAuth client credentials live in
   sweep saves through `StudyService.saveLocallyWithoutDirtyFlag` (its javadoc
   says why the wrapper alone is not enough). It runs only once the startup
   Drive check reports up to date, local newer, unknown or disabled; never with
-  a newer Drive copy, a conflict, or a staged download pending.
+  a newer Drive copy, a conflict, or a staged download pending. Reading goals
+  also sweeps overdue attempts, so `StudySyncUI` holds that sweep
+  (`StudyService.holdOverdueSweep`) before building the panels and releases it
+  in `runStartupMaintenance`.
 - User-facing flow (manual upload/download in the Profile window, upload offer
   on close): README, "Google Drive Sync Setup".
 
@@ -100,7 +103,9 @@ Syncs the whole H2 file. OAuth client credentials live in
   `.label` rule outranks it. Semantic colors (muted `#7f8c8d`, error red,
   status colors) go through `TaskStyleUtils.textColor(label, hex)`, which sets
   an inline `-fx-text-fill`. An icon label set as the graphic inherits that
-  colour (`.label .label`), so only the outer label needs it.
+  colour (`.label .label`, repeated for dialogs), so only the outer label needs
+  it. Inside a list cell use the `cell-muted` class instead: an inline colour
+  would also beat the rule that turns a selected row's text white.
 - Fonts go through the `TaskStyleUtils` font helpers (`fontBold`, `fontEmoji`,
   `iconLabel`, ...), which use inline styles so CSS re-application cannot reset
   them. Task status colors, emoji and badges also come from `TaskStyleUtils`,
@@ -113,7 +118,8 @@ Syncs the whole H2 file. OAuth client credentials live in
   `ScoreBreakdown`s. The rules are in its class doc and constants.
 - Session `points_earned` is derived: `schema.sql` recomputes it on every
   startup in integer SQL that must match `StudySession.calculatePoints()`
-  exactly, guarded by `ScoringServiceTest.sessionPointsMatchTheSqlMigrationExactly`.
+  exactly, guarded by `ScoringServiceTest.sessionPointsMatchTheSqlMigrationExactly`
+  (which runs the statement from `schema.sql`).
 - Off days (`off_days`) are excluded only from aggregates: window scores drop
   them from the denominators and the streak skips them rather than breaking.
   Per-day figures and the profile charts still show what happened.

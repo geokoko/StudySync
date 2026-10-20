@@ -16,7 +16,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -100,30 +106,41 @@ class ScoringServiceTest {
     }
 
     @Test
-    void sessionPointsMatchTheSqlMigrationExactly() {
+    void sessionPointsMatchTheSqlMigrationExactly() throws IOException {
         // schema.sql recomputes points in SQL on every startup. If the two ever
         // disagree, stored history silently drifts from freshly scored work.
+        // Run the statement itself, not a copy of it.
+        String schema;
+        try (InputStream in = getClass().getResourceAsStream("/schema.sql")) {
+            schema = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        Matcher recompute = Pattern.compile("UPDATE study_sessions\\s+SET points_earned\\s*=[^;]*").matcher(schema);
+        assertTrue(recompute.find(), "schema.sql no longer recomputes session points");
+
+        int rows = 0;
         for (int minutes : new int[] {-30, -1, 0, 5, 20, 45, 61, 90, 121, 239, 240, 600}) {
             for (int focus = 1; focus <= 5; focus++) {
                 for (boolean completed : new boolean[] {true, false}) {
-                    Integer viaSql = jdbcTemplate.queryForObject("""
-                            SELECT (LEAST(GREATEST(COALESCE(?, 0), 0), 240) / 2
-                                    * CASE COALESCE(?, 3)
-                                          WHEN 1 THEN 40
-                                          WHEN 2 THEN 70
-                                          WHEN 4 THEN 120
-                                          WHEN 5 THEN 140
-                                          ELSE 100
-                                      END
-                                    + 50) / 100
-                                + CASE WHEN ? THEN 10 ELSE 0 END
-                            """, Integer.class, minutes, focus, completed);
-
-                    assertEquals(StudySession.calculatePoints(minutes, focus, completed), viaSql,
-                            "minutes=" + minutes + " focus=" + focus + " completed=" + completed);
+                    jdbcTemplate.update("""
+                            INSERT INTO study_sessions (id, date, duration_minutes, focus_level, completed)
+                            VALUES (?, ?, ?, ?, ?)
+                            """, "points-" + rows++, today, minutes, focus, completed);
                 }
             }
         }
+        jdbcTemplate.execute(recompute.group());
+
+        List<Integer> checked = jdbcTemplate.query(
+                "SELECT duration_minutes, focus_level, completed, points_earned FROM study_sessions",
+                (rs, i) -> {
+                    int minutes = rs.getInt(1);
+                    int focus = rs.getInt(2);
+                    boolean completed = rs.getBoolean(3);
+                    assertEquals(StudySession.calculatePoints(minutes, focus, completed), rs.getInt(4),
+                            "minutes=" + minutes + " focus=" + focus + " completed=" + completed);
+                    return minutes;
+                });
+        assertEquals(rows, checked.size());
     }
 
     @Test

@@ -386,6 +386,36 @@ public class StudySession {
         calculateAndSetPoints();
     }
 
+    /**
+     * Ends the session with the user's rating and saves it. If the save fails the
+     * session is left running, as its row still is: callers keep showing this
+     * object, so it must not claim an end that was never stored.
+     */
+    public void endAndSave(int focusLevel, String notes) {
+        int previousFocus = this.focusLevel;
+        String previousNotes = this.notes;
+        LocalDateTime previousEnd = this.endTime;
+        boolean previousActive = this.isActive;
+        int previousDuration = this.durationMinutes;
+        boolean previousCompleted = this.completed;
+        int previousPoints = this.pointsEarned;
+        try {
+            setFocusLevel(focusLevel);
+            setNotes(notes);
+            endSession();
+            save();
+        } catch (RuntimeException e) {
+            this.focusLevel = previousFocus;
+            this.notes = previousNotes;
+            this.endTime = previousEnd;
+            this.isActive = previousActive;
+            this.durationMinutes = previousDuration;
+            this.completed = previousCompleted;
+            this.pointsEarned = previousPoints;
+            throw e;
+        }
+    }
+
 
 
     public void updateRealTimeProgress() {

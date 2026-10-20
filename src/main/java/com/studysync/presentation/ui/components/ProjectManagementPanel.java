@@ -783,7 +783,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                     project.getPriority().toString(),
                     project.getTotalSessionsCount(),
                     project.getFormattedTotalTime()));
-                TaskStyleUtils.textColor(details, "#808080");
+                details.getStyleClass().add("cell-muted"); // stays readable when the row is selected
                 TaskStyleUtils.fontNormal(details, 11);
                 
                 content.getChildren().addAll(title, details);
