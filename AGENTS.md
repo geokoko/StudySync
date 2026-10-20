@@ -83,12 +83,14 @@ Syncs the whole H2 file. OAuth client credentials live in
 
 ## UI styling
 
-- `styles.css` is a scene stylesheet on the main and Profile windows. Its first
-  part forces dark text (`#2c3e50`) on every control, because JavaFX 21's Modena
-  follows OS dark mode and would draw white text on our light backgrounds;
-  `StudySyncUI.start()` also forces `STYLESHEET_MODENA`. Reusable classes
-  (`.btn-*`, `.section-card*`, `.panel-bg*`, `.modal-content*`, `.cal-*`, ...) follow
-  under "APPLICATION CSS CLASSES".
+- `styles.css` is a scene stylesheet on the main and Profile windows, including
+  their modal overlays and owned dialogs (JavaFX binds the owner's
+  stylesheets). Its first part forces dark text (`#2c3e50`) on every control,
+  because JavaFX 21's Modena follows OS dark mode and would draw white text on
+  our light backgrounds; `StudySyncUI.start()` also forces
+  `STYLESHEET_MODENA`. Reusable classes (`.btn-*`, `.section-card*`,
+  `.panel-bg*`, `.modal-content*`, `.cal-*`, ...) follow under
+  "APPLICATION CSS CLASSES".
 - Static, reusable styles go in a CSS class (`getStyleClass().add(...)`);
   `setStyle()` is for styles that vary with data (status colors, date-dependent
   cell colors, progress widths).
@@ -97,7 +99,8 @@ Syncs the whole H2 file. OAuth client credentials live in
 - `setTextFill()` has no effect on a Label in those windows: the stylesheet's
   `.label` rule outranks it. Semantic colors (muted `#7f8c8d`, error red,
   status colors) go through `TaskStyleUtils.textColor(label, hex)`, which sets
-  an inline `-fx-text-fill`.
+  an inline `-fx-text-fill`. An icon label set as the graphic inherits that
+  colour (`.label .label`), so only the outer label needs it.
 - Fonts go through the `TaskStyleUtils` font helpers (`fontBold`, `fontEmoji`,
   `iconLabel`, ...), which use inline styles so CSS re-application cannot reset
   them. Task status colors, emoji and badges also come from `TaskStyleUtils`,

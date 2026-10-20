@@ -30,7 +30,6 @@ import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
 import javafx.scene.web.WebView;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
@@ -132,7 +131,7 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
         searchField.textProperty().addListener((obs, old, text) -> applyFilter(text));
 
         TaskStyleUtils.fontNormal(entryCount, 11);
-        entryCount.setTextFill(Color.web(TaskStyleUtils.COLOR_MUTED));
+        TaskStyleUtils.textColor(entryCount, TaskStyleUtils.COLOR_MUTED);
 
         entryList.setCellFactory(view -> new EntryCell());
         entryList.setPlaceholder(new Label("No reflections yet."));
@@ -234,7 +233,7 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
             updateWordCount(text);
             if (populating) return;
             status.setText("Unsaved…");
-            status.setTextFill(Color.web(TaskStyleUtils.COLOR_ORANGE));
+            TaskStyleUtils.textColor(status, TaskStyleUtils.COLOR_ORANGE);
             autosave.playFromStart();
         });
         editor.focusedProperty().addListener((obs, was, focused) -> {
@@ -267,7 +266,7 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
         VBox.setVgrow(body, Priority.ALWAYS);
 
         TaskStyleUtils.fontNormal(wordCount, 11);
-        wordCount.setTextFill(Color.web(TaskStyleUtils.COLOR_MUTED));
+        TaskStyleUtils.textColor(wordCount, TaskStyleUtils.COLOR_MUTED);
         TaskStyleUtils.fontNormal(status, 11);
 
         Region footSpacer = new Region();
@@ -502,7 +501,7 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
 
     private void report(String message, String color) {
         status.setText(message);
-        status.setTextFill(Color.web(color));
+        TaskStyleUtils.textColor(status, color);
     }
 
     private void applyFilter(String query) {
@@ -596,7 +595,7 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
             String text = Markdown.previewLine(entry.getReflectionText());
             Label preview = new Label(text.length() > 70 ? text.substring(0, 70) + "…" : text);
             TaskStyleUtils.fontNormal(preview, 11);
-            preview.setTextFill(Color.web(TaskStyleUtils.COLOR_MUTED));
+            TaskStyleUtils.textColor(preview, TaskStyleUtils.COLOR_MUTED);
 
             VBox box = new VBox(2, date, preview);
             box.setPadding(new Insets(4, 0, 4, 0));

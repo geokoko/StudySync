@@ -54,7 +54,7 @@ StudySync provides comprehensive academic management with three main modules:
 ## ☁️ Google Drive Sync
 * **Google Sign-in**: Connect your personal Google account directly from the Profile window
 * **Drive Storage**: The embedded H2 database is uploaded to a private `StudySync` folder inside your Drive
-* **Multi-device ready**: Pull the Drive copy with `Download from Drive` and it is applied on the next launch; the local database is uploaded whenever the app closes
+* **Multi-device ready**: Pull the Drive copy with `Download from Drive` and it is applied on the next launch; when signed in, the app offers to upload the local database on close
 * **Manual Sync**: Trigger `Sync to Drive now` anytime you want an extra backup mid-session
 * **Purely local**: No StudySync backend—OAuth tokens and the H2 file never leave your machine + Google Drive
 
@@ -176,7 +176,7 @@ Use JDK 21 and set `JAVA_HOME` and `PATH` as shown in the source installation in
    * Your browser will handle OAuth locally; tokens are stored in `~/.studysync/google`
 4. **Understand the sync flow**
    * Downloading is **manual**: press `Download from Drive`, then restart. The copy is verified against its checksum and applied before H2 opens, and your previous database is kept under `data/backups/`
-   * When the app closes (or you press `Sync to Drive now`), the local database is uploaded back to Google Drive
+   * When signed in, closing offers `Push to Drive & Exit`, `Save Locally & Exit`, `Exit without Saving`, or `Cancel`. You can also upload manually with `Sync to Drive now`. Without a signed-in account, closing saves locally
    * StudySync never merges the two sides. If both have changed, pick one — `Download from Drive` replaces local, `Sync to Drive now` replaces remote
 
 ### Setting up a second machine

@@ -35,7 +35,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
-import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -205,7 +204,7 @@ public class StudySyncUI {
                 + "-fx-border-color: #2980b9; -fx-border-width: 0 0 2 0;");
 
         Label appTitle = new Label("StudySync");
-        appTitle.setTextFill(Color.WHITE);
+        TaskStyleUtils.textColor(appTitle, "#ffffff");
         TaskStyleUtils.fontBold(appTitle, 20);
 
         Region spacer = new Region();
@@ -280,7 +279,7 @@ public class StudySyncUI {
             default -> { icon = "?"; text = "Sync unknown"; color = "white"; }
         }
         Label iconLabel = TaskStyleUtils.iconLabel(icon, 12);
-        iconLabel.setTextFill(Color.web(color.equals("white") ? "#ffffff" : color));
+        TaskStyleUtils.textColor(iconLabel, color.equals("white") ? "#ffffff" : color);
         syncStatusBadge.setGraphic(iconLabel);
         syncStatusBadge.setText(text);
         syncStatusBadge.setStyle(syncBadgeStyle(color));

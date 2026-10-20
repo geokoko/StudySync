@@ -46,11 +46,11 @@
 
 ## Google Drive Sync Flow
 
-When the optional Google Drive integration is configured, the persistence layer gains an additional offline-first sync loop:
+The optional Google Drive integration transfers the whole H2 file, with explicit uploads and downloads:
 
-1. **Bootstrap** – before Spring Boot initializes the datasource, the `GoogleDriveBootstrap` downloads the latest `studysync.mv.db` from the signed-in Google Drive account (if cached credentials exist).
-2. **Runtime** – StudySync continues to operate against the local H2 file for fast, offline reads/writes. Users can trigger a manual upload from the Profile → Google Drive Sync panel at any time.
-3. **Shutdown** – `GoogleDriveService` uploads the updated H2 file to the user's private `StudySync` Drive folder during bean destruction, ensuring multi-device availability without a StudySync backend.
+1. **Bootstrap** – before Spring Boot opens H2, `StudySyncApplication` calls `bootstrap/PendingDownloadApplier.applyIfPresent` to apply a previously staged download. It verifies the staged file's size and SHA-256 checksum, backs up the existing database under `data/backups/` (for the default database path), and swaps in the staged file. `GoogleDriveBootstrap` initializes settings and checks for stored credentials; it does not download anything automatically.
+2. **Runtime** – StudySync reads and writes the local H2 file. Service mutations mark it dirty and checkpoint it after commit. `Sync to Drive now` in Profile → Google Drive Sync calls `GoogleDriveService.uploadDatabaseSnapshot`, which checkpoints and verifies the local file before uploading. `Download from Drive` calls `GoogleDriveService.stageDownloadFromDrive`, which writes a separate file and integrity metadata beside the database for the next launch. The open database is never replaced or reloaded, and the two copies are never merged.
+3. **Shutdown** – when signed in, `StudySyncJavaFXApp` offers **Push to Drive & Exit**, **Save Locally & Exit**, **Exit without Saving**, or **Cancel**. The first two flush pending UI edits; the upload option checkpoints and uploads before exiting, while the local option only checkpoints. Save or upload failure keeps the app open. Without a signed-in account, closing flushes pending edits and saves locally. There is no upload during bean destruction; **Exit without Saving** does not undo data already committed during the session.
 
 OAuth credentials live on the user's machine (`~/.studysync/google`) and the cloud copy resides inside the user's own Drive (`My Drive/StudySync/studysync.mv.db`).
 
