@@ -6,7 +6,6 @@ import com.studysync.domain.service.StudySessionEnd;
 import com.studysync.domain.service.DateTimeService;
 import com.studysync.domain.service.TaskService;
 import com.studysync.domain.service.CategoryService;
-import com.studysync.domain.service.MissedOccurrence;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.DailyReflection;
@@ -19,10 +18,14 @@ import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.Node;
+import javafx.application.Platform;
+import javafx.css.PseudoClass;
+import javafx.scene.input.DataFormat;
+import javafx.scene.input.TransferMode;
 
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.ArrayList;
@@ -38,14 +41,8 @@ import javafx.animation.KeyFrame;
 import javafx.util.Duration;
 import java.util.function.Consumer;
 
-/**
- * Study Planner panel with:
- * - Date navigation (back / forward arrows, "Today" button)
- * - Tasks section (replaces "Today's Goals"): expandable task cards with linked goals
- * - Sessions section: FlowPane of compact session cards (wraps to next row)
- * - Daily reflection section
- */
-public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
+/** Daily goals and unplanned work, with the live session always in reach. */
+public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
 
     private final StudyService studyService;
     private final DateTimeService dateTimeService;
@@ -62,9 +59,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private StudySession currentSession;
     private Timeline sessionTimer;
 
-    // Tracks which task cards are currently expanded so they survive UI rebuilds
-    private final Set<String> expandedTaskIds = new HashSet<>();
-
     private enum PlannerTaskView {
         TODAY,
         ALL_TASKS
@@ -78,7 +72,18 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     // UI containers that get rebuilt on navigation
     private VBox tasksContainer;
     private FlowPane attemptOverviewContainer;
-    private Label taskSectionTitle;
+    private VBox goalsContainer;
+    private VBox needsPlanContainer;
+    private VBox unlinkedRetriesContainer;
+    private Label goalsTitle;
+    private Label sessionsTitle;
+    private final Label plannerError = new Label();
+    private Map<String, Task> tasksById = Map.of();
+    private List<StudyGoal> retryableGoals = List.of();
+    private Map<String, PlannerAgenda.Entry> planningEntries = Map.of();
+    private final List<Button> goalSessionButtons = new ArrayList<>();
+    private static final DataFormat PLAN_DRAG = new DataFormat("application/x-studysync-planner-entry");
+    private static final PseudoClass DROP = PseudoClass.getPseudoClass("drop");
     private List<StudyGoal> displayDateAttempts = List.of();
     private Map<String, List<StudyGoal>> displayDateAttemptsByTaskId = Map.of();
     private Set<String> taskIdsWithAttemptsOnDisplayDate = Set.of();
@@ -92,6 +97,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     private Button startSessionBtn;
     private Button endSessionBtn;
     private Label sessionStatusLabel;
+    private Label sessionLinkLabel;
+    private ComboBox<Object> sessionLinkCombo;
 
     // ──────────────────────────────────────────────
     // CONSTRUCTION
@@ -112,13 +119,13 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         mainContent.setPadding(new Insets(20));
         mainContent.getStyleClass().add("panel-bg");
 
-        this.setContent(mainContent);
-        this.setFitToWidth(true);
-        this.setFitToHeight(false);
-        this.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        this.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        this.getStyleClass().add("tab-content-area");
-
+        ScrollPane scroll = new ScrollPane(mainContent);
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroll.getStyleClass().add("tab-content-area");
+        setCenter(scroll);
+        getStyleClass().add("panel-bg");
+        createSessionBar();
         initializeComponents(mainContent);
 
         dateTimeService.addDateChangeListener(this::onDateChanged);
@@ -131,8 +138,45 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     private void initializeComponents(VBox mainContent) {
         createHeader(mainContent);
+        GridPane columns = new GridPane();
+        columns.setHgap(20);
+        ColumnConstraints main = new ColumnConstraints();
+        main.setPercentWidth(62);
+        ColumnConstraints side = new ColumnConstraints();
+        side.setPercentWidth(38);
+        columns.getColumnConstraints().addAll(main, side);
+
+        VBox goals = new VBox(12);
+        goals.setMinWidth(0);
+        goals.getStyleClass().addAll("section-card", "planner-goals");
+        goals.setPadding(new Insets(20));
+        goalsTitle = new Label();
+        TaskStyleUtils.fontBold(goalsTitle, 18);
+        goalsContainer = new VBox(10);
+        unlinkedRetriesContainer = new VBox(8);
+        Button addGoal = new Button("+ Add goal");
+        addGoal.getStyleClass().add("btn-purple");
+        addGoal.setOnAction(event -> showAddGoalDialog(null));
+        goals.getChildren().addAll(goalsTitle, goalsContainer, unlinkedRetriesContainer, addGoal);
+        installPlanningDropTarget(goals);
+
+        VBox sidebar = new VBox(20);
+        sidebar.setMinWidth(0);
+        VBox needsPlan = new VBox(10);
+        needsPlan.setPadding(new Insets(20));
+        needsPlan.getStyleClass().add("section-card");
+        Label title = new Label("Needs a plan");
+        TaskStyleUtils.fontBold(title, 18);
+        Label hint = mutedLabel("Drag to Goals, double-click, or press Enter to plan.");
+        needsPlanContainer = new VBox(8);
+        needsPlan.getChildren().addAll(title, hint, needsPlanContainer);
+        sidebar.getChildren().add(needsPlan);
+        createSessionSection(sidebar);
+        columns.add(goals, 0, 0);
+        columns.add(sidebar, 1, 0);
+        GridPane.setValignment(goals, javafx.geometry.VPos.TOP);
+        mainContent.getChildren().add(columns);
         createTasksSection(mainContent);
-        createSessionSection(mainContent);
         createReflectionSection(mainContent);
     }
 
@@ -155,7 +199,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         dateNavLabel = new Label();
         TaskStyleUtils.fontBold(dateNavLabel, 22);
-        dateNavLabel.setMinWidth(300);
+        dateNavLabel.setMinWidth(0);
+        dateNavLabel.setWrapText(true);
         dateNavLabel.setAlignment(Pos.CENTER);
 
         Button nextBtn = new Button();
@@ -179,48 +224,35 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         dailyProgressBar = new ProgressBar(0);
         dailyProgressBar.setPrefWidth(300);
-        dailyProgressBar.setStyle("-fx-accent: #27ae60;");
+        dailyProgressBar.getStyleClass().add("planner-progress");
 
         progressLabel = new Label("Daily Progress: 0%");
         TaskStyleUtils.fontSemiBold(progressLabel, 14);
         TaskStyleUtils.textColor(progressLabel, "#34495e");
 
-        header.getChildren().addAll(navRow, dailyProgressBar, progressLabel);
+        attemptOverviewContainer = new FlowPane(10, 8);
+        attemptOverviewContainer.setAlignment(Pos.CENTER);
+        plannerError.setWrapText(true);
+        TaskStyleUtils.textColor(plannerError, TaskStyleUtils.COLOR_DANGER);
+        plannerError.setVisible(false);
+        plannerError.setManaged(false);
+        header.getChildren().addAll(navRow, dailyProgressBar, progressLabel, attemptOverviewContainer, plannerError);
         mainContent.getChildren().add(header);
     }
 
-    /** Tasks section (replaces "Today's Goals"). */
+    /** Secondary task browsing retains the original filters and creation shortcut. */
     private void createTasksSection(VBox mainContent) {
         VBox section = new VBox(15);
-        section.getStyleClass().add("section-card");
-        section.setPadding(new Insets(20));
-
-        HBox sectionHeader = new HBox(15);
-        sectionHeader.setAlignment(Pos.CENTER_LEFT);
-
-        taskSectionTitle = new Label("Today's Tasks & Goals");
-        taskSectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u2611", 18));
-        TaskStyleUtils.fontBold(taskSectionTitle, 18);
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        Button addGoalBtn = new Button("+ Add Goal");
-        addGoalBtn.getStyleClass().add("btn-purple");
-        addGoalBtn.setOnAction(e -> showAddGoalDialog(null));
-
-        sectionHeader.getChildren().addAll(taskSectionTitle, spacer, addGoalBtn);
-
-        attemptOverviewContainer = new FlowPane();
-        attemptOverviewContainer.setHgap(10);
-        attemptOverviewContainer.setVgap(8);
-        attemptOverviewContainer.setAlignment(Pos.CENTER_LEFT);
+        section.setPadding(new Insets(16));
+        Button createTask = new Button("+ Create Task");
+        createTask.getStyleClass().add("btn-primary");
+        createTask.setOnAction(event -> showCreateTaskDialog());
 
         // Sort / group toolbar
-        HBox toolbar = new HBox(10);
+        FlowPane toolbar = new FlowPane(10, 8);
         toolbar.setAlignment(Pos.CENTER_LEFT);
 
-        ToggleButton todayViewBtn = new ToggleButton("Today");
+        ToggleButton todayViewBtn = new ToggleButton("Selected day");
         ToggleButton allTasksViewBtn = new ToggleButton("All Tasks");
         ToggleGroup viewGroup = new ToggleGroup();
         todayViewBtn.setToggleGroup(viewGroup);
@@ -268,93 +300,87 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 todayViewBtn, allTasksViewBtn, sortLabel, sortCombo, groupLabel, groupCombo);
 
         tasksContainer = new VBox(10);
-        section.getChildren().addAll(sectionHeader, attemptOverviewContainer, toolbar, tasksContainer);
-        mainContent.getChildren().add(section);
+        section.getChildren().addAll(toolbar, createTask, tasksContainer);
+        TitledPane browse = new TitledPane("Browse tasks", section);
+        browse.setExpanded(false);
+        browse.setAnimated(false);
+        mainContent.getChildren().add(browse);
     }
 
-    /** Session section: controls + FlowPane of session cards. */
-    private void createSessionSection(VBox mainContent) {
-        VBox sessionSection = new VBox(15);
-        sessionSection.getStyleClass().add("section-card");
-        sessionSection.setPadding(new Insets(20));
-
-        Label sessionTitle = new Label("Study Session");
-        sessionTitle.setGraphic(TaskStyleUtils.iconLabel("\u270E", 18));
-        TaskStyleUtils.fontBold(sessionTitle, 18);
-
-        HBox sessionControls = new HBox(15);
-        sessionControls.setAlignment(Pos.CENTER_LEFT);
-
+    private void createSessionBar() {
+        FlowPane bar = new FlowPane(12, 8);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        bar.getStyleClass().add("planner-session-bar");
         startSessionBtn = new Button("Start Session");
         startSessionBtn.getStyleClass().add("btn-success");
-
-        endSessionBtn = new Button("End Session");
+        endSessionBtn = new Button("Stop");
         endSessionBtn.getStyleClass().add("btn-danger");
-        endSessionBtn.setDisable(true);
-
         sessionStatusLabel = new Label("No active session");
-        TaskStyleUtils.fontNormal(sessionStatusLabel, 14);
-
-        // Optional goal/task link for the session (issue #17)
-        ComboBox<Object> linkCombo = new ComboBox<>();
-        linkCombo.setPromptText("Link to (optional)");
-        linkCombo.setCellFactory(lv -> sessionLinkCell());
-        linkCombo.setButtonCell(sessionLinkCell());
-        linkCombo.setOnShowing(e -> populateSessionLinkCombo(linkCombo));
-
-        startSessionBtn.setOnAction(e -> {
-            // Re-validate the selection against the DB: the goal/task may have
-            // been deleted since the combo was populated, and a stale id would
-            // violate the session's FK. Fall back to an unlinked session.
-            Object link = linkCombo.getValue();
-            String goalId = null;
-            String taskId = null;
-            if (link instanceof StudyGoal goal) {
-                goalId = StudyGoal.findById(goal.getId()).map(StudyGoal::getId).orElse(null);
-                String linkedTaskId = goal.getTaskId();
-                if (goalId != null && linkedTaskId != null && !linkedTaskId.isBlank()
-                        && Task.findById(linkedTaskId).isPresent()) {
-                    taskId = linkedTaskId;
-                }
-            } else if (link instanceof Task task) {
-                taskId = Task.findById(task.getId()).map(Task::getId).orElse(null);
-            }
-            currentSession = studyService.startStudySession(goalId, taskId);
-            linkCombo.setValue(null);
-            sessionTextArea.clear();
-            startSessionTimer();
-            syncSessionControls();
-            updateSessionsDisplay();
-        });
-
-        endSessionBtn.setOnAction(e -> {
+        TaskStyleUtils.fontSemiBold(sessionStatusLabel, 14);
+        sessionLinkLabel = new Label();
+        sessionLinkLabel.setWrapText(true);
+        sessionLinkLabel.setMaxWidth(420);
+        sessionLinkCombo = new ComboBox<>();
+        sessionLinkCombo.setPromptText("Link to (optional)");
+        sessionLinkCombo.setPrefWidth(260);
+        sessionLinkCombo.setCellFactory(lv -> sessionLinkCell());
+        sessionLinkCombo.setButtonCell(sessionLinkCell());
+        sessionLinkCombo.setOnShowing(event -> populateSessionLinkCombo(sessionLinkCombo));
+        startSessionBtn.setOnAction(event -> startSession(sessionLinkCombo.getValue()));
+        endSessionBtn.setOnAction(event -> {
             if (currentSession != null) {
                 currentSession.setSessionText(sessionTextArea.getText());
                 showEndSessionDialog();
             }
         });
+        bar.getChildren().addAll(sessionStatusLabel, sessionLinkLabel, sessionLinkCombo, startSessionBtn, endSessionBtn);
+        setTop(bar);
+    }
 
-        sessionControls.getChildren().addAll(startSessionBtn, linkCombo, endSessionBtn, sessionStatusLabel);
+    private void startSession(Object link) {
+        try {
+            String goalId = null;
+            String taskId = null;
+            // Re-read links: a deleted selection must not violate a session FK.
+            if (link instanceof StudyGoal goal) {
+                StudyGoal saved = StudyGoal.findById(goal.getId()).orElse(null);
+                if (saved != null) {
+                    goalId = saved.getId();
+                    taskId = saved.getTaskId();
+                }
+            } else if (link instanceof Task task) {
+                taskId = task.getId();
+            }
+            if (taskId != null && Task.findById(taskId).isEmpty()) {
+                taskId = null;
+            }
+            currentSession = studyService.startStudySession(goalId, taskId);
+            sessionLinkCombo.setValue(null);
+            sessionTextArea.clear();
+            startSessionTimer();
+            syncSessionControls();
+            updateSessionsDisplay();
+        } catch (Exception ex) {
+            showPlannerError("Could not start session: " + ex.getMessage());
+        }
+    }
 
+    private void createSessionSection(VBox sidebar) {
+        VBox section = new VBox(12);
+        section.setPadding(new Insets(20));
+        section.getStyleClass().add("section-card");
+        sessionsTitle = new Label();
+        TaskStyleUtils.fontBold(sessionsTitle, 18);
         sessionTextArea = new TextArea();
         sessionTextArea.setPromptText("Write your session notes, thoughts, or study content here…");
-        sessionTextArea.setPrefRowCount(5);
+        sessionTextArea.setPrefRowCount(3);
         sessionTextArea.setWrapText(true);
-        sessionTextArea.setDisable(true);
-
-        Label completedLabel = new Label("Today's Completed Sessions");
-        completedLabel.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
-        TaskStyleUtils.fontBold(completedLabel, 14);
-
-        // FlowPane for compact session cards
+        TitledPane notes = new TitledPane("Live session notes", sessionTextArea);
+        notes.setExpanded(false);
+        notes.setAnimated(false);
         sessionsFlowPane = new FlowPane(10, 10);
-        sessionsFlowPane.setPrefWrapLength(Double.MAX_VALUE);
-        sessionsFlowPane.setPadding(new Insets(5, 0, 0, 0));
-
-        sessionSection.getChildren().addAll(
-                sessionTitle, sessionControls, sessionTextArea, completedLabel, sessionsFlowPane);
-        mainContent.getChildren().add(sessionSection);
-        syncSessionControls();
+        section.getChildren().addAll(sessionsTitle, notes, sessionsFlowPane);
+        sidebar.getChildren().add(section);
     }
 
     private void createReflectionSection(VBox mainContent) {
@@ -383,159 +409,145 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     // ──────────────────────────────────────────────
 
     private void updateTasksDisplay() {
-        tasksContainer.getChildren().clear();
-
-        if (taskSectionTitle != null) {
-            taskSectionTitle.setText(taskSectionTitleText());
-        }
-
+        tasksById = new LinkedHashMap<>();
+        taskService.getTasks().forEach(task -> tasksById.putIfAbsent(task.getId(), task));
         refreshDisplayDateAttemptCache();
-        List<Task> tasks = new ArrayList<>(tasksForCurrentView());
+        updateAttemptOverview();
+        goalsTitle.setText(displayDate.equals(dateTimeService.getCurrentDate()) ? "Today's Goals" : "Goals");
+        goalsContainer.getChildren().clear();
+        goalSessionButtons.clear();
+        displayDateAttempts.stream().sorted(Comparator.comparingInt(goal ->
+                goal.isFailed() ? 2 : goal.isAchieved() ? 1 : 0)).forEach(goal ->
+                goalsContainer.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()))));
+        if (displayDateAttempts.isEmpty()) {
+            goalsContainer.getChildren().add(mutedLabel("No goals planned for this day. Add a goal or drag work here."));
+        }
+
         LocalDate today = dateTimeService.getCurrentDate();
-        boolean dateScopedView = currentTaskView == PlannerTaskView.TODAY;
-        if (attemptOverviewContainer != null) {
-            attemptOverviewContainer.setVisible(dateScopedView);
-            attemptOverviewContainer.setManaged(dateScopedView);
-            if (dateScopedView) {
-                updateAttemptOverview();
+        retryableGoals = displayDate.equals(today) ? StudyGoal.findDelayedAndNotReplanned() : List.of();
+        List<PlannerAgenda.Entry> entries = PlannerAgenda.build(displayDate, today,
+                new ArrayList<>(tasksById.values()), displayDateAttempts,
+                retryableGoals,
+                displayDate.equals(today) ? taskService.getMissedRecurringOccurrences(today) : List.of(),
+                taskService::isRecurringOccurrence);
+        planningEntries = new LinkedHashMap<>();
+        needsPlanContainer.getChildren().clear();
+        unlinkedRetriesContainer.getChildren().clear();
+        boolean comingUp = false;
+        for (PlannerAgenda.Entry entry : entries) {
+            planningEntries.put(entry.key(), entry);
+            if (entry.task() == null) {
+                if (unlinkedRetriesContainer.getChildren().isEmpty()) {
+                    unlinkedRetriesContainer.getChildren().add(mutedLabel("Missed goals without a task · ready to retry"));
+                }
+                unlinkedRetriesContainer.getChildren().add(buildPlanningRow(entry));
             } else {
-                attemptOverviewContainer.getChildren().clear();
+                if (entry.kind() == PlannerAgenda.Kind.REMINDER && !comingUp) {
+                    needsPlanContainer.getChildren().add(mutedLabel("Coming up"));
+                    comingUp = true;
+                }
+                needsPlanContainer.getChildren().add(buildPlanningRow(entry));
             }
         }
+        if (needsPlanContainer.getChildren().isEmpty()) {
+            needsPlanContainer.getChildren().add(mutedLabel("No unplanned work for this day."));
+        }
+        updateTaskBrowser();
+        syncSessionControls();
+    }
 
-        if (tasks.isEmpty()) {
-            // No tasks for this day — offer "Create Task" shortcut
-            VBox emptyBox = new VBox(8);
-            emptyBox.setAlignment(Pos.CENTER_LEFT);
-            Label emptyLabel = new Label(dateScopedView
-                    ? "No tasks scheduled for this day." : "No active tasks.");
-            TaskStyleUtils.fontNormal(emptyLabel, 14);
-            TaskStyleUtils.textColor(emptyLabel, "#7f8c8d");
+    private Node buildPlanningRow(PlannerAgenda.Entry entry) {
+        String color = switch (entry.kind()) {
+            case OVERDUE, MISSED -> TaskStyleUtils.OVERDUE_COLOR;
+            case DUE -> TaskStyleUtils.DUE_TODAY_COLOR;
+            case RETRY -> TaskStyleUtils.retryTextColor();
+            case REMINDER -> TaskStyleUtils.REMINDER_COLOR;
+            default -> TaskStyleUtils.COLOR_MUTED;
+        };
+        return PlanningRow.create(entry.title(), entry.reason(), color,
+                "Drag to Goals, double-click, or press Enter to plan.", PLAN_DRAG, entry.key(),
+                () -> planEntry(entry));
+    }
 
-            Button createTaskBtn = new Button("+ Create Task");
-            createTaskBtn.getStyleClass().add("btn-primary");
-            createTaskBtn.setOnAction(e -> showCreateTaskDialog());
-
-            emptyBox.getChildren().addAll(emptyLabel, createTaskBtn);
-            tasksContainer.getChildren().add(emptyBox);
-            // Do NOT return — unlinked goals must still render in the date-scoped view
+    private void planEntry(PlannerAgenda.Entry entry) {
+        if (entry.retries().isEmpty()) {
+            showAddGoalDialog(entry.task());
         } else {
-            // Apply user-selected sort order
-            tasks.sort(taskSortComparator());
-
-            // Apply grouping (or flat list)
-            if ("None".equals(currentGroup)) {
-                for (Task task : tasks) {
-                    tasksContainer.getChildren().add(buildTaskRow(task));
-                }
-            } else {
-                LinkedHashMap<String, List<Task>> groups = new LinkedHashMap<>();
-                for (Task task : tasks) {
-                    String key = groupKeyFor(task);
-                    groups.computeIfAbsent(key, k -> new ArrayList<>()).add(task);
-                }
-                for (Map.Entry<String, List<Task>> entry : groups.entrySet()) {
-                    Label groupHeader = new Label(entry.getKey());
-                    TaskStyleUtils.fontBold(groupHeader, 13);
-                    TaskStyleUtils.textColor(groupHeader, "#6c757d");
-                    groupHeader.setPadding(new Insets(6, 0, 2, 0));
-                    tasksContainer.getChildren().add(groupHeader);
-                    for (Task task : entry.getValue()) {
-                        tasksContainer.getChildren().add(buildTaskRow(task));
-                    }
-                }
-            }
+            VBox content = new VBox(12);
+            content.setPadding(new Insets(20));
+            content.getStyleClass().add("modal-content");
+            content.setMaxWidth(560);
+            content.setMaxHeight(Region.USE_PREF_SIZE);
+            Label title = new Label("Plan retry: " + entry.title());
+            title.setWrapText(true);
+            TaskStyleUtils.fontBold(title, 16);
+            content.getChildren().add(title);
+            entry.retries().forEach(goal -> content.getChildren().add(buildTaskRetryRow(goal)));
+            Button newGoal = new Button("+ New goal");
+            newGoal.getStyleClass().add("btn-purple");
+            newGoal.setOnAction(event -> showAddGoalDialog(entry.task()));
+            Button cancel = new Button("Cancel");
+            cancel.getStyleClass().add("btn-cancel");
+            cancel.setOnAction(event -> closeModal.run());
+            content.getChildren().add(new HBox(10, newGoal, cancel));
+            ScrollPane wrapper = new ScrollPane(content);
+            wrapper.setFitToWidth(true);
+            wrapper.getStyleClass().add("transparent-bg");
+            wrapper.setMaxWidth(580);
+            wrapper.setMaxHeight(600);
+            showModal.accept(wrapper);
         }
+    }
 
-        // Missed recurring-task occurrences (carry-forward to today)
-        if (dateScopedView && displayDate.equals(today)) {
-            List<MissedOccurrence> missed = taskService.getMissedRecurringOccurrences(today);
-            Set<String> shownTaskIds = tasks.stream().map(Task::getId).collect(Collectors.toSet());
-            LinkedHashMap<String, List<MissedOccurrence>> byTask = new LinkedHashMap<>();
-            for (MissedOccurrence mo : missed) {
-                byTask.computeIfAbsent(mo.task().getId(), k -> new ArrayList<>()).add(mo);
+    private void installPlanningDropTarget(VBox goals) {
+        goals.setOnDragOver(event -> {
+            if (planningEntries.containsKey(event.getDragboard().getContent(PLAN_DRAG))) {
+                event.acceptTransferModes(TransferMode.MOVE);
             }
-
-            if (!byTask.isEmpty()) {
-                VBox missedSection = new VBox(6);
-                missedSection.setPadding(new Insets(10, 0, 0, 0));
-                Label missedTitle = new Label("Missed recurring tasks:");
-                missedTitle.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 13));
-                TaskStyleUtils.fontBold(missedTitle, 13);
-                TaskStyleUtils.textColor(missedTitle, TaskStyleUtils.MISSED_COLOR);
-                missedSection.getChildren().add(missedTitle);
-
-                for (var entry : byTask.entrySet()) {
-                    Task task = entry.getValue().get(0).task();
-                    List<MissedOccurrence> occurrences = entry.getValue();
-                    boolean alsoScheduledToday = shownTaskIds.contains(task.getId());
-                    missedSection.getChildren().add(
-                            buildMissedTaskRow(task, occurrences, alsoScheduledToday));
-                }
-                tasksContainer.getChildren().add(missedSection);
+            event.consume();
+        });
+        goals.setOnDragEntered(event -> goals.pseudoClassStateChanged(DROP,
+                planningEntries.containsKey(event.getDragboard().getContent(PLAN_DRAG))));
+        goals.setOnDragExited(event -> goals.pseudoClassStateChanged(DROP, false));
+        goals.setOnDragDropped(event -> {
+            PlannerAgenda.Entry entry = planningEntries.get(event.getDragboard().getContent(PLAN_DRAG));
+            event.setDropCompleted(entry != null);
+            goals.pseudoClassStateChanged(DROP, false);
+            if (entry != null) {
+                Platform.runLater(() -> planEntry(entry));
             }
-        }
+            event.consume();
+        });
+    }
 
-        // Deadlines coming up. Tasks already listed above keep their inline
-        // badge; this section exists so a reminder for a task that does not
-        // surface today is still seen.
-        if (dateScopedView && displayDate.equals(today)) {
-            Set<String> shownIds = tasks.stream().map(Task::getId).collect(Collectors.toSet());
-            List<Task> reminders = taskService.getTasksWithDueReminders(today).stream()
-                    .filter(task -> !shownIds.contains(task.getId()))
-                    .toList();
+    private Label mutedLabel(String text) {
+        Label label = new Label(text);
+        label.setWrapText(true);
+        TaskStyleUtils.fontNormal(label, 12);
+        TaskStyleUtils.textColor(label, TaskStyleUtils.COLOR_MUTED);
+        return label;
+    }
 
-            if (!reminders.isEmpty()) {
-                VBox reminderSection = new VBox(6);
-                reminderSection.setPadding(new Insets(10, 0, 0, 0));
-                Label reminderTitle = new Label("Coming up:");
-                reminderTitle.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 13));
-                TaskStyleUtils.fontBold(reminderTitle, 13);
-                TaskStyleUtils.textColor(reminderTitle, TaskStyleUtils.REMINDER_COLOR);
-                reminderSection.getChildren().add(reminderTitle);
+    private void showPlannerError(String message) {
+        plannerError.setText(message);
+        plannerError.setVisible(true);
+        plannerError.setManaged(true);
+    }
 
-                for (Task task : reminders) {
-                    long daysLeft = ChronoUnit.DAYS.between(today, task.getDeadline());
-                    HBox row = new HBox(8);
-                    row.setAlignment(Pos.CENTER_LEFT);
-                    row.setPadding(new Insets(0, 0, 0, 14));
-                    Label name = new Label(taskTitle(task));
-                    TaskStyleUtils.fontNormal(name, 12);
-                    row.getChildren().addAll(name, TaskStyleUtils.createReminderBadge(daysLeft));
-                    reminderSection.getChildren().add(row);
-                }
-                tasksContainer.getChildren().add(reminderSection);
+    private void updateTaskBrowser() {
+        tasksContainer.getChildren().clear();
+        List<Task> tasks = new ArrayList<>(tasksForCurrentView());
+        tasks.sort(taskSortComparator());
+        Map<String, List<Task>> groups = new LinkedHashMap<>();
+        tasks.forEach(task -> groups.computeIfAbsent(groupKeyFor(task), key -> new ArrayList<>()).add(task));
+        groups.forEach((name, items) -> {
+            if (!name.isEmpty()) {
+                tasksContainer.getChildren().add(mutedLabel(name));
             }
-        }
-
-        VBox unlinkedRetrySection = buildUnlinkedRetrySection();
-        if (unlinkedRetrySection != null) {
-            tasksContainer.getChildren().add(unlinkedRetrySection);
-        }
-
-        // Unlinked attempts section (goals with no task)
-        if (dateScopedView) {
-            List<StudyGoal> allUnlinked = StudyGoal.findUnlinkedForDate(displayDate);
-            List<StudyGoal> unlinkedGoals = allUnlinked.stream()
-                    .filter(g -> !g.isAchieved()).toList();
-            List<StudyGoal> completedUnlinked = allUnlinked.stream()
-                    .filter(StudyGoal::isAchieved).toList();
-            if (!unlinkedGoals.isEmpty() || !completedUnlinked.isEmpty()) {
-                VBox unlinkedSection = new VBox(6);
-                unlinkedSection.setPadding(new Insets(10, 0, 0, 0));
-                Label unlinkedTitle = new Label("Goals without a task:");
-                TaskStyleUtils.fontBold(unlinkedTitle, 13);
-                TaskStyleUtils.textColor(unlinkedTitle, "#6c757d");
-                unlinkedSection.getChildren().add(unlinkedTitle);
-                for (StudyGoal goal : unlinkedGoals) {
-                    unlinkedSection.getChildren().add(buildGoalRow(goal, null));
-                }
-                if (!completedUnlinked.isEmpty()) {
-                    unlinkedSection.getChildren().add(
-                            buildCompletedGoalsSection(completedUnlinked));
-                }
-                tasksContainer.getChildren().add(unlinkedSection);
-            }
+            items.forEach(task -> tasksContainer.getChildren().add(buildTaskRow(task)));
+        });
+        if (tasks.isEmpty()) {
+            tasksContainer.getChildren().add(mutedLabel("No active tasks in this view."));
         }
     }
 
@@ -560,7 +572,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         int score = (int) (achieved - missed);
 
         attemptOverviewContainer.getChildren().addAll(
-                createAttemptMetricCard("Today's net", String.format("%+d", score),
+                createAttemptMetricCard("Goal net", String.format("%+d", score),
                         TaskStyleUtils.COLOR_PURPLE, TaskStyleUtils.TINT_PURPLE, true),
                 createAttemptMetricCard("Goals", String.valueOf(attempts.size()),
                         TaskStyleUtils.COLOR_PRIMARY, TaskStyleUtils.TINT_NEUTRAL, false),
@@ -596,17 +608,6 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         return card;
     }
 
-    private String taskSectionTitleText() {
-        if (currentTaskView == PlannerTaskView.ALL_TASKS) {
-            return "All Active Tasks";
-        }
-        LocalDate today = dateTimeService.getCurrentDate();
-        if (displayDate.equals(today)) {
-            return "Today's Tasks & Goals";
-        }
-        return "Tasks & Goals - " + displayDate.format(DateTimeFormatter.ofPattern("MMM d"));
-    }
-
     private List<StudyGoal> getAllAttemptsForDisplayDate() {
         LocalDate today = dateTimeService.getCurrentDate();
         if (displayDate.isAfter(today)) {
@@ -628,7 +629,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     private List<Task> tasksForCurrentView() {
         if (currentTaskView == PlannerTaskView.ALL_TASKS) {
-            return taskService.getTasks().stream()
+            return tasksById.values().stream()
                     .filter(this::isActivePlannerTask)
                     .toList();
         }
@@ -636,10 +637,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private boolean isActivePlannerTask(Task task) {
-        TaskStatus status = task.getStatus();
-        return status == TaskStatus.OPEN
-                || status == TaskStatus.IN_PROGRESS
-                || status == TaskStatus.DELAYED;
+        return CalendarAgenda.isActive(task.getStatus());
     }
 
     private boolean hasGoalOnDisplayDate(Task task) {
@@ -711,107 +709,41 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         return "Other active tasks";
     }
 
-    /**
-     * Builds a clickable task card that expands to show linked goals.
-     */
-    private VBox buildTaskRow(Task task) {
-        VBox card = new VBox();
-        card.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
-                      " -fx-border-color: " + TaskStyleUtils.taskBorderColor(task, displayDate) + ";" +
-                      " -fx-border-radius: 8;" +
-                      " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
-
-        // ── Header row (always visible, clickable) ──
-        HBox headerRow = new HBox(10);
-        headerRow.setPadding(new Insets(12, 14, 12, 14));
-        headerRow.setAlignment(Pos.CENTER_LEFT);
-        headerRow.setStyle("-fx-cursor: hand;");
-
-        Label arrow = new Label("\u25B6");
-        TaskStyleUtils.fontEmoji(arrow, 11);
-        TaskStyleUtils.textColor(arrow, "#7f8c8d");
-
-        Label taskTitle = new Label(taskTitle(task));
-        TaskStyleUtils.fontBold(taskTitle, 14);
-        taskTitle.setWrapText(true);
-        taskTitle.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(taskTitle, Priority.ALWAYS);
-
-        Label priorityLabel = new Label(task.getPriority() != null ? task.getPriority().toString() : "");
-        TaskStyleUtils.textColor(priorityLabel, "#f39c12");
-
-        Label statusBadge = new Label(task.getStatus().name());
-        statusBadge.setPadding(new Insets(2, 6, 2, 6));
-        statusBadge.setStyle("-fx-background-color: " + TaskStyleUtils.statusBadgeBg(task.getStatus()) +
-                             "; -fx-background-radius: 10;");
-        TaskStyleUtils.fontBold(statusBadge, 10);
-        TaskStyleUtils.textColor(statusBadge, TaskStyleUtils.statusTextColor(task.getStatus()));
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        headerRow.getChildren().add(arrow);
+    private Node buildTaskRow(Task task) {
+        VBox row = new VBox(6);
+        row.getStyleClass().add("planner-task-row");
+        Label title = new Label(taskTitle(task));
+        title.setWrapText(true);
+        TaskStyleUtils.fontSemiBold(title, 13);
+        Label status = mutedLabel(task.getStatus() + " · "
+                + (task.getPriority() == null ? "" : task.getPriority() + " · ") + reasonGroupKeyFor(task));
+        TaskStyleUtils.textColor(status, TaskStyleUtils.statusTextColor(task.getStatus()));
         if (task.isRecurring()) {
-            Label recurBadge = TaskStyleUtils.iconLabel("\u21BA", 12);
-            recurBadge.setTooltip(new Tooltip(task.getRecurringSummary()));
-            headerRow.getChildren().add(recurBadge);
+            status.setText(status.getText() + " · " + task.getRecurringSummary());
         }
-        headerRow.getChildren().addAll(taskTitle, priorityLabel);
-        headerRow.getChildren().add(spacer);
-
-        // Overdue / due-today / reminder badge (between spacer and status badge).
-        // A due reminder only shows while the deadline is still ahead, so it can
-        // never compete with the overdue badge for the same task.
+        if (task.getDeadline() != null) {
+            status.setText(status.getText() + " · due " + task.getDeadline());
+        }
+        Button add = new Button("+ Add goal");
+        add.getStyleClass().addAll("btn-purple", "btn-small");
+        add.setOnAction(event -> showAddGoalDialog(task));
+        row.getChildren().addAll(title, status, add);
+        FlowPane badges = new FlowPane(6, 4);
+        badges.getChildren().addAll(createTaskAttemptBadges(task));
         if (TaskStyleUtils.isOverdue(task, displayDate)) {
-            headerRow.getChildren().add(TaskStyleUtils.createOverdueBadge());
+            badges.getChildren().add(TaskStyleUtils.createOverdueBadge());
         } else if (TaskStyleUtils.isDueToday(task, displayDate)) {
-            headerRow.getChildren().add(TaskStyleUtils.createDueTodayBadge());
+            badges.getChildren().add(TaskStyleUtils.createDueTodayBadge());
         } else if (task.isReminderDue(displayDate)) {
-            headerRow.getChildren().add(TaskStyleUtils.createReminderBadge(
+            badges.getChildren().add(TaskStyleUtils.createReminderBadge(
                     ChronoUnit.DAYS.between(displayDate, task.getDeadline())));
         }
-
-        headerRow.getChildren().add(statusBadge);
-
-        List<Label> attemptBadges = createTaskAttemptBadges(task);
-        FlowPane badgeRow = new FlowPane(6, 4);
-        badgeRow.setPadding(new Insets(0, 14, 10, 42));
-        badgeRow.getChildren().addAll(attemptBadges);
-        badgeRow.setVisible(!attemptBadges.isEmpty());
-        badgeRow.setManaged(!attemptBadges.isEmpty());
-        badgeRow.setStyle("-fx-cursor: hand;");
-
-        // ── Expandable goals panel ──
-        VBox goalsPanel = new VBox(6);
-        goalsPanel.setPadding(new Insets(0, 14, 12, 28));
-
-        // Restore previous expand state so panels survive UI rebuilds
-        boolean wasExpanded = expandedTaskIds.contains(task.getId());
-        goalsPanel.setVisible(wasExpanded);
-        goalsPanel.setManaged(wasExpanded);
-        if (wasExpanded) {
-            arrow.setText("\u25BC");
-            populateGoalsPanel(goalsPanel, task);
+        if (!badges.getChildren().isEmpty()) {
+            row.getChildren().add(badges);
         }
-
-        // Toggle expand/collapse on header click
-        Runnable toggleExpanded = () -> {
-            boolean nowVisible = !goalsPanel.isVisible();
-            goalsPanel.setVisible(nowVisible);
-            goalsPanel.setManaged(nowVisible);
-            arrow.setText(nowVisible ? "\u25BC" : "\u25B6");
-            if (nowVisible) {
-                expandedTaskIds.add(task.getId());
-                populateGoalsPanel(goalsPanel, task);
-            } else {
-                expandedTaskIds.remove(task.getId());
-            }
-        };
-        headerRow.setOnMouseClicked(e -> toggleExpanded.run());
-        badgeRow.setOnMouseClicked(e -> toggleExpanded.run());
-
-        card.getChildren().addAll(headerRow, badgeRow, goalsPanel);
-        return card;
+        retryableGoals.stream().filter(goal -> task.getId().equals(goal.getTaskId())).forEach(goal ->
+                row.getChildren().add(buildTaskRetryRow(goal)));
+        return row;
     }
 
     private List<Label> createTaskAttemptBadges(Task task) {
@@ -819,182 +751,32 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (attempts.isEmpty()) {
             return List.of();
         }
-
         long pending = attempts.stream()
-                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING)
-                .count();
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING).count();
         long achieved = attempts.stream().filter(StudyGoal::isAchieved).count();
         long missed = attempts.stream()
-                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED)
-                .count();
+                .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED).count();
         long retries = attempts.stream().filter(goal -> goal.getMissedAttemptCount() > 0).count();
-
         List<Label> badges = new ArrayList<>();
-        badges.add(createTaskAttemptBadge(attempts.size() + " goal" + (attempts.size() == 1 ? "" : "s"),
+        badges.add(TaskStyleUtils.createAttemptBadge(attempts.size() + " goal" + (attempts.size() == 1 ? "" : "s"),
                 TaskStyleUtils.COLOR_PRIMARY, TaskStyleUtils.TINT_NEUTRAL));
         if (pending > 0) {
-            badges.add(createTaskAttemptBadge(pending + " pending", TaskStyleUtils.COLOR_PRIMARY, TaskStyleUtils.TINT_PRIMARY));
+            badges.add(TaskStyleUtils.createAttemptBadge(pending + " pending",
+                    TaskStyleUtils.COLOR_PRIMARY, TaskStyleUtils.TINT_PRIMARY));
         }
         if (retries > 0) {
-            badges.add(createTaskAttemptBadge(retries + " retry", TaskStyleUtils.retryTextColor(), TaskStyleUtils.retryBackgroundColor()));
+            badges.add(TaskStyleUtils.createAttemptBadge(retries + " retry",
+                    TaskStyleUtils.retryTextColor(), TaskStyleUtils.retryBackgroundColor()));
         }
         if (achieved > 0) {
-            badges.add(createTaskAttemptBadge(achieved + " done", TaskStyleUtils.COLOR_SUCCESS, TaskStyleUtils.TINT_SUCCESS));
+            badges.add(TaskStyleUtils.createAttemptBadge(achieved + " done",
+                    TaskStyleUtils.COLOR_SUCCESS, TaskStyleUtils.TINT_SUCCESS));
         }
         if (missed > 0) {
-            badges.add(createTaskAttemptBadge(missed + " missed", TaskStyleUtils.COLOR_DANGER, TaskStyleUtils.TINT_DANGER));
+            badges.add(TaskStyleUtils.createAttemptBadge(missed + " missed",
+                    TaskStyleUtils.COLOR_DANGER, TaskStyleUtils.TINT_DANGER));
         }
         return badges;
-    }
-
-    private Label createTaskAttemptBadge(String text, String textColor, String backgroundColor) {
-        return TaskStyleUtils.createAttemptBadge(text, textColor, backgroundColor);
-    }
-
-    /**
-     * Builds a compact card for a recurring task with missed past occurrences.
-     * Shows the task title with one "Missed [Day]" badge per missed date.
-     *
-     * @param task               the recurring task
-     * @param occurrences        the missed occurrence dates (non-empty)
-     * @param alsoScheduledToday true if the task is also shown in the regular
-     *                           task list (avoids duplicating the full card)
-     */
-    private VBox buildMissedTaskRow(Task task, List<MissedOccurrence> occurrences,
-                                    boolean alsoScheduledToday) {
-        VBox card = new VBox(4);
-        card.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
-                      " -fx-border-color: " + TaskStyleUtils.MISSED_COLOR + ";" +
-                      " -fx-border-radius: 8;" +
-                      " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
-        card.setPadding(new Insets(10, 14, 10, 14));
-
-        // Title row
-        HBox headerRow = new HBox(8);
-        headerRow.setAlignment(Pos.CENTER_LEFT);
-
-        Label taskTitle = new Label(taskTitle(task));
-        TaskStyleUtils.fontBold(taskTitle, 13);
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        headerRow.getChildren().addAll(taskTitle, spacer);
-
-        // One badge per missed date
-        for (MissedOccurrence mo : occurrences) {
-            headerRow.getChildren().add(TaskStyleUtils.createMissedDayBadge(mo.missedDate()));
-        }
-
-        card.getChildren().add(headerRow);
-
-        if (alsoScheduledToday) {
-            Label hint = new Label("(also scheduled today \u2014 see above)");
-            TaskStyleUtils.fontItalic(hint, 11);
-            TaskStyleUtils.textColor(hint, "#7f8c8d");
-            card.getChildren().add(hint);
-        }
-
-        return card;
-    }
-
-    private void populateGoalsPanel(VBox goalsPanel, Task task) {
-        goalsPanel.getChildren().clear();
-
-        List<StudyGoal> allGoals = StudyGoal.findByTaskIdForDate(task.getId(), displayDate);
-        List<StudyGoal> activeGoals = allGoals.stream().filter(g -> !g.isAchieved()).toList();
-        List<StudyGoal> completedGoals = allGoals.stream().filter(StudyGoal::isAchieved).toList();
-        VBox retrySection = buildTaskRetrySection(task);
-
-        if (activeGoals.isEmpty() && completedGoals.isEmpty()) {
-            if (retrySection != null) {
-                goalsPanel.getChildren().add(retrySection);
-            } else {
-                Label noGoals = new Label("No goals linked to this task for this date.");
-                TaskStyleUtils.fontNormal(noGoals, 12);
-                TaskStyleUtils.textColor(noGoals, "#7f8c8d");
-                goalsPanel.getChildren().add(noGoals);
-            }
-
-            // A new goal can always be created, even when only missed goals
-            // are waiting for a retry (issue #31).
-            Button addGoalBtn = new Button("+ Create Goal");
-            addGoalBtn.getStyleClass().addAll("btn-purple", "btn-small");
-            addGoalBtn.setOnAction(e -> {
-                showAddGoalDialog(task);
-                populateGoalsPanel(goalsPanel, task); // refresh after add
-            });
-            goalsPanel.getChildren().add(addGoalBtn);
-        } else {
-            for (StudyGoal goal : activeGoals) {
-                goalsPanel.getChildren().add(buildGoalRow(goal, task));
-            }
-            Button addMoreBtn = new Button("+ Add Goal");
-            addMoreBtn.getStyleClass().addAll("btn-purple", "btn-small");
-            addMoreBtn.setOnAction(e -> {
-                showAddGoalDialog(task);
-                populateGoalsPanel(goalsPanel, task);
-            });
-            goalsPanel.getChildren().add(addMoreBtn);
-        }
-
-        // Completed goals - collapsible section
-        if (!completedGoals.isEmpty()) {
-            goalsPanel.getChildren().add(
-                    buildCompletedGoalsSection(completedGoals));
-        }
-
-        if (retrySection != null && (!activeGoals.isEmpty() || !completedGoals.isEmpty())) {
-            goalsPanel.getChildren().add(retrySection);
-        }
-    }
-
-    private VBox buildUnlinkedRetrySection() {
-        if (currentTaskView != PlannerTaskView.TODAY
-                || !displayDate.equals(dateTimeService.getCurrentDate())) {
-            return null;
-        }
-        List<StudyGoal> retryableGoals = studyService.getUnlinkedDelayedGoalsForReplanning();
-        if (retryableGoals.isEmpty()) {
-            return null;
-        }
-
-        VBox section = new VBox(6);
-        section.setPadding(new Insets(10, 0, 0, 0));
-
-        Label header = new Label("Missed goals without a task");
-        header.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 12));
-        TaskStyleUtils.fontBold(header, 13);
-        TaskStyleUtils.textColor(header, TaskStyleUtils.retryTextColor());
-        section.getChildren().add(header);
-
-        for (StudyGoal goal : retryableGoals) {
-            section.getChildren().add(buildTaskRetryRow(goal));
-        }
-        return section;
-    }
-
-    private VBox buildTaskRetrySection(Task task) {
-        if (!displayDate.equals(dateTimeService.getCurrentDate())) {
-            return null;
-        }
-        List<StudyGoal> retryableGoals = studyService.getDelayedGoalsForReplanning(task.getId());
-        if (retryableGoals.isEmpty()) {
-            return null;
-        }
-
-        VBox section = new VBox(6);
-        section.setPadding(new Insets(8, 0, 0, 0));
-
-        Label header = new Label("Missed goals ready to retry");
-        header.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 12));
-        TaskStyleUtils.fontBold(header, 12);
-        TaskStyleUtils.textColor(header, TaskStyleUtils.retryTextColor());
-        section.getChildren().add(header);
-
-        for (StudyGoal goal : retryableGoals) {
-            section.getChildren().add(buildTaskRetryRow(goal));
-        }
-        return section;
     }
 
     private HBox buildTaskRetryRow(StudyGoal goal) {
@@ -1005,10 +787,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         VBox textBox = new VBox(2);
         Label goalLabel = new Label(goal.getDescription());
+        goalLabel.setWrapText(true);
         TaskStyleUtils.fontNormal(goalLabel, 13);
         Label attemptLabel = new Label(formatRetryAttemptSummary(goal));
         TaskStyleUtils.fontNormal(attemptLabel, 11);
         TaskStyleUtils.textColor(attemptLabel, TaskStyleUtils.retryTextColor());
+        attemptLabel.setWrapText(true);
+        textBox.setMinWidth(0);
+        HBox.setHgrow(textBox, Priority.ALWAYS);
         textBox.getChildren().addAll(goalLabel, attemptLabel);
 
         Region spacer = new Region();
@@ -1018,9 +804,17 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         replanBtn.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 12));
         replanBtn.getStyleClass().addAll("btn-orange", "btn-small");
         replanBtn.setOnAction(e -> {
-            studyService.replanGoalForToday(goal.getId());
-            updateTasksDisplay();
-            updateProgress();
+            try {
+                if (!studyService.replanGoalForToday(goal.getId())) {
+                    showPlannerError("This goal is no longer ready to retry. Refresh the planner and try again.");
+                }
+                closeModal.run();
+                updateTasksDisplay();
+                updateProgress();
+            } catch (Exception ex) {
+                showPlannerError("Could not plan retry: " + ex.getMessage());
+                closeModal.run();
+            }
         });
 
         row.getChildren().addAll(textBox, spacer, editGoalButton(goal), replanBtn);
@@ -1038,42 +832,75 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     private HBox buildGoalRow(StudyGoal goal, Task linkedTask) {
         HBox row = new HBox(10);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(6, 8, 6, 8));
+        row.setAlignment(Pos.TOP_LEFT);
+        row.getStyleClass().add("planner-goal-row");
 
         String bgColor = TaskStyleUtils.TINT_NEUTRAL;
-        if (goal.isDelayed()) {
+        boolean missed = goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED
+                || goal.getStatus() == StudyGoal.GoalStatus.ABANDONED;
+        if (goal.isAchieved()) {
+            bgColor = TaskStyleUtils.TINT_SUCCESS;
+        } else if (!missed && goal.isDelayed()) {
             bgColor = goal.getDelayColorIntensity() < 0.5 ? "#fff3cd" : "#f8d7da";
         }
-        row.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 5;");
+        row.setStyle("-fx-background-color: " + bgColor + ";");
 
         CheckBox check = new CheckBox();
         check.setSelected(goal.isAchieved());
+        check.setDisable(missed);
+        check.setAccessibleText("Achieve goal: " + goal.getDescription());
         check.setOnAction(e -> {
-            studyService.updateStudyGoalAchievement(goal.getId(), check.isSelected(), null);
+            try {
+                studyService.updateStudyGoalAchievement(goal.getId(), check.isSelected(), null);
+            } catch (Exception ex) {
+                showPlannerError("Could not update goal: " + ex.getMessage());
+            }
             updateProgress();
             updateTasksDisplay();
         });
 
-        VBox textBox = new VBox(2);
+        VBox textBox = new VBox(6);
+        textBox.setMinWidth(0);
+        Label title = new Label(linkedTask != null ? taskTitle(linkedTask) : goal.getDescription());
+        title.setWrapText(true);
+        TaskStyleUtils.fontBold(title, 14);
+        if (missed || goal.isAchieved()) {
+            TaskStyleUtils.textColor(title, TaskStyleUtils.COLOR_MUTED);
+        }
+        textBox.getChildren().add(title);
         Label goalLabel = new Label(goal.getDescription());
-        if (goal.isAchieved()) {
-            goalLabel.setStyle("-fx-strikethrough: true; -fx-text-fill: #7f8c8d;");
+        goalLabel.setWrapText(true);
+        if (goal.isAchieved() || missed) {
+            TaskStyleUtils.textColor(goalLabel, TaskStyleUtils.COLOR_MUTED);
         }
         TaskStyleUtils.fontNormal(goalLabel, 13);
-        textBox.getChildren().add(goalLabel);
+        if (linkedTask != null) {
+            textBox.getChildren().add(goalLabel);
+        }
         if (!goal.getCriteria().isEmpty()) {
-            textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), criterionToggle(goal)));
+            textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(),
+                    missed ? null : criterionToggle(goal)));
         }
 
         Label attemptLabel = new Label(formatAttemptSummary(goal));
-        attemptLabel.setStyle("-fx-text-fill: "
-                + (goal.getMissedAttemptCount() > 0 ? TaskStyleUtils.COLOR_DANGER : "#6c757d") + ";");
+        attemptLabel.setWrapText(true);
+        TaskStyleUtils.textColor(attemptLabel, missed ? TaskStyleUtils.COLOR_MUTED
+                : goal.getMissedAttemptCount() > 0 ? TaskStyleUtils.COLOR_DANGER : TaskStyleUtils.COLOR_MUTED);
         TaskStyleUtils.fontNormal(attemptLabel, 11);
         textBox.getChildren().add(attemptLabel);
         HBox.setHgrow(textBox, Priority.ALWAYS);
 
-        row.getChildren().addAll(check, textBox, editGoalButton(goal));
+        FlowPane actions = new FlowPane(8, 6);
+        actions.getChildren().add(editGoalButton(goal));
+        if (!missed && !goal.isAchieved() && displayDate.equals(dateTimeService.getCurrentDate())) {
+            Button start = new Button("Start session");
+            start.getStyleClass().addAll("btn-success", "btn-small");
+            start.setOnAction(event -> startSession(goal));
+            goalSessionButtons.add(start);
+            actions.getChildren().add(start);
+        }
+        textBox.getChildren().add(actions);
+        row.getChildren().addAll(check, textBox);
         return row;
     }
 
@@ -1094,13 +921,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         Label headerLabel = new Label("Edit goal");
         TaskStyleUtils.fontBold(headerLabel, 16);
-        GoalEditFields fields = new GoalEditFields(goal, displayDate);
+        StudyGoal currentGoal = StudyGoal.findById(goal.getId()).orElse(goal);
+        GoalEditFields fields = new GoalEditFields(currentGoal, displayDate);
 
         Button saveBtn = new Button("Save");
         saveBtn.getStyleClass().add("btn-primary");
         saveBtn.setOnAction(e -> {
             try {
-                fields.save(studyService, goal);
+                fields.save(studyService, currentGoal);
                 closeModal.run();
                 updateTasksDisplay();
                 updateProgress();
@@ -1132,71 +960,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     private BiConsumer<Integer, Boolean> criterionToggle(StudyGoal goal) {
         return (index, ticked) -> {
-            studyService.setGoalCriterionDone(goal.getId(), index, ticked);
+            try {
+                studyService.setGoalCriterionDone(goal.getId(), index, ticked);
+            } catch (Exception ex) {
+                showPlannerError("Could not update checklist: " + ex.getMessage());
+            }
             updateProgress();
             updateTasksDisplay();
         };
-    }
-
-    /**
-     * Builds a collapsible completed-goals section for achieved attempts.
-     * Clicking the header toggles visibility of the completed goal rows.
-     */
-    private VBox buildCompletedGoalsSection(List<StudyGoal> completedGoals) {
-        VBox section = new VBox(4);
-        section.setPadding(new Insets(6, 0, 0, 0));
-
-        VBox itemsBox = new VBox(4);
-        itemsBox.setVisible(false);
-        itemsBox.setManaged(false);
-
-        Label toggle = new Label("Completed Goals (" + completedGoals.size() + ")");
-        toggle.setGraphic(TaskStyleUtils.iconLabel("\u25B6", 11));
-        toggle.setStyle("-fx-cursor: hand;");
-        TaskStyleUtils.fontBold(toggle, 11);
-        TaskStyleUtils.textColor(toggle, "#27ae60");
-        toggle.setOnMouseClicked(e -> {
-            boolean show = !itemsBox.isVisible();
-            itemsBox.setVisible(show);
-            itemsBox.setManaged(show);
-            toggle.setGraphic(TaskStyleUtils.iconLabel(show ? "\u25BC" : "\u25B6", 11));
-        });
-
-        for (StudyGoal goal : completedGoals) {
-            HBox row = new HBox(10);
-            row.setAlignment(Pos.CENTER_LEFT);
-            row.setPadding(new Insets(4, 8, 4, 8));
-            row.setStyle("-fx-background-color: #eafaf1; -fx-background-radius: 5;");
-
-            CheckBox check = new CheckBox();
-            check.setSelected(true);
-            check.setOnAction(e -> {
-                studyService.updateStudyGoalAchievement(goal.getId(), false, null);
-                updateProgress();
-                updateTasksDisplay();
-            });
-
-            Label label = new Label(goal.getDescription());
-            label.setStyle("-fx-strikethrough: true; -fx-text-fill: #7f8c8d;");
-            TaskStyleUtils.fontNormal(label, 12);
-
-            VBox textBox = new VBox(2);
-            textBox.getChildren().add(label);
-            if (!goal.getCriteria().isEmpty()) {
-                textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), criterionToggle(goal)));
-            }
-            Label attempts = new Label(formatAttemptSummary(goal));
-            TaskStyleUtils.textColor(attempts, "#7f8c8d");
-            TaskStyleUtils.fontNormal(attempts, 10);
-            textBox.getChildren().add(attempts);
-
-            HBox.setHgrow(textBox, Priority.ALWAYS);
-            row.getChildren().addAll(check, textBox, editGoalButton(goal));
-            itemsBox.getChildren().add(row);
-        }
-
-        section.getChildren().addAll(toggle, itemsBox);
-        return section;
     }
 
     // ──────────────────────────────────────────────
@@ -1204,6 +975,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     // ──────────────────────────────────────────────
 
     private void updateSessionsDisplay() {
+        sessionsTitle.setText(displayDate.equals(dateTimeService.getCurrentDate())
+                ? "Today's Sessions" : "Sessions · " + displayDate.format(DateTimeFormatter.ofPattern("MMM d")));
         sessionsFlowPane.getChildren().clear();
         List<StudySession> sessions = studyService.getSessionsForDate(displayDate);
         List<StudySession> completedSessions = sessions.stream()
@@ -2081,8 +1854,25 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         boolean hasActiveSession = currentSession != null && currentSession.isActive();
         startSessionBtn.setDisable(hasActiveSession);
+        startSessionBtn.setVisible(!hasActiveSession);
+        startSessionBtn.setManaged(!hasActiveSession);
         endSessionBtn.setDisable(!hasActiveSession);
+        endSessionBtn.setVisible(hasActiveSession);
+        endSessionBtn.setManaged(hasActiveSession);
+        sessionLinkCombo.setVisible(!hasActiveSession);
+        sessionLinkCombo.setManaged(!hasActiveSession);
         sessionTextArea.setDisable(!hasActiveSession);
+        goalSessionButtons.forEach(button -> button.setDisable(hasActiveSession));
+        sessionLinkLabel.setVisible(hasActiveSession);
+        sessionLinkLabel.setManaged(hasActiveSession);
+        if (hasActiveSession) {
+            String goal = currentSession.getGoalId() == null ? null
+                    : StudyGoal.findById(currentSession.getGoalId()).map(StudyGoal::getDescription).orElse(null);
+            String task = currentSession.getTaskId() == null ? null
+                    : Task.findById(currentSession.getTaskId()).map(this::taskTitle).orElse(null);
+            sessionLinkLabel.setText(task != null && goal != null ? task + " · " + goal
+                    : task != null ? task : goal != null ? goal : "Unlinked session");
+        }
 
         if (!hasActiveSession) {
             updateSessionTimer();
@@ -2093,34 +1883,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (currentSession != null || sessionTextArea == null) {
             return;
         }
-        if (!displayDate.equals(dateTimeService.getCurrentDate())) {
-            return;
-        }
-
         StudySession activeSession = studyService.getActiveSession().orElse(null);
-
         if (activeSession == null) {
-            if (currentSession != null) {
-                currentSession = null;
-                stopSessionTimer();
-                sessionTextArea.clear();
-            }
             return;
         }
 
-        boolean sameActiveSession = currentSession != null
-                && currentSession.getId() != null
-                && currentSession.getId().equals(activeSession.getId());
         currentSession = activeSession;
-        if (!sameActiveSession) {
-            String sessionText = activeSession.getSessionText() != null ? activeSession.getSessionText() : "";
-            if (!sessionText.equals(sessionTextArea.getText())) {
-                sessionTextArea.setText(sessionText);
-            }
-        }
-        if (sessionTimer == null) {
-            startSessionTimer();
-        }
+        sessionTextArea.setText(activeSession.getSessionText() != null ? activeSession.getSessionText() : "");
+        startSessionTimer();
     }
 
     private void saveReflection() {
@@ -2164,6 +1934,8 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
     @Override
     public void updateDisplay() {
+        plannerError.setVisible(false);
+        plannerError.setManaged(false);
         restoreActiveSessionIfNeeded();
         syncSessionControls();
         boolean isToday = displayDate.equals(dateTimeService.getCurrentDate());
@@ -2186,9 +1958,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private String taskTitle(Task task) {
-        if (task.getParentId() == null) return task.getTitle();
-        return Task.findById(task.getParentId())
-                .map(parent -> parent.getTitle() + " / " + task.getTitle()).orElse(task.getTitle());
+        return CalendarAgenda.taskTitle(task, tasksById);
     }
 
 }

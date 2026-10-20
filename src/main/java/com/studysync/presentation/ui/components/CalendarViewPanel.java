@@ -17,7 +17,6 @@ import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
-import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.DataFormat;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
@@ -480,7 +479,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         row.getStyleClass().add("cal-entry");
         Tooltip.install(row, new Tooltip(entryTooltip(entry, date, today)));
         if (entry.movable() && !date.isBefore(today)) {
-            makeDraggable(row, GOAL_DRAG, entry.goal().getId());
+            PlanningRow.makeDraggable(row, GOAL_DRAG, entry.goal().getId());
         }
         return row;
     }
@@ -599,18 +598,6 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         sidebar.getSelectionModel().select(dayTab);
     }
 
-    private void makeDraggable(Node node, DataFormat format, String id) {
-        node.getStyleClass().add("cal-draggable");
-        node.setOnDragDetected(e -> {
-            Dragboard dragboard = node.startDragAndDrop(TransferMode.MOVE);
-            ClipboardContent content = new ClipboardContent();
-            content.put(format, id);
-            dragboard.setContent(content);
-            dragboard.setDragView(node.snapshot(null, null));
-            e.consume();
-        });
-    }
-
     /** Only today and later accept drops: a goal cannot be planned into the past. */
     private void installDropTarget(VBox cell, LocalDate date, LocalDate today) {
         if (date.isBefore(today)) {
@@ -698,33 +685,15 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
     }
 
     private Node toPlanRow(Task task, LocalDate today) {
-        Label title = new Label(task.getTitle());
-        TaskStyleUtils.fontSemiBold(title, 12);
-        title.setMinWidth(0);
-        title.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(title, Priority.ALWAYS);
-
         LocalDate deadline = task.getDeadline();
-        Label due = new Label(dueHint(deadline, today));
-        TaskStyleUtils.fontNormal(due, 11);
-        due.setMinWidth(Region.USE_PREF_SIZE);
-        TaskStyleUtils.textColor(due, deadline == null ? TaskStyleUtils.COLOR_MUTED
+        String color = deadline == null ? TaskStyleUtils.COLOR_MUTED
                 : deadline.isBefore(today) ? TaskStyleUtils.OVERDUE_COLOR
                 : !deadline.isAfter(today.plusDays(2)) ? TaskStyleUtils.DUE_TODAY_COLOR
-                : TaskStyleUtils.COLOR_MUTED);
-
-        HBox row = new HBox(8, title, due);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.getStyleClass().add("cal-plan-item");
-        Tooltip.install(row, new Tooltip(task.getTitle()
-                + "\n\nDrag onto a day to plan a goal for it, or double-click to plan it for the selected day."));
-        makeDraggable(row, TASK_DRAG, task.getId());
-        row.setOnMouseClicked(e -> {
-            if (e.getClickCount() == 2 && e.isStillSincePress()) {
-                showAddGoalDialog(selectedDate.isBefore(today) ? today : selectedDate, task);
-            }
-        });
-        return row;
+                : TaskStyleUtils.COLOR_MUTED;
+        return PlanningRow.create(CalendarAgenda.taskTitle(task, tasksById), dueHint(deadline, today), color,
+                "Drag onto a day, double-click, or press Enter to plan for the selected day.",
+                TASK_DRAG, task.getId(),
+                () -> showAddGoalDialog(selectedDate.isBefore(today) ? today : selectedDate, task));
     }
 
     private static String dueHint(LocalDate deadline, LocalDate today) {

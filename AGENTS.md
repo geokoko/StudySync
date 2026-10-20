@@ -125,6 +125,9 @@ Syncs the whole H2 file. OAuth client credentials live in
   `TaskService.getTasksForDate`: that answers the planner's question, so it
   repeats a late task on every day and judges past days by today's status. The
   rules are in `CalendarAgenda`'s class doc.
+- The planner's "Needs a plan" list is decided by `PlannerAgenda` alone (rules
+  in its class doc: a subtask's goal also covers its parent, and missed goals
+  are retry suggestions only while their task is active).
 
 ### Subtasks and task notes
 
