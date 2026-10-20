@@ -648,6 +648,9 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
     }
 
     private boolean acceptsDrop(Dragboard dragboard, LocalDate date) {
+        if (date.isBefore(LocalDate.now())) {
+            return false; // the grid was drawn before midnight
+        }
         if (dragboard.hasContent(GOAL_DRAG)) {
             StudyGoal goal = movableGoals.get((String) dragboard.getContent(GOAL_DRAG));
             return goal != null && !goal.getDate().equals(date);
@@ -1449,7 +1452,11 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         });
 
         dialog.showAndWait().ifPresent(goalDescription -> {
-            if (!goalDescription.isEmpty()) {
+            if (date.isBefore(LocalDate.now())) {
+                // The dialog was opened before midnight; goals are never planned into the past.
+                showError("Failed to add study goal", date + " has passed. Plan the goal for today or later.");
+                refresh();
+            } else if (!goalDescription.isEmpty()) {
                 try {
                     Task linkedTask = taskCombo.getValue();
                     studyService.addStudyGoal(goalDescription, date,
