@@ -43,6 +43,17 @@ class CalendarAgendaTest {
     }
 
     @Test
+    void taskTitlesNeedNoLookupForATaskWithoutAParent() {
+        Task parent = task("parent", "Thesis", null, TaskStatus.OPEN);
+        Task child = task("child", "Introduction", null, TaskStatus.OPEN);
+        child.setParentId(parent.getId());
+        // Map.of() rejects a null key, as an empty map before the first load may be.
+        assertEquals("Thesis", CalendarAgenda.taskTitle(parent, Map.of()));
+        assertEquals("Introduction", CalendarAgenda.taskTitle(child, Map.of()));
+        assertEquals("Thesis / Introduction", CalendarAgenda.taskTitle(child, Map.of("parent", parent)));
+    }
+
+    @Test
     void recurringParentKeepsCalendarOccurrencesWhenItsChildCompletes() {
         Task parent = task("parent", "Weekly work", null, TaskStatus.OPEN);
         Task child = task("child", "Practice", null, TaskStatus.OPEN);

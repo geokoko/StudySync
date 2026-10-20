@@ -698,7 +698,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
     }
 
     private Node toPlanRow(Task task, LocalDate today) {
-        Label title = new Label(task.getTitle());
+        Label title = new Label(taskTitle(task));
         TaskStyleUtils.fontSemiBold(title, 12);
         title.setMinWidth(0);
         title.setMaxWidth(Double.MAX_VALUE);
@@ -716,7 +716,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         HBox row = new HBox(8, title, due);
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("cal-plan-item");
-        Tooltip.install(row, new Tooltip(task.getTitle()
+        Tooltip.install(row, new Tooltip(taskTitle(task)
                 + "\n\nDrag onto a day to plan a goal for it, or double-click to plan it for the selected day."));
         makeDraggable(row, TASK_DRAG, task.getId());
         row.setOnMouseClicked(e -> {
@@ -890,7 +890,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         line.setAlignment(Pos.CENTER_LEFT);
         line.getStyleClass().add("cal-task-line");
         if (entry.task() != null && entry.task().getCategory() != null && !entry.task().getCategory().isBlank()) {
-            Tooltip.install(line, new Tooltip(entry.task().getTitle() + "\nCategory: " + entry.task().getCategory()));
+            Tooltip.install(line, new Tooltip(entry.title() + "\nCategory: " + entry.task().getCategory()));
         }
         return line;
     }
@@ -1180,7 +1180,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
 
         goalBox.getChildren().addAll(statusLabel, descriptionLabel);
         if (linkedTask != null) {
-            Label taskLabel = new Label("Task: " + linkedTask.getTitle());
+            Label taskLabel = new Label("Task: " + taskTitle(linkedTask));
             wrap(taskLabel);
             TaskStyleUtils.fontSemiBold(taskLabel, 11);
             TaskStyleUtils.textColor(taskLabel, TaskStyleUtils.COLOR_PURPLE);
@@ -1410,14 +1410,14 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             @Override
             protected void updateItem(Task item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? "None" : item.getTitle());
+                setText(empty || item == null ? "None" : taskTitle(item));
             }
         });
         taskCombo.setButtonCell(new ListCell<>() {
             @Override
             protected void updateItem(Task item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? "None" : item.getTitle());
+                setText(empty || item == null ? "None" : taskTitle(item));
             }
         });
         if (task != null) {
@@ -1461,6 +1461,10 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
                 }
             }
         });
+    }
+
+    private String taskTitle(Task task) {
+        return CalendarAgenda.taskTitle(task, tasksById);
     }
 
     private void showError(String header, String message) {

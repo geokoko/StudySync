@@ -466,10 +466,13 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS legacy_project_id VARCHAR(50);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_legacy_project ON tasks(legacy_project_id);
 INSERT INTO tasks (id, title, description, category, priority, deadline, status,
                    completed_at, estimated_hours, notes, created_at, legacy_project_id)
+-- Status and priority fall back as the old project reader did (no status was
+-- ACTIVE, a non-positive priority was 1): the task reader refuses values outside
+-- its enum and 1-5, and one unreadable task would stop the app from starting.
 SELECT RANDOM_UUID(), p.title, p.description, COALESCE(p.category, 'Uncategorized'),
-       COALESCE(p.priority, 1), p.deadline,
-       CASE p.status WHEN 'ACTIVE' THEN 'OPEN' WHEN 'ON_HOLD' THEN 'POSTPONED'
-            WHEN 'COMPLETED' THEN 'COMPLETED' WHEN 'CANCELLED' THEN 'CANCELLED' END,
+       LEAST(GREATEST(COALESCE(p.priority, 1), 1), 5), p.deadline,
+       CASE p.status WHEN 'ON_HOLD' THEN 'POSTPONED' WHEN 'COMPLETED' THEN 'COMPLETED'
+            WHEN 'CANCELLED' THEN 'CANCELLED' ELSE 'OPEN' END,
        CASE WHEN p.status = 'COMPLETED'
             THEN COALESCE(p.completion_date, CAST(p.updated_at AS DATE)) ELSE NULL END,
        p.estimated_hours, p.notes, p.created_at, p.id

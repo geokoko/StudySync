@@ -129,6 +129,23 @@ class ProjectMigrationTest {
     }
 
     @Test
+    void valuesTheOldProjectReaderToleratedImportAsReadableTasks() {
+        // The old reader read no status as ACTIVE and a non-positive priority as 1.
+        project("no-status", "ACTIVE", null);
+        project("zero-priority", "ACTIVE", null);
+        project("too-high-priority", "ACTIVE", null);
+        jdbc.update("UPDATE projects SET status = NULL WHERE id = 'no-status'");
+        jdbc.update("UPDATE projects SET priority = 0 WHERE id = 'zero-priority'");
+        jdbc.update("UPDATE projects SET priority = 9 WHERE id = 'too-high-priority'");
+        migrate();
+        migrate();
+        assertEquals(3, Task.findAll().size());
+        assertEquals(TaskStatus.OPEN, imported("no-status").getStatus());
+        assertEquals(1, imported("zero-priority").getPriority().stars());
+        assertEquals(5, imported("too-high-priority").getPriority().stars());
+    }
+
+    @Test
     void legacySessionsHaveNoEffectOnScores() {
         project("source", "ACTIVE", null);
         jdbc.update("""
