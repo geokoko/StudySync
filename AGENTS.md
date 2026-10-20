@@ -1,345 +1,157 @@
-# StudySync - Agent Reference
+# StudySync
+
+JavaFX 21 + Spring Boot 3.2 desktop app on an H2 file database, with optional
+Google Drive sync. There is no FXML: all UI is built in Java code.
 
 ## Rules
 
-- NEVER commit, push, force-push, or create/delete tags without explicit user confirmation first.
-- Always show the exact commands you plan to run and wait for approval.
-- When requested to add a new feature, enhancement or fix, first switch to a new branch with a descriptive name (e.g., `feature/calendar-integration`, `fix/task-deletion-bug`) before making any code changes. Work on that branch until the feature is complete, then when you finish a substantial piece of work, stop and ask for confirmation and code review before committing and pushing.
+- Never commit, push, force-push, or create/delete tags without explicit user
+  confirmation first. Pushing a `v*` tag publishes a GitHub Release
+  (`.github/workflows/release.yml`).
+- Before running a git commit, push or tag command, or any other irreversible
+  or external command, show the exact command and wait for approval.
+- Before changing code for a feature, enhancement or fix, switch to a new
+  descriptively named branch (e.g. `feature/calendar-integration`,
+  `fix/task-deletion-bug`) and keep working on it until the feature is
+  complete. When a substantial piece of work is done, stop and ask for
+  confirmation and code review before committing and pushing.
 
-## Overview
+## Build
 
-StudySync is a **JavaFX 21 + Spring Boot 3.2.0** desktop application for personal study and task management. It uses an **H2 file-based database** with optional **Google Drive sync**. There is no FXML — all UI is built programmatically in Java.
-
-## Build & Run
+Use the Gradle 8.12.1 wrapper, started with JDK 21 via `JAVA_HOME`. The Java 21
+toolchain only controls compilation; a newer JVM cannot run this Gradle (Java 25
+fails with `Unsupported class file major version 69`). See README, "Build from
+source".
 
 | Command | Purpose |
 |---|---|
-| `./gradlew compileJava` | Compile only (fast verification) |
+| `./gradlew compileJava` | Fast compile check |
+| `./gradlew test` | All tests; also writes the JaCoCo report |
+| `./gradlew check` | Tests + Checkstyle (`config/checkstyle/checkstyle.xml`) |
 | `./gradlew run` | Launch the desktop app |
-| `./gradlew test` | Run unit tests (JUnit 5 + Mockito) |
-| `./gradlew integrationTest` | Run integration tests |
-| `./gradlew check` | Run tests + Checkstyle |
-| `./gradlew jacocoTestReport` | Generate code coverage report |
 
-- **Java 21** (toolchain auto-downloads via foojay-resolver)
-- **Gradle 8.12.1** (use the wrapper `./gradlew`)
-- `application.yml` is gitignored — copy `application.yml.template` to `application.yml`
-- Google Drive integration requires a `config/google/drive.properties` file with OAuth credentials (also gitignored)
-
-## Architecture
-
-```
-src/main/java/com/studysync/
-├── StudySyncApplication.java          # Spring Boot entry point → launches JavaFX
-├── application/
-│   └── StudySyncJavaFXApp.java        # JavaFX Application subclass (init/start/stop)
-├── config/
-│   ├── ActiveRecordConfig.java        # @PostConstruct: injects JdbcTemplate into entity classes
-│   ├── DatabaseConfig.java            # JdbcTemplate + transaction manager beans
-│   ├── DatabaseReloadService.java     # H2 SHUTDOWN/reconnect for live Drive sync
-│   └── GoogleDriveConfiguration.java  # Spring beans for Drive integration classes
-├── domain/
-│   ├── entity/                        # Active Record entities (see below)
-│   ├── exception/
-│   │   └── ValidationException.java
-│   ├── service/                       # Business logic services (see below)
-│   └── valueobject/
-│       ├── TaskStatus.java            # OPEN, IN_PROGRESS, POSTPONED, COMPLETED, DELAYED, CANCELLED
-│       ├── TaskPriority.java          # Enum for task priority levels
-│       ├── TaskCategory.java          # Enum for built-in task categories
-│       └── ProjectStatus.java         # Enum for project status
-├── integration/drive/                 # Google Drive OAuth + sync (see below)
-└── presentation/ui/
-    ├── StudySyncUI.java               # Main UI: header, TabPane, modal overlay, panel wiring
-    └── components/
-        ├── RefreshablePanel.java      # Interface: getView() + updateDisplay()
-        ├── TaskStyleUtils.java        # Shared task status styling (border color, badge bg, emoji)
-        │                              # + CSS-safe font helpers (fontBold/fontNormal/fontSemiBold/fontItalic/fontEmoji)
-        │                              # + overdue/due-today/missed badge factories
-        ├── CalendarViewPanel.java     # Month/week calendar, day side panel, "To plan" list, drag to plan
-        ├── CalendarAgenda.java        # Pure: what each calendar day lists (see Calendar)
-        ├── StudyPlannerPanel.java     # Daily study planner with sessions, goals, tasks
-        ├── ReflectionDiaryPanel.java  # Daily reflection diary with sidebar navigation
-        ├── ProjectManagementPanel.java # Project CRUD with categories and timed sessions
-        ├── TaskManagementPanel.java   # Task CRUD with filters, sorting, bulk actions
-        └── ProfileViewPanel.java      # Profile/analytics + Google Drive sync controls
-
-src/main/resources/
-├── schema.sql                         # H2 DDL (CREATE IF NOT EXISTS + migrations)
-├── styles.css                         # JavaFX CSS (global text overrides + reusable classes)
-├── application.yml.template           # Config template (gitignored application.yml)
-├── logback-spring.xml
-├── icon.png
-└── fonts/
-    ├── Roboto-Regular.ttf
-    ├── Roboto-Bold.ttf
-    └── NotoEmoji-Regular.ttf
-```
-
-## Startup Sequence
-
-1. `StudySyncApplication.main()` runs `GoogleDriveBootstrap.initialize()` (pre-Spring, downloads DB from Drive if configured)
-2. Spring Boot context starts (`@SpringBootApplication`)
-3. `ActiveRecordConfig.@PostConstruct` injects `JdbcTemplate` into all entity classes via static setters
-4. `Application.launch(StudySyncJavaFXApp.class)` starts the JavaFX lifecycle
-5. `StudySyncJavaFXApp.init()` retrieves the Spring context and loads custom fonts
-6. `StudySyncJavaFXApp.start()` gets `StudySyncUI` bean from Spring, calls `studySyncUI.start(primaryStage)`
-7. `StudySyncUI.start()` forces Modena stylesheet, creates TabPane with all panels, processes delayed goals, checks Drive sync
-
-## Active Record Pattern
-
-Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordConfig`. All database operations are static methods on the entity classes (e.g., `Task.findAll()`, `Task.findById(id)`, `task.save()`, `task.delete()`).
-
-### Entities
-
-| Entity | Table | Key Static Methods |
-|---|---|---|
-| `Task` | `tasks` | `findAll`, `findById`, `findByStatus`, `findByCategory`, `findDueBy`, `findOverdue`, `findByPriority`, `search`, `findHighPriority`, `findRecurring`, `findActiveRecurring`, `countByStatus`, `existsById`, `updateStatus`, `deleteById`, `deleteByIds`, `save`, `delete` |
-| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findAllInRange`, `findTaskIdsWithPendingAttemptsFrom`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `updateDetails`, `setCriterionDone`, `deleteById`, `save`, `delete`; pure `parseCriteria` / `serializeCriteria` / `criteriaFromLines` |
-| `StudySession` | `study_sessions` | `findAll`, `findById`, `findByDate`, `findActiveSession`, `countByGoalId`, `save`, `delete` |
-| `Project` | `projects` | `findAll`, `findById`, `findByStatus`, `save`, `delete` |
-| `ProjectSession` | `project_sessions` | `findAll`, `findById`, `findByProjectId`, `findByDate`, `save`, `delete` |
-| `DailyReflection` | `daily_reflections` | `findAll`, `findById`, `findByDate`, `findByDateRange`, `save`, `delete` |
-| `Category` | `task_categories` | `findAll`, `findById`, `findByName`, `save`, `delete` |
-| `OffDay` | `off_days` | `mark`, `unmark`, `labelFor`, `findLabelsInRange`, `findAllDates` (static only — a day is either off or not) |
-
-### Services
-
-| Service | Responsibility |
-|---|---|
-| `TaskService` | Task CRUD, filtering, status transitions, bulk operations, recurring task date matching, missed occurrence detection, task statistics, async queries |
-| `StudyService` | Study sessions (start/end), study goals (incl. `getGoalsInRange` for a calendar period), daily reflections, delayed goal processing, off-day CRUD |
-| `ScoringService` | The only place that decides what counts towards a score. `scoreForDate` / `scoreForWindow` return a `ScoreBreakdown`; also `getStudyStreak` and `taskPoints` |
-| `ProjectService` | Project CRUD, project sessions (start/end), progress tracking |
-| `CategoryService` | Category creation and existence checks for tasks and projects |
-| `DateTimeService` | Date/time utilities, current date provider |
-
-Services call `googleDriveService.markLocalDbDirty()` after mutations (via `TransactionSynchronization.afterCommit`) to track unsaved changes for Drive sync.
-
-### Records (DTOs)
-
-| Record | Used By | Purpose |
-|---|---|---|
-| `TaskUpdate` | `TaskService` | DTO for partial task updates |
-| `StudySessionEnd` | `StudyService` | DTO for ending a study session |
-| `ProjectSessionEnd` | `ProjectService` | DTO for ending a project session |
-| `MissedOccurrence` | `TaskService` | DTO: a missed past occurrence of a recurring task (task + missedDate) |
-| `ScoreBreakdown` | `ScoringService` | DTO: points (split by source), productivity %, sessions, minutes, focus, goals, tasks, scoring days |
-
-## Database
-
-H2 file-based database at `./data/studysync.mv.db`. Schema is in `schema.sql` and uses `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ADD COLUMN IF NOT EXISTS` for forward-compatible migrations.
-
-### Tables
-
-- **tasks** — id, title, description, category, priority, deadline, status, points, recurring_pattern, start_date, recurrence_end_date, completed_at, remind_days_before, done_criteria (free text), created_at (no updated_at — nothing ever wrote it)
-- **projects** — id, title, description, category, status, priority, dates, progress, hours, total_minutes_worked, total_sessions_count, last_worked_on, notes, timestamps. `total_minutes_worked` is authoritative; `actual_hours` is a rounded-down convenience column
-- **study_sessions** — id, date, times, duration, completion flags, focus/confidence levels, session notes, active tracking fields, timestamps
-- **project_sessions** — id, project_id (FK → projects), date, times, duration, objectives, progress, notes, timestamps
-- **study_goals** — id, date, description, achieved, delay tracking fields, task_id (FK → tasks), done_criteria (checklist, see Definition of Done), timestamps
-- **daily_reflections** — id, date (UNIQUE), focus level, notes, reflection text, reward flag, timestamps
-- **task_categories** — id, name (UNIQUE), description, timestamp; seeded with Work, Personal, Study, Health
-- **schema_migrations** — id (PK), applied_at; marks one-shot migrations that must not re-run (everything else in `schema.sql` is additive or recomputes derived data)
-- **off_days** — date (PK), label, timestamp; days excluded from global scores
-
-## UI Architecture
-
-### Modal System
-
-`StudySyncUI` has a `StackPane overlayLayer` for modals. It exposes `showModal(Node)` and `closeModal()` as `Consumer<Node>` and `Runnable`, passed to panels that need modal dialogs (StudyPlannerPanel, TaskManagementPanel, ProjectManagementPanel).
-
-### Panel Interface
-
-All panels implement `RefreshablePanel`:
-- `getView()` — returns the root `Node` (usually a `ScrollPane` wrapping a `VBox`)
-- `updateDisplay()` — refreshes data from the database and rebuilds the UI
-
-Panels are instantiated in `StudySyncUI`'s constructor and stored in a `LinkedHashMap<Tab, RefreshablePanel>`. The active panel's `updateDisplay()` is called on tab selection.
-
-### Tab Layout
-
-Default tab order: Calendar View, Study Planner, Reflection Diary, Projects, Tasks. Tabs can be reordered with Ctrl+Left/Right. Profile opens in a separate window.
-
-## CSS Architecture
-
-`styles.css` has two sections:
-
-1. **Lines 1-394: Global text color overrides** — Forces dark text (`#2c3e50`) on all JavaFX controls (`.label`, `.text`, `.text-field`, `.button`, `.combo-box`, `.table-view` cells, etc.) to prevent invisible text when the OS is in dark mode. JavaFX 21's Modena theme auto-detects OS dark mode and sets white text, which clashes with our light backgrounds. We also force `Application.setUserAgentStylesheet(Application.STYLESHEET_MODENA)` in `StudySyncUI.start()`. Includes checkbox selected-state rules (`.check-box:selected .box` / `.check-box:selected .mark`) to keep the tick mark visible.
-
-2. **Lines 395-520: Reusable CSS classes** — Application-specific styles extracted from inline `setStyle()` calls:
-
-| Category | Classes |
-|---|---|
-| Backgrounds | `.panel-bg`, `.panel-bg-alt`, `.panel-bg-warm` |
-| Cards | `.section-card`, `.section-card-light`, `.section-card-flat` |
-| Buttons | `.btn-primary`, `.btn-success`, `.btn-danger`, `.btn-cancel`, `.btn-purple`, `.btn-orange`, `.btn-google`, `.btn-gray`, `.btn-success-alt`, `.btn-orange-download`, `.btn-small` |
-| Modals | `.modal-content`, `.modal-content-light` |
-| Utility | `.transparent-bg` |
-| Calendar | `.cal-cell` (state as pseudo-classes `:today` `:selected` `:past` `:outside` `:off` `:drop`), `.cal-weekday`, `.cal-day-number`, `.cal-entry`, `.cal-draggable`, `.cal-plan-item`, `.cal-bar-track`, ... |
-
-### Styling Guidelines
-
-- **Use CSS classes** for static, reusable styles. Apply via `node.getStyleClass().add("class-name")`.
-- **Keep `setStyle()` for dynamic styles** — anything that varies by data (task status colors, date-dependent cell colors, progress bar widths).
-- **`setTextFill(Color.web("#2c3e50"))`** is the global default — do NOT set it explicitly. For semantic colors (muted gray `#7f8c8d`, error red, status-specific colors) on a Label use `TaskStyleUtils.textColor(label, hex)`: the global `.label` rule is a scene stylesheet, which outranks `setTextFill()`, so a `setTextFill()` color on a Label in the main window never shows.
-- **`setTextFill(Color.WHITE)` on buttons** is handled by button CSS classes — do NOT set it explicitly when using `.btn-*` classes.
-- **Task status styling** is centralized in `TaskStyleUtils` — use its static methods instead of inline switch expressions.
-- The `.button` base CSS class already includes `-fx-font-weight: bold; -fx-cursor: hand;`.
-
-## Window Dimensions
-
-- Default size: 1200 x 800 (set via `setWidth`/`setHeight` on the primary stage)
-- Minimum size: 900 x 600 (set via `setMinWidth`/`setMinHeight`)
-- Stage is centered on screen at startup
-
-## Scoring
-
-`ScoringService` is the single source of truth; the calendar's per-day figures and the profile's 30-day figures are both `ScoreBreakdown`s over different date ranges.
-
-### Points
-
-| Source | Worth |
-|---|---|
-| Study session | `min(minutes, 240) / 2` scaled by focus (1 → 40%, 2 → 70%, 3 → 100%, 4 → 120%, 5 → 140%), `+10` if completed |
-| Project session | Same time base at neutral quality (no focus rating), `+10` if completed |
-| Achieved goal attempt | `+15` |
-| Completed task | `+20` on time, `-10` late, `-5` per reschedule, floored at `-15`. Zero without a deadline or while unfinished |
-
-Session points are stored in `points_earned` but treated as **derived**: `schema.sql` recomputes them from duration/focus on every startup, in integer SQL that mirrors `StudySession.calculatePoints()` exactly. `ScoringServiceTest.sessionPointsMatchTheSqlMigrationExactly` guards the pair.
-
-Tasks earn *timeliness only* — a flat completion bonus would double-count the sessions and goals that finished the task. Points land on `completed_at`, so off days exclude them.
-
-### Productivity % (0-100)
-
-`time 30 + focus 30 + consistency 20 + goals 20`, every term measured per scoring day — which is what lets one formula serve both a single day and a 30-day window.
-
-### Off days
-
-`off_days` rows are excluded from window scores and shrink the denominators, so a holiday is not a zero-productivity day. They are skipped by the streak rather than breaking it. Per-day figures and the profile charts still show what actually happened on an off day.
-
-
-## Calendar
-
-`CalendarAgenda.build` decides what each day lists, by name; the panel only
-draws it. It deliberately does not reuse `TaskService.getTasksForDate`, which
-answers the planner's question and would repeat a late task on every cell and
-judge past days by today's status.
-
-- **Goal attempts** on their planned date: pending, achieved, or missed (a
-  missed or abandoned attempt). Titled by their task when linked.
-- **Deadlines** of unresolved tasks (OPEN / IN_PROGRESS / DELAYED) on the
-  deadline day only. A late task is listed again on **today** as overdue, and
-  nowhere else.
-- **Completed tasks** on `completed_at`, not on their deadline.
-- **Recurring occurrences** of unresolved recurring tasks; a past one is
-  "missed" unless a goal attempt for the task sits on that day (which is
-  listed instead). The deadline line replaces an occurrence on the due day.
-- Postponed and cancelled tasks are left out, as in the planner.
-
-The panel loads a whole month (full Mon–Sun weeks) or week at once:
-`StudyService.getGoalsInRange` plus one `scoreForDate` per past day. Dragging
-a pending goal onto today or later moves it (`updateStudyGoalDetails`); the
-"To plan" list holds active non-recurring tasks with no pending goal from
-today on (`getTaskIdsWithPlannedGoals`), and dropping one opens the add-goal
-dialog with the task preselected.
-
-## Reminders
-
-A reminder is one column, `tasks.remind_days_before`, and nothing else. The
-reminder date is derived (`deadline.minusDays(n)`), never stored, so moving a
-deadline moves the reminder with it and the two can never disagree.
-
-- `Task.isReminderDue(date)` — true from the reminder day up to and including
-  the deadline, for unresolved tasks only. Deliberately stops at the deadline:
-  past it the task is overdue, which is surfaced on its own, and reporting both
-  would double-count.
-- `TaskService.getTasksWithDueReminders(date)` — soonest deadline first.
-- Surfaced as a blue badge on task cards, plus a "Coming up" section in the
-  planner for tasks that do not otherwise appear today.
-
-
-## Definition of Done
-
-Every goal (and, as free text, every task) can say what "done" means.
-
-- **Goals** carry a checklist in `study_goals.done_criteria`: one criterion per
-  line, prefixed `[x] ` (ticked) or `[ ] `. `StudyGoal.parseCriteria` /
-  `serializeCriteria` are the only two places that know the format;
-  `criteriaFromLines` turns user-typed lines into it, keeping the tick of any
-  line whose trimmed text is unchanged. It lives on the **parent goal**, not
-  the attempt, so a retry continues from the ticks the previous attempt left.
-- `StudyService.setGoalCriterionDone` ticks one line and then reuses the
-  achieved-checkbox semantics: all ticked → `markCurrentAttemptAchieved`,
-  otherwise `reopenAchievedGoal` (a no-op unless the goal was achieved). The
-  main checkbox still works on its own, so a goal can be achieved with a
-  criterion left open, or have no checklist at all.
-- Scoring is untouched: an attempt is worth the same whether it was achieved
-  by the last tick or by the checkbox. Partial credit is deliberately not a
-  thing.
-- **Tasks** get `tasks.done_criteria` as plain text, shown on the card as
-  "Done when: …". `TaskUpdate.doneCriteria` follows the record's convention:
-  `null` keeps, blank clears (the `Task` setter normalises blank to `null`).
-- UI helpers live in `TaskStyleUtils`: `criteriaChecklist` (live with a
-  handler, inert without), `criteriaProgress` (the " · 2/3" suffix, empty
-  when there is no checklist) and `criteriaArea` + `CRITERIA_LABEL`, the one
-  input field every goal form uses.
-- Existing goals are edited through `GoalEditFields` (description, checklist,
-  planned date while the attempt is pending), shown from an Edit button on the
-  planner goal row, the calendar goal box and the task panel's goal history.
-  It is the single place those three fields are built and validated.
-
-## Recurring Tasks
-
-Single-entity virtual-recurrence model — one DB row appears on multiple calendar dates. No task spawning.
-
-- **Pattern format**: `"intervalWeeks:daysOfWeek"` — e.g., `"2:1,4"` = every 2 weeks on Mon (`1`) and Thu (`4`)
-- **`startDate`** (`DATE`): First date the task can appear + recurrence interval anchor. Falls back to `createdAt` if null (backward compatibility). Set via `getRecurrenceAnchor()`.
-- **`recurrenceEndDate`** (`DATE`): Last date an occurrence may fall on. NULL = repeats forever. This is what stops the recurrence.
-- **`deadline`** means the same thing on recurring and one-off tasks: when the task is due. It drives overdue/due-today badges and the timeliness part of the score, and deliberately does NOT affect whether an occurrence appears. (Before 0.1.6 `deadline` was overloaded as the end-of-recurrence date; `schema.sql` migrates old rows once, guarded by the `schema_migrations` table.)
-- **Surfacing**: a recurring task appears on its scheduled occurrences, and — once past its deadline and still unresolved — every day until it is resolved, exactly like a one-off overdue task. The deadline check runs *before* the recurrence bounds, so the end of recurrence cannot hide a task the user never finished.
-- Recurring tasks go `DELAYED` like any other overdue task. `TaskService.isRecurringOccurrence()` answers "does the schedule land here", which is a different question from `taskSurfacesOn()` — anything counting missed occurrences must use the former.
-- **Completing** a recurring task is permanent — stops all future recurrences.
-- **Missed occurrence detection**: A past scheduled date is "missed" if no achieved `StudyGoal` is linked to the task (`task_id`) for that date. `TaskService.getMissedRecurringOccurrences()` walks back up to 28 days. Today's occurrence is never considered missed.
-- **Carry-forward** of missed occurrences is only shown in StudyPlannerPanel (not in CalendarViewPanel day cells).
-
-## Google Drive Integration
-
-Optional feature for syncing the H2 database file to Google Drive.
-
-### Components
-
-| Class | Role |
-|---|---|
-| `GoogleDriveBootstrap` | Pre-Spring: loads settings, downloads DB from Drive if remote is newer |
-| `GoogleDriveSettingsLoader` | Loads OAuth config from `config/google/drive.properties` |
-| `GoogleDriveSettings` | POJO holding client ID, client secret, DB path, token dir |
-| `GoogleDriveContextHolder` | ThreadLocal holder for settings between bootstrap and Spring init |
-| `GoogleDriveConfiguration` | Spring `@Configuration` — creates beans for credential manager, gateway |
-| `GoogleCredentialManager` | OAuth2 credential storage/retrieval (file-based token store) |
-| `GoogleDriveGateway` | Low-level Drive API calls (upload, download, list, get metadata) |
-| `GoogleDriveService` | High-level service: sign-in/out, sync status check, upload/download, dirty tracking |
-
-### Sync Flow
-
-1. On startup, `GoogleDriveBootstrap` checks if remote DB is newer and downloads it before Spring starts
-2. During runtime, services call `googleDriveService.markLocalDbDirty()` after DB mutations
-3. User can manually sync from ProfileViewPanel (upload/download buttons)
-4. On download: `DatabaseReloadService` shuts down H2, file is replaced, H2 reconnects, schema migrations re-run, all panels refresh
-5. On app close: if signed in, user is prompted to upload to Drive
-
-## Testing
-
-- Framework: JUnit 5 + Mockito + spring-boot-starter-test
-- Test config: `src/test/resources/application-test.properties`
-- Coverage: JaCoCo with HTML/XML reports (excludes config classes and entry points)
-- Code style: Checkstyle 10.12.1 (config at `config/checkstyle/checkstyle.xml`)
-- Tests live under `src/test/java`: `*PersistenceTest` classes run services against an in-memory H2 with the schema inlined per test class (so a new column must be added to those DDL blocks too), `ScoringServiceTest` guards the points formulas, and `SessionVisibilityTest` / `MarkdownTest` / `CalendarAgendaTest` cover UI helpers
-
-## Key Patterns
-
-1. **Active Record** — entities handle their own persistence via static JdbcTemplate methods
-2. **Spring-JavaFX bridge** — Spring context starts first, JavaFX `Application.launch()` second; `StudySyncUI` is a Spring `@Component`
-3. **Modal overlay** — `StackPane` overlay managed by `StudySyncUI`, passed to panels as `Consumer<Node>` / `Runnable`
-4. **Dirty tracking** — services mark DB as dirty after commits; Drive sync uses this to know when upload is needed
-5. **Live DB reload** — H2 SHUTDOWN → file replace → reconnect → schema migration → panel refresh (no app restart)
-6. **Tab-based navigation** — `TabPane` with lazy `updateDisplay()` on selection change
+- Tests start the JavaFX platform (`SessionVisibilityTest`), so they need a
+  display; headless, run `xvfb-run -a ./gradlew test` as CI does.
+- Checkstyle only warns (`severity` is `warning`, and CI runs it with
+  `continue-on-error`), and the code base carries many existing warnings. Its
+  output is not a gate; do not mass-fix it.
+
+`src/main/resources/application.yml` is gitignored: create it from
+`application.yml.template` in the same directory.
+
+## Persistence
+
+- Active Record: each entity in `domain/entity` holds a static `JdbcTemplate`
+  that `config/ActiveRecordConfig` sets at startup, and all database operations
+  are static methods on the entity classes (`Task.findAll()`, `task.save()`).
+- The database is the H2 file `./data/studysync.mv.db`.
+- `schema.sql` runs on every startup (`spring.sql.init.mode: always`), so every
+  statement must be safe to re-run: `CREATE TABLE IF NOT EXISTS`,
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, or recomputing derived data. A
+  one-shot migration that moves user data must be guarded by a
+  `schema_migrations` row, as `split-recurrence-end-from-deadline` is.
+- Tests that need tables (`*PersistenceTest`, `ScoringServiceTest`) inline their
+  own DDL instead of loading `schema.sql`; mirror schema changes there.
+- `projects.total_minutes_worked` is authoritative; `actual_hours` is a
+  rounded-down convenience copy.
+
+## Google Drive sync
+
+Syncs the whole H2 file. OAuth client credentials live in
+`config/google/drive.properties` (gitignored; template beside it).
+
+- Service mutations mark the database dirty after commit
+  (`TransactionSynchronization.afterCommit`: `markDirtyAndSaveLocally` in
+  `TaskService` / `ProjectService`, `flushLocally` in `StudyService`). The flag
+  is how sync knows there are local changes to upload.
+- A download is never applied to the open database:
+  `GoogleDriveService.stageDownloadFromDrive` stages it beside the DB file, and
+  `bootstrap/PendingDownloadApplier` swaps it in at the next launch, before
+  Spring opens H2. There is no live reload, and nothing is downloaded
+  automatically at startup.
+- Startup maintenance (marking delayed tasks, sweeping overdue goal attempts)
+  is derived data every machine recomputes, so it must not set the dirty flag:
+  otherwise merely opening the app looks like unsaved edits and raises a false
+  sync conflict. `StudySyncUI.runStartupMaintenance` wraps it in
+  `GoogleDriveService.runStartupMaintenanceWithoutDirtyTracking`, and the goal
+  sweep saves through `StudyService.saveLocallyWithoutDirtyFlag` (its javadoc
+  says why the wrapper alone is not enough). It runs only once the startup
+  Drive check reports up to date, local newer, unknown or disabled; never with
+  a newer Drive copy, a conflict, or a staged download pending.
+- User-facing flow (manual upload/download in the Profile window, upload offer
+  on close): README, "Google Drive Sync Setup".
+
+## UI styling
+
+- `styles.css` is a scene stylesheet on the main and Profile windows. Its first
+  part forces dark text (`#2c3e50`) on every control, because JavaFX 21's Modena
+  follows OS dark mode and would draw white text on our light backgrounds;
+  `StudySyncUI.start()` also forces `STYLESHEET_MODENA`. Reusable classes
+  (`.btn-*`, `.section-card*`, `.panel-bg*`, `.modal-content*`, `.cal-*`, ...) follow
+  under "APPLICATION CSS CLASSES".
+- Static, reusable styles go in a CSS class (`getStyleClass().add(...)`);
+  `setStyle()` is for styles that vary with data (status colors, date-dependent
+  cell colors, progress widths).
+- Never set the default text color, or white text on `.btn-*` buttons; the
+  stylesheet does both.
+- `setTextFill()` has no effect on a Label in those windows: the stylesheet's
+  `.label` rule outranks it. Semantic colors (muted `#7f8c8d`, error red,
+  status colors) go through `TaskStyleUtils.textColor(label, hex)`, which sets
+  an inline `-fx-text-fill`.
+- Fonts go through the `TaskStyleUtils` font helpers (`fontBold`, `fontEmoji`,
+  `iconLabel`, ...), which use inline styles so CSS re-application cannot reset
+  them. Task status colors, emoji and badges also come from `TaskStyleUtils`,
+  not inline switch expressions.
+
+## Domain rules
+
+- `ScoringService` is the only place that decides what scores and how much;
+  the calendar's per-day figures and the profile's 30-day figures are both its
+  `ScoreBreakdown`s. The rules are in its class doc and constants.
+- Session `points_earned` is derived: `schema.sql` recomputes it on every
+  startup in integer SQL that must match `StudySession.calculatePoints()`
+  exactly, guarded by `ScoringServiceTest.sessionPointsMatchTheSqlMigrationExactly`.
+- Off days (`off_days`) are excluded only from aggregates: window scores drop
+  them from the denominators and the streak skips them rather than breaking.
+  Per-day figures and the profile charts still show what happened.
+- A reminder is only `tasks.remind_days_before`; the reminder date is derived
+  from the deadline and never stored.
+- What a calendar day lists is decided by `CalendarAgenda` alone, never by
+  `TaskService.getTasksForDate`: that answers the planner's question, so it
+  repeats a late task on every day and judges past days by today's status. The
+  rules are in `CalendarAgenda`'s class doc.
+
+### Definition of done
+
+- A goal's checklist is `study_goals.done_criteria`, kept on the parent goal
+  (not the attempt) so a retry continues from earlier ticks. Only
+  `StudyGoal.parseCriteria` / `serializeCriteria` know its `[x] ` / `[ ] `
+  line format.
+- Ticking the last criterion achieves the current attempt through the same path
+  as the checkbox (`StudyService.setGoalCriterionDone`); unticking one reopens
+  an achieved goal. The checkbox also works alone, so a goal can be achieved
+  with criteria open or with no checklist. There is no partial credit.
+- Goal forms reuse `GoalEditFields` and `TaskStyleUtils.criteriaArea` /
+  `CRITERIA_LABEL` / `criteriaChecklist` / `criteriaProgress`. A task's
+  `done_criteria` is plain text, not a checklist.
+
+### Recurring tasks
+
+- One row appears on many dates; occurrences are virtual, never spawned rows.
+- `recurring_pattern` is `"intervalWeeks:daysOfWeek"`, e.g. `"2:1,4"` = every 2
+  weeks on Mon and Thu. Intervals are anchored at `start_date`, falling back to
+  `created_at` for old rows (`Task.getRecurrenceAnchor()`).
+- `recurrence_end_date` (NULL = forever) ends the schedule. `deadline` means
+  the same as on one-off tasks, when the task is due, and does not decide where
+  occurrences fall. Before 0.1.6 `deadline` held the recurrence end; a
+  `schema_migrations`-guarded migration split them.
+- Past its deadline and unresolved, a recurring task goes `DELAYED` and
+  surfaces every day until resolved, even after the end of recurrence.
+  `TaskService.taskSurfacesOn()` answers "does it show here";
+  `isRecurringOccurrence()` answers "does the schedule land here". Counting
+  missed occurrences must follow the schedule, never `taskSurfacesOn()`.
+- Completing a recurring task is permanent and ends all future occurrences.
+- Missed-occurrence carry-forward is shown only in `StudyPlannerPanel`:
+  `TaskService.getMissedRecurringOccurrences()` checks yesterday only, and an
+  occurrence is handled when `StudyGoal.hasHandledGoalForTaskOccurrence` finds
+  an achieved attempt for it. Today's occurrence is never missed.
