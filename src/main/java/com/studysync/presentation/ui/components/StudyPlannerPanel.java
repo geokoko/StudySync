@@ -317,8 +317,10 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         endSessionBtn.getStyleClass().add("btn-danger");
         sessionStatusLabel = new Label("No active session");
         TaskStyleUtils.fontSemiBold(sessionStatusLabel, 14);
+        // One line, so a long goal cannot push the planner out of the window;
+        // the tooltip has the full text.
         sessionLinkLabel = new Label();
-        sessionLinkLabel.setWrapText(true);
+        sessionLinkLabel.setMinWidth(0);
         sessionLinkLabel.setMaxWidth(420);
         sessionLinkCombo = new ComboBox<>();
         sessionLinkCombo.setPromptText("Link to (optional)");
@@ -338,6 +340,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
     }
 
     private void startSession(Object link) {
+        if (hasActiveSession()) {
+            return; // one session at a time; Stop ends the running one
+        }
         try {
             String goalId = null;
             String taskId = null;
@@ -896,6 +901,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             Button start = new Button("Start session");
             start.getStyleClass().addAll("btn-success", "btn-small");
             start.setOnAction(event -> startSession(goal));
+            start.setDisable(hasActiveSession());
             goalSessionButtons.add(start);
             actions.getChildren().add(start);
         }
@@ -1847,12 +1853,16 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         }
     }
 
+    private boolean hasActiveSession() {
+        return currentSession != null && currentSession.isActive();
+    }
+
     private void syncSessionControls() {
         if (startSessionBtn == null || endSessionBtn == null || sessionStatusLabel == null || sessionTextArea == null) {
             return;
         }
 
-        boolean hasActiveSession = currentSession != null && currentSession.isActive();
+        boolean hasActiveSession = hasActiveSession();
         startSessionBtn.setDisable(hasActiveSession);
         startSessionBtn.setVisible(!hasActiveSession);
         startSessionBtn.setManaged(!hasActiveSession);
@@ -1870,8 +1880,10 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
                     : StudyGoal.findById(currentSession.getGoalId()).map(StudyGoal::getDescription).orElse(null);
             String task = currentSession.getTaskId() == null ? null
                     : Task.findById(currentSession.getTaskId()).map(this::taskTitle).orElse(null);
-            sessionLinkLabel.setText(task != null && goal != null ? task + " · " + goal
-                    : task != null ? task : goal != null ? goal : "Unlinked session");
+            String link = task != null && goal != null ? task + " · " + goal
+                    : task != null ? task : goal != null ? goal : "Unlinked session";
+            sessionLinkLabel.setText(link.replaceAll("\\s+", " "));
+            sessionLinkLabel.setTooltip(new Tooltip(link));
         }
 
         if (!hasActiveSession) {
@@ -1937,7 +1949,6 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         plannerError.setVisible(false);
         plannerError.setManaged(false);
         restoreActiveSessionIfNeeded();
-        syncSessionControls();
         boolean isToday = displayDate.equals(dateTimeService.getCurrentDate());
         String prefix = isToday ? "Today \u2014 " : "";
         dateNavLabel.setGraphic(dateNavIcon);
@@ -1945,6 +1956,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
                 DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")));
 
         updateTasksDisplay();
+        // After the tasks are loaded: the session bar names the session's task.
+        syncSessionControls();
         updateSessionsDisplay();
         updateProgress();
 

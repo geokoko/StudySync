@@ -112,6 +112,45 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void sessionLeftRunningOnATopLevelTaskIsRestoredWhenThePlannerOpens() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                StudySession running = new StudySession();
+                running.setTaskId(fixture.parent.getId());
+                running.startSession();
+                when(fixture.study.getActiveSession()).thenReturn(Optional.of(running));
+                fixture.taskQueries.when(() -> Task.findById(fixture.parent.getId()))
+                        .thenReturn(Optional.of(fixture.parent));
+
+                StudyPlannerPanel panel = fixture.panel();
+
+                assertTrue(button(panel, "Stop").isVisible());
+                assertTrue(button(panel, "Start session").isDisabled());
+                assertTrue(labelTexts(panel.getTop()).contains("Parent"));
+            }
+        });
+    }
+
+    @Test
+    void restoredSessionNamesTheFamilyAndAMultiLineGoalOnOneLine() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.goal.setDescription("Read chapter\nthen   summarise it");
+                StudySession running = new StudySession();
+                running.setGoalId(fixture.goal.getId());
+                running.setTaskId(fixture.child.getId());
+                running.startSession();
+                when(fixture.study.getActiveSession()).thenReturn(Optional.of(running));
+
+                StudyPlannerPanel panel = fixture.panel();
+
+                assertTrue(labelTexts(panel.getTop())
+                        .contains("Parent / Subtask · Read chapter then summarise it"));
+            }
+        });
+    }
+
+    @Test
     void stoppedSessionSaveFailureKeepsTimerAndDialogAvailable() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {
@@ -223,6 +262,10 @@ class StudyPlannerPanelTest {
     private static Button button(Node root, String text) {
         return nodes(root).stream().filter(Button.class::isInstance).map(Button.class::cast)
                 .filter(button -> text.equals(button.getText())).findFirst().orElseThrow();
+    }
+
+    private static List<String> labelTexts(Node root) {
+        return nodes(root).stream().filter(Label.class::isInstance).map(node -> ((Label) node).getText()).toList();
     }
 
     private static List<Node> nodes(Node root) {
