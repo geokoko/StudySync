@@ -3,6 +3,7 @@ package com.studysync.domain.service;
 import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.Task;
+import com.studysync.domain.entity.TaskLink;
 import com.studysync.domain.entity.TaskReschedule;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
@@ -19,6 +20,8 @@ import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -26,6 +29,7 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -97,61 +101,64 @@ public class TaskService {
             throw ValidationException.invalidInput("category", task.getCategory());
         }
         
-        Task taskToSave = task;
-        if (task.getPriority() == null) {
-            taskToSave = new Task(task.getId(), task.getTitle(), task.getDescription(), task.getCategory(),
-                    new TaskPriority(1), task.getDeadline(), task.getStatus(), task.getPoints(),
-                    task.getRecurringPattern(), task.getStartDate(), task.getRecurrenceEndDate());
-            // The constructor covers neither of these, and rebuilding the task
-            // here must not quietly drop fields the caller set.
-            taskToSave.setRemindDaysBefore(task.getRemindDaysBefore());
-            taskToSave.setCompletedAt(task.getCompletedAt());
-            taskToSave.setDoneCriteria(task.getDoneCriteria());
-            logger.debug("Set default priority for task: {}", taskToSave.getTitle());
+        if (Task.existsById(task.getId())) {
+            throw ValidationException.invalidInput("taskId", "Task already exists; use updateTask.");
         }
+        if (task.getPriority() == null) task.setPriority(new TaskPriority(1));
+        validateHierarchy(task);
+        validateEstimate(task);
+        completeUnfinishedSubtasks(task);
+        Task savedTask = applyBusinessRules(task).save();
+        reconcileParent(savedTask.getParentId());
 
-        taskToSave = applyBusinessRules(taskToSave);
-        Task savedTask = taskToSave.save();
-        
         logger.info("Successfully added task '{}' with priority {} and status {}", 
                    savedTask.getTitle(), savedTask.getPriority().stars(), savedTask.getStatus());
         markDirtyAndSaveLocally("task creation");
         return savedTask;
     }
     
+    /** Saves the form and its bookmarks in one transaction. */
+    public Task addTask(@Valid @NotNull Task task, List<TaskLink> links) {
+        List<TaskLink> validated = validateLinks(links);
+        Task saved = addTask(task);
+        TaskLink.replaceForTask(saved.getId(), validated);
+        return saved;
+    }
+
     @Transactional
     public void removeTask(@NotNull Task task) {
-        if (task == null) {
-            throw ValidationException.requiredFieldMissing("task");
-        }
-        
-        if (task.getId() == null || !Task.existsById(task.getId())) {
-            throw ValidationException.invalidInput("taskId", task.getTitle());
-        }
-        
-        if (!task.delete()) {
-            throw ValidationException.invalidInput("taskId", task.getTitle());
-        }
-        
-        logger.info("Removed task: {}", task.getTitle());
-        markDirtyAndSaveLocally("task deletion");
+        Task stored = requireTask(task);
+        batchDeleteTasks(List.of(stored.getId()));
     }
-    
+
+    /** The count must be the one shown in the confirmation, including cancelled children. */
+    public void removeTask(Task task, int confirmedCount) {
+        Task stored = requireTask(task);
+        batchDeleteTasks(List.of(stored.getId()), confirmedCount);
+    }
+
     @Transactional
     public Task updateTask(@NotNull Task task, @NotNull TaskUpdate update) {
-        validateTaskExists(task);
-        Task updated = applyTaskUpdates(task, update);
-        Task finalTask = applyBusinessRules(updated);
-
-        Task savedTask = finalTask.save();
-        if (!Objects.equals(task.getDeadline(), savedTask.getDeadline()) && savedTask.getDeadline() != null) {
-            new TaskReschedule(savedTask.getId(), task.getDeadline(), savedTask.getDeadline()).save();
-            logger.info("Recorded reschedule for task '{}': {} -> {}",
-                    savedTask.getTitle(), task.getDeadline(), savedTask.getDeadline());
+        Task stored = requireTask(task);
+        Task updated = applyBusinessRules(applyTaskUpdates(stored, update));
+        if (update.status() != null) setStatus(updated, update.status());
+        validateHierarchy(updated);
+        validateEstimate(updated);
+        List<TaskLink> links = update.links() == null ? null : validateLinks(update.links());
+        if (update.status() == TaskStatus.COMPLETED) completeUnfinishedSubtasks(updated);
+        Task saved = updated.save();
+        if (links != null) TaskLink.replaceForTask(saved.getId(), links);
+        if (!Objects.equals(stored.getDeadline(), saved.getDeadline()) && saved.getDeadline() != null) {
+            new TaskReschedule(saved.getId(), stored.getDeadline(), saved.getDeadline()).save();
         }
-        logger.info("Updated task: {}", savedTask.getTitle());
+        if (!Objects.equals(stored.getParentId(), saved.getParentId())) {
+            reconcileParent(stored.getParentId());
+            reconcileParent(saved.getParentId());
+        } else if (stored.getStatus() != saved.getStatus()) {
+            reconcileParent(saved.getParentId());
+        }
         markDirtyAndSaveLocally("task update");
-        return savedTask;
+        return saved;
     }
 
     /**
@@ -170,19 +177,137 @@ public class TaskService {
     
     @Transactional
     public void updateTaskStatus(@NotNull Task task, @NotNull TaskStatus newStatus) {
-        validateTaskExists(task);
-        if (newStatus == null) {
-            throw new IllegalArgumentException("Task status cannot be null");
-        }
-        
-        if (!Task.updateStatus(task.getId(), newStatus)) {
-            throw new IllegalArgumentException("Failed to update task status: " + task.getTitle());
-        }
-        
-        logger.info("Updated task status for '{}' to {}", task.getTitle(), newStatus);
+        Task stored = requireTask(task);
+        if (newStatus == null) throw ValidationException.requiredFieldMissing("status");
+        setStatus(stored, newStatus);
+        completeUnfinishedSubtasks(stored);
+        stored.save();
+        reconcileParent(stored.getParentId());
         markDirtyAndSaveLocally("task status update");
     }
-    
+
+    private void setStatus(Task task, TaskStatus status) {
+        LocalDate completedAt = task.getCompletedAt();
+        task.updateStatus(status);
+        if (status == TaskStatus.COMPLETED && completedAt == null) {
+            task.setCompletedAt(dateTimeService.getCurrentDate());
+        }
+    }
+
+    private Task requireTask(Task task) {
+        if (task == null) throw ValidationException.requiredFieldMissing("task");
+        return Task.findById(task.getId()).orElseThrow(() -> ValidationException.invalidInput("taskId", task.getId()));
+    }
+
+    private void validateEstimate(Task task) {
+        if (task.getEstimatedHours() != null && task.getEstimatedHours() < 0) {
+            throw ValidationException.invalidInput("estimated hours", "Enter a whole number of hours, zero or greater.");
+        }
+    }
+
+    private void validateHierarchy(Task task) {
+        List<Task> children = Task.findSubtasks(task.getId());
+        if (task.getParentId() == null) return;
+        if (task.getId().equals(task.getParentId()) || !children.isEmpty()) {
+            throw ValidationException.invalidInput("parent", "A task cannot parent itself or move its subtasks under another task.");
+        }
+        Task parent = Task.findById(task.getParentId()).orElseThrow(() ->
+                ValidationException.invalidInput("parent", "Parent task does not exist."));
+        if (parent.getParentId() != null) {
+            throw ValidationException.invalidInput("parent", "Only one level of subtasks is allowed.");
+        }
+    }
+
+    private boolean isUnfinished(Task task) {
+        return task.getStatus() != TaskStatus.COMPLETED && task.getStatus() != TaskStatus.CANCELLED;
+    }
+
+    public record CompletionPreview(int unfinishedSubtasks, int recurringSubtasks) {}
+
+    @Transactional(readOnly = true)
+    public CompletionPreview previewTaskCompletion(Task task) {
+        List<Task> unfinished = Task.findSubtasks(requireTask(task).getId()).stream()
+                .filter(this::isUnfinished).toList();
+        return new CompletionPreview(unfinished.size(), (int) unfinished.stream().filter(Task::isRecurring).count());
+    }
+
+    /** Manual completion is permanent for recurring tasks too. Existing completion dates survive. */
+    private void completeUnfinishedSubtasks(Task task) {
+        if (task.getStatus() != TaskStatus.COMPLETED) return;
+        if (task.getCompletedAt() == null) task.setCompletedAt(dateTimeService.getCurrentDate());
+        for (Task child : Task.findSubtasks(task.getId())) {
+            if (isUnfinished(child)) {
+                child.updateStatus(TaskStatus.COMPLETED);
+                child.setCompletedAt(task.getCompletedAt());
+                child.save();
+            }
+        }
+    }
+
+    public record TaskEstimates(Integer plannedHours, Long subtaskHours) {}
+
+    /** A missing sum means no non-cancelled child has an estimate; an explicit zero is an estimate. */
+    @Transactional(readOnly = true)
+    public TaskEstimates getTaskEstimates(Task task) {
+        Task stored = requireTask(task);
+        List<Task> estimated = Task.findSubtasks(stored.getId()).stream()
+                .filter(child -> child.getStatus() != TaskStatus.CANCELLED && child.getEstimatedHours() != null)
+                .toList();
+        Long sum = estimated.isEmpty() ? null : estimated.stream().mapToLong(Task::getEstimatedHours).sum();
+        return new TaskEstimates(stored.getEstimatedHours(), sum);
+    }
+
+    private void reconcileParent(String parentId) {
+        if (parentId == null) return;
+        Task parent = Task.findById(parentId).orElseThrow();
+        List<Task> children = Task.findSubtasks(parentId);
+        Task.Progress progress = Task.progress(children);
+        if (progress.completed() < progress.total() && parent.getStatus() == TaskStatus.COMPLETED) {
+            parent.updateStatus(TaskStatus.OPEN);
+            applyBusinessRules(parent).save();
+        } else if (!parent.isRecurring() && progress.total() > 0 && progress.completed() == progress.total()
+                && parent.getStatus() != TaskStatus.COMPLETED) {
+            parent.updateStatus(TaskStatus.COMPLETED);
+            parent.setCompletedAt(children.stream().filter(t -> t.getStatus() == TaskStatus.COMPLETED)
+                    .map(Task::getCompletedAt).filter(Objects::nonNull).max(LocalDate::compareTo)
+                    .orElse(dateTimeService.getCurrentDate()));
+            parent.save();
+        }
+    }
+
+    /** Also used immediately before opening a persisted URL in the system browser. */
+    public static String validateLinkUrl(String url) {
+        try {
+            URI uri = new URI(url == null ? "" : url.trim());
+            if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    || uri.getHost() == null || uri.getHost().isBlank()) {
+                throw new URISyntaxException(uri.toString(), "HTTP(S) URL with a host required");
+            }
+            return uri.toASCIIString();
+        } catch (URISyntaxException ex) {
+            throw ValidationException.invalidInput("link URL", "Enter a complete http:// or https:// URL.");
+        }
+    }
+
+    private List<TaskLink> validateLinks(List<TaskLink> links) {
+        if (links == null) return List.of();
+        // A row added and left empty is not a link, so it must not block the save.
+        return links.stream().filter(link -> link == null || !isBlank(link.title()) || !isBlank(link.url()))
+                .map(link -> {
+            if (link == null) throw ValidationException.requiredFieldMissing("link URL");
+            return new TaskLink(link.title(), validateLinkUrl(link.url()));
+        }).toList();
+    }
+
+    private static boolean isBlank(String text) {
+        return text == null || text.isBlank();
+    }
+
+    @Transactional(readOnly = true)
+    public List<TaskLink> getTaskLinks(Task task) {
+        return TaskLink.findByTaskId(requireTask(task).getId());
+    }
+
     @Transactional(readOnly = true)
     public Optional<Task> findTaskByTitle(String title) {
         if (title == null || title.isBlank()) {
@@ -327,20 +452,61 @@ public class TaskService {
         double completionRate
     ) {}
     
+    public record DeletionPreview(int totalTasks, int subtasks) {}
+
+    private record DeletionPlan(List<Task> tasks, int subtasks) {}
+
+    @Transactional(readOnly = true)
+    public DeletionPreview previewTaskDeletion(List<String> taskIds) {
+        DeletionPlan plan = planTaskDeletion(taskIds);
+        return new DeletionPreview(plan.tasks().size(), plan.subtasks());
+    }
+
+    private DeletionPlan planTaskDeletion(List<String> taskIds) {
+        Map<String, Task> tasks = new LinkedHashMap<>();
+        Set<String> children = new java.util.HashSet<>();
+        if (taskIds != null) {
+            for (String id : taskIds) {
+                Task.findById(id).ifPresent(task -> {
+                    tasks.put(task.getId(), task);
+                    for (Task child : Task.findSubtasks(task.getId())) {
+                        tasks.put(child.getId(), child);
+                        children.add(child.getId());
+                    }
+                });
+            }
+        }
+        // Children must go first: the restrictive parent FK prevents accidental orphaning.
+        List<Task> ordered = tasks.values().stream()
+                .sorted(Comparator.comparing(task -> task.getParentId() == null)).toList();
+        return new DeletionPlan(ordered, children.size());
+    }
+
     @Transactional
     public int batchDeleteTasks(List<String> taskIds) {
-        if (taskIds == null || taskIds.isEmpty()) {
-            return 0;
-        }
-        
-        int deletedCount = Task.deleteByIds(taskIds);
-        logger.info("Batch deleted {} tasks", deletedCount);
-        if (deletedCount > 0) {
-            markDirtyAndSaveLocally("batch task deletion");
-        }
-        return deletedCount;
+        return deleteTasks(planTaskDeletion(taskIds));
     }
-    
+
+    @Transactional
+    public int batchDeleteTasks(List<String> taskIds, int confirmedSubtasks) {
+        DeletionPlan plan = planTaskDeletion(taskIds);
+        if (plan.subtasks() != confirmedSubtasks) {
+            throw ValidationException.invalidInput("subtasks", "The subtask count changed. Please confirm deletion again.");
+        }
+        return deleteTasks(plan);
+    }
+
+    private int deleteTasks(DeletionPlan plan) {
+        Set<String> deletedIds = plan.tasks().stream().map(Task::getId).collect(Collectors.toSet());
+        for (Task task : plan.tasks()) {
+            if (!task.delete()) throw ValidationException.invalidInput("taskId", task.getId());
+        }
+        plan.tasks().stream().map(Task::getParentId).filter(Objects::nonNull)
+                .filter(parentId -> !deletedIds.contains(parentId)).distinct().forEach(this::reconcileParent);
+        if (!plan.tasks().isEmpty()) markDirtyAndSaveLocally("task deletion");
+        return plan.tasks().size();
+    }
+
     @Transactional(readOnly = true)
     public List<Task> getOverdueTasks() {
         return Task.findOverdue();
@@ -569,12 +735,6 @@ public class TaskService {
                (task.getPriority() != null && task.getPriority().stars() == priorityStars);
     }
     
-    private void validateTaskExists(Task task) {
-        if (task.getId() == null || !Task.existsById(task.getId())) {
-            throw ValidationException.invalidInput("taskId", task.getTitle());
-        }
-    }
-    
     private Task applyTaskUpdates(Task task, TaskUpdate update) {
         String newTitle = Optional.ofNullable(update.title()).filter(t -> !t.isBlank()).orElse(task.getTitle());
         String newDescription = Optional.ofNullable(update.description()).filter(d -> !d.isBlank()).orElse(task.getDescription());
@@ -591,7 +751,7 @@ public class TaskService {
         LocalDate newDeadline = task.getDeadline();
         if (update.deadline() != null) {
             LocalDate today = dateTimeService.getCurrentDate();
-            if (update.deadline().isBefore(today)) {
+            if (update.deadline().isBefore(today) && !update.deadline().equals(task.getDeadline())) {
                 throw ValidationException.invalidDateRange(update.deadline().toString(), today.toString());
             }
             newDeadline = update.deadline();
@@ -628,6 +788,10 @@ public class TaskService {
         Task updated = new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline,
                 task.getStatus(), task.getPoints(), newRecurringPattern, newStartDate, newRecurrenceEnd);
         updated.setCompletedAt(task.getCompletedAt());
+        updated.setParentId(update.parentId() != null ? update.parentId() : task.getParentId());
+        updated.setEstimatedHours(update.estimatedHours() == null ? task.getEstimatedHours()
+                : TaskUpdate.CLEAR_ESTIMATE.equals(update.estimatedHours()) ? null : update.estimatedHours());
+        updated.setNotes(update.notes() != null ? update.notes() : task.getNotes());
         // null keeps the existing reminder; CLEAR_REMINDER removes it.
         // setRemindDaysBefore maps any negative value to "no reminder".
         updated.setRemindDaysBefore(update.remindDaysBefore() != null

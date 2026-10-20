@@ -15,7 +15,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                Simplified Service Layer                     │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
-│  │   TaskService   │  │  StudyService   │  │ProjectService│ │
+│  │   TaskService   │  │  StudyService   │  │             │ │
 │  │ CategoryService │  │  ScoringService │  │   ...more   │  │
 │  │ (Business Logic │  │   Orchestration) │  │             │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────┘  │
@@ -24,16 +24,16 @@
 ┌─────────────────────────────────────────────────────────────┐
 │            Active Record Domain Models                      │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
-│  │      Task       │  │   StudySession  │  │   Project   │  │
+│  │      Task       │  │   StudySession  │  │  StudyGoal  │  │
 │  │  • save()       │  │  • save()       │  │ • save()    │  │
 │  │  • delete()     │  │  • delete()     │  │ • delete()  │  │
 │  │  • findAll()    │  │  • findAll()    │  │ • findAll() │  │
 │  │  • findById()   │  │  • findById()   │  │ • findById()│  │
 │  └─────────────────┘  └─────────────────┘  └─────────────┘  │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
-│  │ ProjectSession  │  │   TaskPriority  │  │TaskCategory │  │
-│  │  OffDay         │  │   TaskStatus    │  │DailyReflection│
-│  │  • delete()     │  │  ProjectStatus  │  │   ...more   │  │
+│  │  OffDay         │  │   TaskPriority  │  │TaskCategory │  │
+│  │  TaskLink       │  │   TaskStatus    │  │DailyReflection│
+│  │  • delete()     │  │                 │  │   ...more   │  │
 │  │  • findAll()    │  │  (Value Objects)│  │             │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -58,10 +58,76 @@ OAuth credentials live on the user's machine (`~/.studysync/google`) and the clo
 - **Active Record Pattern**: Models handle their own database operations
 - **Simplified Services**: Services focus on business logic and orchestration
 - **No Database Service Layer**: Eliminated unnecessary abstraction layer
-- **Self-Managing Models**: `task.save()`, `project.delete()`, `StudySession.findAll()`
-- **Mutable Domain Objects**: Task, Project, StudySession are classes with behavior
+- **Self-Managing Models**: `task.save()`, `task.delete()`, `StudySession.findAll()`
+- **Mutable Domain Objects**: Task, StudySession are classes with behavior
 - **Real-time Session Tracking**: Live timers with Duration-based calculations
 - **Direct JDBC**: Models use JdbcTemplate directly for database operations
+
+### **Tasks, subtasks, notes and links**
+
+`tasks.parent_id` is a nullable self-reference with a restrictive FK. `TaskService`
+validates one-level nesting. Recurrence is independent on every task: a recurring
+parent can have one-off children and a recurring child can have a one-off parent.
+Creating, editing or moving tasks never copies or forces another task's schedule.
+Goals can link to a parent or a child without changing their lifecycle. Parents and
+children retain independent deadlines, schedules and goal links; the planner and
+`CalendarAgenda` apply their normal date rules to each, with `Parent / Subtask`
+labels. The task list groups children under parents, retaining a parent as context
+when a child matches a filter. Only matching children appear in filtered lists.
+
+Completing the last unfinished child completes a non-recurring parent in the same
+transaction, with the latest child's completion date. A recurring parent never
+auto-completes: completing it is permanent and ends its future occurrences.
+Handling one occurrence through a goal does not complete its task or parent.
+Cancelled children are ignored. Adding or
+reopening unfinished work reopens a completed parent (OPEN, or DELAYED when overdue).
+Manual parent completion completes every unfinished child in the same transaction
+with the parent's completion date. Cancelled children and previous completion dates
+are preserved. The UI confirms the unfinished count, including how many recurring
+children will stop repeating, using a service preview for both card and form saves.
+Deleting a parent deletes all children, including cancelled ones, after the UI
+confirms their count. Single and bulk deletion recheck that count, deduplicate
+selected tasks and children, and delete children first in one transaction.
+Goals, their attempts and study sessions survive with their task references cleared;
+task notes, links and reschedules are deleted. Bulk **Delete matching tasks** uses
+the active filters, excludes parents displayed only for context, and warns that
+children of matching parents are deleted even when outside the filters.
+Cancelling, moving or deleting a child also reconciles its parent's progress; if
+all remaining non-cancelled children are complete, a non-recurring parent completes
+using the latest remaining child's completion date.
+
+`Task.progress` derives completed / total from non-cancelled children. An empty or
+all-cancelled family shows 0% and does not auto-complete. Optional `estimated_hours`
+is a nonnegative integer entered independently for each task. Cards show the sum
+of non-cancelled children's estimates alongside the parent's own planned budget;
+`TaskService.getTaskEstimates` derives this sum without storing it. Missing estimates
+are ignored, explicit zero is retained, and the sum uses a `long` to avoid integer
+overflow. `notes` stores Markdown verbatim. `task_links` owns ordered
+optional titles and required HTTP(S) URLs, cascading only when its task is deleted.
+The task form submits fields, status, notes and links in one transaction; dirty
+tracking runs after commit. The existing `Markdown` helper renders a reading preview.
+The JavaFX application passes `HostServices` through `StudySyncUI` to the form, so
+bookmarks open in the system browser without global state.
+
+### **Legacy project import**
+
+The one-shot `projects-to-tasks` migration copies project title, description,
+category, integer priority, deadline, creation timestamp, estimated hours and notes
+into new top-level, one-off tasks. Category and priority already use the task storage types;
+NULL values fall back to Uncategorized and priority 1; missing imported categories
+are added to the category list. ACTIVE becomes OPEN, ON_HOLD
+becomes POSTPONED, COMPLETED stays COMPLETED, and CANCELLED stays CANCELLED. Only
+completed imports get `completed_at`, using `completion_date` or the date portion of
+`updated_at`. Progress percentages, work totals and sessions are not imported.
+
+The legacy tables and rows remain intact for data safety, but application code no
+longer reads them or includes their sessions in points, time or profile totals.
+Fresh databases still create the legacy tables so the same SQL runs everywhere.
+New UUIDs avoid collisions with existing task IDs; a unique `legacy_project_id`
+prevents duplicate imports if startup is interrupted before the migration marker.
+The marker also prevents resurrection of imports the user later deletes. Changes
+made to legacy projects by an older build are not merged into tasks. Upgrade all
+machines before editing and syncing this database across them.
 
 ### **Recurring Tasks**
 
@@ -81,7 +147,7 @@ Tasks support an optional recurrence schedule via a `recurring_pattern` column:
 
 - **Sessions** earn time scaled by focus, so a long average session can never be worth less than a short self-flattered one
 - **Achieved goal attempts** earn a flat amount — session points already pay for the effort, this pays for the outcome
-- **Completed tasks** earn timeliness only. A flat completion bonus would double-count the sessions and goals that finished the task; whether it landed before its deadline is information nothing else captures. Rescheduling costs points, so "on time" cannot be bought by moving the date
+- **Completed leaf tasks** earn timeliness only. Score breakdowns and the Profile's Tasks Done count also exclude parents to avoid counting the same work twice. A flat completion bonus would double-count the sessions and goals that finished the task; whether it landed before its deadline is information nothing else captures. Rescheduling costs points, so "on time" cannot be bought by moving the date
 - Stored `points_earned` is treated as **derived** — see Schema Migrations below
 
 ### **Off Days**
@@ -110,4 +176,4 @@ Since `spring.sql.init.mode: always` loads `schema.sql` on every startup:
 - New columns are added via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` at the bottom of `schema.sql`
 - Derived data may be recomputed on every startup, provided the computation is idempotent. Session points work this way: the SQL mirrors `StudySession.calculatePoints()` in integer arithmetic, and a test runs every input combination against both to keep them in step
 - Genuinely one-shot migrations — moving a value from one column to another — are guarded by a `schema_migrations` marker table. Without it, re-running would eat a value the user set after the migration first ran
-- This avoids data loss and supports rolling upgrades without external migration tools
+- This avoids data loss without external migration tools; it does not merge edits from older builds

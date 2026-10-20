@@ -499,7 +499,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                     HBox row = new HBox(8);
                     row.setAlignment(Pos.CENTER_LEFT);
                     row.setPadding(new Insets(0, 0, 0, 14));
-                    Label name = new Label(task.getTitle());
+                    Label name = new Label(taskTitle(task));
                     TaskStyleUtils.fontNormal(name, 12);
                     row.getChildren().addAll(name, TaskStyleUtils.createReminderBadge(daysLeft));
                     reminderSection.getChildren().add(row);
@@ -731,7 +731,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontEmoji(arrow, 11);
         TaskStyleUtils.textColor(arrow, "#7f8c8d");
 
-        Label taskTitle = new Label(task.getTitle());
+        Label taskTitle = new Label(taskTitle(task));
         TaskStyleUtils.fontBold(taskTitle, 14);
         taskTitle.setWrapText(true);
         taskTitle.setMaxWidth(Double.MAX_VALUE);
@@ -873,7 +873,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox headerRow = new HBox(8);
         headerRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label taskTitle = new Label(task.getTitle());
+        Label taskTitle = new Label(taskTitle(task));
         TaskStyleUtils.fontBold(taskTitle, 13);
 
         Region spacer = new Region();
@@ -1314,7 +1314,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (item instanceof StudyGoal goal) {
             text = "Goal: " + goal.getDescription();
         } else if (item instanceof Task task) {
-            text = "Task: " + task.getTitle();
+            text = "Task: " + taskTitle(task);
         } else {
             return "None";
         }
@@ -1648,7 +1648,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         content.setMaxHeight(Region.USE_PREF_SIZE);
 
         Label headerLabel = new Label(linkedTask != null
-                ? "Add goal for: " + linkedTask.getTitle()
+                ? "Add goal for: " + taskTitle(linkedTask)
                 : "Create a new study goal");
         TaskStyleUtils.fontBold(headerLabel, 16);
 
@@ -1690,14 +1690,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 @Override
                 protected void updateItem(Task item, boolean empty) {
                     super.updateItem(item, empty);
-                    setText(empty || item == null ? "None" : item.getTitle());
+                    setText(empty || item == null ? "None" : taskTitle(item));
                 }
             });
             taskCombo.setButtonCell(new ListCell<>() {
                 @Override
                 protected void updateItem(Task item, boolean empty) {
                     super.updateItem(item, empty);
-                    setText(empty || item == null ? "None" : item.getTitle());
+                    setText(empty || item == null ? "None" : taskTitle(item));
                 }
             });
             taskSection.getChildren().addAll(taskLabel, taskCombo);
@@ -2183,6 +2183,12 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
     @Override
     public Node getView() {
         return this;
+    }
+
+    private String taskTitle(Task task) {
+        if (task.getParentId() == null) return task.getTitle();
+        return Task.findById(task.getParentId())
+                .map(parent -> parent.getTitle() + " / " + task.getTitle()).orElse(task.getTitle());
     }
 
 }

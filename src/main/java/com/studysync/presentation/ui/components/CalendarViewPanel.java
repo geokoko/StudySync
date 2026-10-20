@@ -2,14 +2,11 @@ package com.studysync.presentation.ui.components;
 
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskService;
-import com.studysync.domain.service.ProjectService;
 import com.studysync.domain.service.ScoreBreakdown;
 import com.studysync.domain.service.ScoringService;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.Task;
-import com.studysync.domain.entity.Project;
-import com.studysync.domain.entity.ProjectSession;
 import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.OffDay;
 import com.studysync.presentation.ui.components.CalendarAgenda.Entry;
@@ -59,7 +56,6 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
 
     private final StudyService studyService;
     private final TaskService taskService;
-    private final ProjectService projectService;
     private final ScoringService scoringService;
 
     // UI Components
@@ -106,11 +102,10 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
 
     private static final DateTimeFormatter DAY_TITLE = DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy");
 
-    public CalendarViewPanel(StudyService studyService, TaskService taskService, ProjectService projectService,
+    public CalendarViewPanel(StudyService studyService, TaskService taskService,
                              ScoringService scoringService) {
         this.studyService = studyService;
         this.taskService = taskService;
-        this.projectService = projectService;
         this.scoringService = scoringService;
         this.anchor = LocalDate.now();
         this.selectedDate = anchor;
@@ -903,8 +898,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
     private Node createSessionsSection(LocalDate date) {
         VBox section = new VBox(8, sectionTitle("Sessions", "▸"));
         List<StudySession> studySessions = studyService.getSessionsForDate(date);
-        List<ProjectSession> projectSessions = projectService.getProjectSessionsForDate(date);
-        if (studySessions.isEmpty() && projectSessions.isEmpty()) {
+        if (studySessions.isEmpty()) {
             Label none = new Label("No sessions recorded.");
             TaskStyleUtils.fontItalic(none, 12);
             TaskStyleUtils.textColor(none, TaskStyleUtils.COLOR_MUTED);
@@ -912,7 +906,6 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             return section;
         }
         studySessions.forEach(session -> section.getChildren().add(createStudySessionBox(session)));
-        projectSessions.forEach(session -> section.getChildren().add(createProjectSessionBox(session)));
         return section;
     }
 
@@ -1355,61 +1348,6 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             confirmation.showAndWait().ifPresent(response -> {
                 if (response == ButtonType.OK) {
                     studyService.deleteStudySession(session.getId());
-                    refresh();
-                }
-            });
-        });
-
-        actionBox.getChildren().add(deleteBtn);
-        sessionBox.getChildren().add(actionBox);
-
-        return sessionBox;
-    }
-
-    private VBox createProjectSessionBox(ProjectSession session) {
-        VBox sessionBox = new VBox(8);
-        sessionBox.setPadding(new Insets(12));
-        sessionBox.setStyle("-fx-background-color: #fff8f8; -fx-background-radius: 8; -fx-border-color: #e74c3c; -fx-border-radius: 8;");
-
-        // Project info
-        Project project = projectService.getProjectById(session.getProjectId()).orElse(null);
-        String projectTitle = project != null ? project.getTitle() : "Unknown Project";
-
-        Label projectLabel = new Label(projectTitle);
-        projectLabel.setGraphic(TaskStyleUtils.iconLabel("≡", 12));
-        TaskStyleUtils.fontBold(projectLabel, 12);
-
-        // Time and duration
-        String startTime = session.getStartTime() != null ?
-            session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "Unknown";
-
-        Label timeLabel = new Label(startTime + " (" + session.getDurationMinutes() + " min)");
-        timeLabel.setGraphic(TaskStyleUtils.iconLabel("⏰", 11));
-        TaskStyleUtils.fontNormal(timeLabel, 11);
-
-        Label pointsLabel = new Label(session.getPointsEarned() + " points earned");
-        pointsLabel.setGraphic(TaskStyleUtils.iconLabel("♦", 11));
-        TaskStyleUtils.fontNormal(pointsLabel, 11);
-        TaskStyleUtils.textColor(pointsLabel, TaskStyleUtils.COLOR_SUCCESS);
-
-        sessionBox.getChildren().addAll(projectLabel, timeLabel, pointsLabel);
-
-        // Action buttons
-        HBox actionBox = new HBox(8);
-        actionBox.setAlignment(Pos.CENTER_RIGHT);
-
-        Button deleteBtn = new Button("Delete");
-        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("✕", 12));
-        deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
-        deleteBtn.setOnAction(e -> {
-            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
-            confirmation.initOwner(sessionBox.getScene() != null ? sessionBox.getScene().getWindow() : null);
-            confirmation.setTitle("Delete Project Session");
-            confirmation.setHeaderText("Are you sure you want to delete this project session?");
-
-            confirmation.showAndWait().ifPresent(response -> {
-                if (response == ButtonType.OK) {
-                    projectService.deleteProjectSession(session.getId());
                     refresh();
                 }
             });

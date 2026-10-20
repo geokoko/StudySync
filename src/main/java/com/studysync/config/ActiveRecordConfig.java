@@ -1,10 +1,9 @@
 package com.studysync.config;
 
 import com.studysync.domain.entity.StudySession;
-import com.studysync.domain.entity.ProjectSession;
+import com.studysync.domain.entity.TaskLink;
 import com.studysync.domain.entity.Task;
 import com.studysync.domain.entity.TaskReschedule;
-import com.studysync.domain.entity.Project;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.Category;
@@ -40,10 +39,9 @@ public class ActiveRecordConfig {
     public void initializeModelDatabaseAccess() {
         logger.info("Initializing JdbcTemplate in Active Record entities...");
         StudySession.setJdbcTemplate(jdbcTemplate);
-        ProjectSession.setJdbcTemplate(jdbcTemplate);
+        TaskLink.setJdbcTemplate(jdbcTemplate);
         Task.setJdbcTemplate(jdbcTemplate);
         TaskReschedule.setJdbcTemplate(jdbcTemplate);
-        Project.setJdbcTemplate(jdbcTemplate);
         StudyGoal.setJdbcTemplate(jdbcTemplate);
         DailyReflection.setJdbcTemplate(jdbcTemplate);
         Category.setJdbcTemplate(jdbcTemplate);

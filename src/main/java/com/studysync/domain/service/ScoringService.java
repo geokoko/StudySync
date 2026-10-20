@@ -1,7 +1,6 @@
 package com.studysync.domain.service;
 
 import com.studysync.domain.entity.OffDay;
-import com.studysync.domain.entity.ProjectSession;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.Task;
@@ -15,7 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * The single place that decides what counts towards a score and how much it is
@@ -28,7 +26,7 @@ import java.util.stream.Stream;
  *       {@link StudySession#calculatePoints}.</li>
  *   <li><strong>Achieved goal attempts</strong> earn a flat amount. Effort is
  *       already paid for by session points; this pays for the outcome.</li>
- *   <li><strong>Completed tasks</strong> earn timeliness only. A flat
+ *   <li><strong>Completed leaf tasks</strong> earn timeliness only. A flat
  *       completion bonus would double-count the sessions and goals that got
  *       the task done, whereas whether it landed before its deadline is
  *       information nothing else captures. Rescheduling costs points too, so a
@@ -154,9 +152,10 @@ public class ScoringService {
      * @param task the task to score
      * @param rescheduleCount how many times its deadline moved
      * @return points, floored at {@link #TASK_MIN_POINTS}; zero when the task is
-     *         unfinished or has no deadline to be measured against
+     *         a parent, unfinished or has no deadline to be measured against
      */
     public static int taskPoints(Task task, int rescheduleCount) {
+        if (!Task.findSubtasks(task.getId()).isEmpty()) return 0;
         return task.completedOnTime()
                 .map(onTime -> Math.max(TASK_MIN_POINTS,
                         (onTime ? TASK_ON_TIME_POINTS : TASK_LATE_PENALTY)
@@ -180,15 +179,12 @@ public class ScoringService {
         List<StudySession> studySessions = StudySession.findInDateRange(from, to).stream()
                 .filter(session -> dateSet.contains(session.getDate()))
                 .toList();
-        List<ProjectSession> projectSessions = ProjectSession.findInDateRange(from, to).stream()
-                .filter(session -> dateSet.contains(session.getDate()))
-                .toList();
+        Set<String> parentIds = Task.findParentIds();
         List<Task> completedTasks = Task.findCompletedBetween(from, to).stream()
-                .filter(task -> dateSet.contains(task.getCompletedAt()))
+                .filter(task -> dateSet.contains(task.getCompletedAt()) && !parentIds.contains(task.getId()))
                 .toList();
 
-        int sessionPoints = studySessions.stream().mapToInt(StudySession::getPointsEarned).sum()
-                + projectSessions.stream().mapToInt(ProjectSession::getPointsEarned).sum();
+        int sessionPoints = studySessions.stream().mapToInt(StudySession::getPointsEarned).sum();
 
         int goalsAchieved = (int) goals.stream().filter(StudyGoal::isAchieved).count();
         int goalsMissed = (int) goals.stream().filter(StudyGoal::isFailed).count();
@@ -200,18 +196,10 @@ public class ScoringService {
                 .mapToInt(task -> taskPoints(task, reschedules.getOrDefault(task.getId(), 0)))
                 .sum();
 
-        int minutes = studySessions.stream().mapToInt(StudySession::getDurationMinutes).sum()
-                + projectSessions.stream().mapToInt(ProjectSession::getDurationMinutes).sum();
+        int minutes = studySessions.stream().mapToInt(StudySession::getDurationMinutes).sum();
         double avgFocus = studySessions.isEmpty() ? 0.0
                 : studySessions.stream().mapToInt(StudySession::getFocusLevel).average().orElse(0.0);
-        // Consistency counts any logged work, project sessions included -
-        // points, minutes and the session count all include them, so leaving
-        // them out here scored a month of pure project work as near-idle.
-        // Focus stays study-only because project sessions carry no rating.
-        long activeDays = Stream.concat(
-                studySessions.stream().map(StudySession::getDate),
-                projectSessions.stream().map(ProjectSession::getDate))
-                .distinct().count();
+        long activeDays = studySessions.stream().map(StudySession::getDate).distinct().count();
 
         double productivity = productivity(minutes, avgFocus, goalsAchieved, goalsMissed, activeDays, scoringDays);
 
@@ -221,7 +209,7 @@ public class ScoringService {
                 goalPoints,
                 taskPoints,
                 productivity,
-                studySessions.size() + projectSessions.size(),
+                studySessions.size(),
                 minutes,
                 avgFocus,
                 goalsAchieved,

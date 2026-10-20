@@ -15,7 +15,7 @@ import jakarta.validation.constraints.Size;
  * <p><strong>Category Examples:</strong>
  * <ul>
  *   <li><strong>Academic:</strong> School assignments, study sessions, research</li>
- *   <li><strong>Personal:</strong> Household tasks, hobbies, personal projects</li>
+ *   <li><strong>Personal:</strong> Household tasks, hobbies, personal plans</li>
  *   <li><strong>Work:</strong> Professional tasks, meetings, deadlines</li>
  *   <li><strong>Health:</strong> Exercise, medical appointments, wellness activities</li>
  * </ul></p>

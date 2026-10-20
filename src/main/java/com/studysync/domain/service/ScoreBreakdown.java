@@ -8,17 +8,17 @@ package com.studysync.domain.service;
  * formulas did.</p>
  *
  * @param points total points earned, sessions plus goals plus task timeliness
- * @param sessionPoints share of {@code points} from study and project sessions
+ * @param sessionPoints share of {@code points} from study sessions
  * @param goalPoints share of {@code points} from achieved goal attempts
  * @param taskPoints share of {@code points} from finishing tasks on time or late
  * @param productivity 0-100 rating of the period
- * @param sessions number of study and project sessions
+ * @param sessions number of study sessions
  * @param minutes total minutes logged
  * @param avgFocus mean focus level of study sessions, 0 when there were none
  * @param goalsAchieved achieved goal attempts
  * @param goalsMissed missed or abandoned goal attempts
  * @param goalsTotal goal attempts in the period, including still-pending ones
- * @param tasksCompleted tasks completed in the period
+ * @param tasksCompleted leaf tasks completed in the period
  * @param scoringDays days in the period that count, off days already removed
  */
 public record ScoreBreakdown(

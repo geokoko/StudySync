@@ -5,6 +5,7 @@ import com.studysync.domain.valueobject.TaskStatus;
 import jakarta.validation.constraints.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -100,6 +102,9 @@ public class Task {
      */
     private Integer remindDaysBefore;
     private String doneCriteria;
+    private String parentId;
+    private Integer estimatedHours;
+    private String notes;
 
     // Default constructor
     public Task() {
@@ -370,6 +375,57 @@ public class Task {
         this.doneCriteria = (doneCriteria == null || doneCriteria.isBlank()) ? null : doneCriteria.trim();
     }
 
+    public String getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(String parentId) {
+        this.parentId = parentId == null || parentId.isBlank() ? null : parentId;
+    }
+
+    public Integer getEstimatedHours() {
+        return estimatedHours;
+    }
+
+    public void setEstimatedHours(Integer estimatedHours) {
+        this.estimatedHours = estimatedHours;
+    }
+
+    public String getNotes() {
+        return notes;
+    }
+
+    public void setNotes(String notes) {
+        this.notes = notes;
+    }
+
+    public static List<Task> findSubtasks(String parentId) {
+        return jdbcTemplate.query("SELECT * FROM tasks WHERE parent_id = ? ORDER BY created_at, id",
+                getRowMapper(), parentId);
+    }
+
+    public static Set<String> findParentIds() {
+        return new java.util.HashSet<>(jdbcTemplate.queryForList(
+                "SELECT DISTINCT parent_id FROM tasks WHERE parent_id IS NOT NULL", String.class));
+    }
+
+    /** Cancelled children do not enter either side of the fraction. */
+    public record Progress(int completed, int total) {
+        public int percentage() { return total == 0 ? 0 : completed * 100 / total; }
+    }
+
+    public static Progress progress(List<Task> subtasks) {
+        int total = 0;
+        int completed = 0;
+        for (Task child : subtasks) {
+            if (child.getStatus() != TaskStatus.CANCELLED) {
+                total++;
+                if (child.getStatus() == TaskStatus.COMPLETED) completed++;
+            }
+        }
+        return new Progress(completed, total);
+    }
+
     /**
      * The day this task starts reminding, derived from the deadline.
      *
@@ -478,8 +534,8 @@ public class Task {
         String sql = """
             MERGE INTO tasks (id, title, description, category, priority, deadline, status, points,
                               recurring_pattern, start_date, recurrence_end_date, completed_at,
-                              remind_days_before, done_criteria)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              remind_days_before, done_criteria, parent_id, estimated_hours, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
         jdbcTemplate.update(sql,
@@ -496,7 +552,10 @@ public class Task {
             this.recurrenceEndDate,
             this.completedAt,
             this.remindDaysBefore,
-            this.doneCriteria
+            this.doneCriteria,
+            this.parentId,
+            this.estimatedHours,
+            this.notes
         );
         
         logger.debug("Task saved: {} - {}", id, this.title);
@@ -554,7 +613,7 @@ public class Task {
         try {
             Task task = jdbcTemplate.queryForObject(sql, getRowMapper(), taskId);
             return Optional.ofNullable(task);
-        } catch (Exception e) {
+        } catch (EmptyResultDataAccessException e) {
             logger.debug("Task not found: {}", taskId);
             return Optional.empty();
         }
@@ -763,7 +822,7 @@ public class Task {
         try {
             Integer result = jdbcTemplate.queryForObject(sql, Integer.class, taskId);
             return result != null;
-        } catch (Exception e) {
+        } catch (EmptyResultDataAccessException e) {
             return false;
         }
     }
@@ -812,6 +871,9 @@ public class Task {
             task.completedAt = rs.getObject("completed_at", LocalDate.class);
             task.remindDaysBefore = rs.getObject("remind_days_before", Integer.class);
             task.doneCriteria = rs.getString("done_criteria");
+            task.parentId = rs.getString("parent_id");
+            task.estimatedHours = rs.getObject("estimated_hours", Integer.class);
+            task.notes = rs.getString("notes");
             java.sql.Timestamp createdTs = rs.getTimestamp("created_at");
             if (createdTs != null) {
                 task.setCreatedAt(createdTs.toLocalDateTime());

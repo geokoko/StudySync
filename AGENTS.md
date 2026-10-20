@@ -52,8 +52,10 @@ source".
   `schema_migrations` row, as `split-recurrence-end-from-deadline` is.
 - Tests that need tables (`*PersistenceTest`, `ScoringServiceTest`) inline their
   own DDL instead of loading `schema.sql`; mirror schema changes there.
-- `projects.total_minutes_worked` is authoritative; `actual_hours` is a
-  rounded-down convenience copy.
+- Keep the legacy `projects` / `project_sessions` tables intact. The
+  `projects-to-tasks` marker prevents re-import; `tasks.legacy_project_id`
+  additionally prevents duplicates if startup stops before writing the marker.
+  Never re-import edits made by an older build over the new task data.
 
 ## Google Drive sync
 
@@ -62,7 +64,7 @@ Syncs the whole H2 file. OAuth client credentials live in
 
 - Service mutations mark the database dirty after commit
   (`TransactionSynchronization.afterCommit`: `markDirtyAndSaveLocally` in
-  `TaskService` / `ProjectService`, `flushLocally` in `StudyService`). The flag
+  `TaskService`, `flushLocally` in `StudyService`). The flag
   is how sync knows there are local changes to upload.
 - A download is never applied to the open database:
   `GoogleDriveService.stageDownloadFromDrive` stages it beside the DB file, and
@@ -123,6 +125,32 @@ Syncs the whole H2 file. OAuth client credentials live in
   `TaskService.getTasksForDate`: that answers the planner's question, so it
   repeats a late task on every day and judges past days by today's status. The
   rules are in `CalendarAgenda`'s class doc.
+
+### Subtasks and task notes
+
+- Hierarchy/status changes go through `TaskService`, including form saves:
+  a task has at most one parent level. Recurrence belongs to each task alone;
+  never inherit or require matching schedules between parents and children.
+  Completing the last unfinished non-cancelled child auto-completes only a
+  non-recurring parent, in the same transaction with the same completion date.
+  Handling an occurrence through a goal is not permanent task completion.
+  Reopening or adding unfinished work reopens a completed parent.
+- Manual parent completion completes all unfinished children on the same date
+  in one transaction; cancelled children and existing completion dates survive.
+  The UI confirms the unfinished count and how many are recurring and will stop
+  repeating, using `TaskService.previewTaskCompletion`.
+- Parent deletion confirms the current child count (also for bulk deletion),
+  checks it again in the transaction, and deletes children before parents.
+  The parent FK deliberately does not cascade. Each deletion uses normal task
+  semantics: goals/sessions are unlinked; links/reschedules are deleted.
+- Only leaf tasks earn timeliness points, even if all of a parent's children
+  are cancelled. Progress excludes cancelled children from both numerator and
+  denominator; an empty denominator displays 0% and never auto-completes.
+- Keep each task's stored estimate independent. A parent's non-cancelled child
+  estimate sum is derived, never stored over its own planned budget. No child
+  estimates means no sum; an explicit zero is still an estimate.
+- Notes preserve Markdown whitespace. Task links are ordered and validated by
+  `TaskService` on save and before opening via the injected `HostServices`.
 
 ### Definition of done
 

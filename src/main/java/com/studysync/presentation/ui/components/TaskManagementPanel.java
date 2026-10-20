@@ -11,6 +11,8 @@ import com.studysync.domain.service.TaskService;
 import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskUpdate;
+import javafx.application.HostServices;
+import javafx.scene.web.WebView;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -36,6 +38,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private final StudyService studyService;
     private final Consumer<Node> showModal;
     private final Runnable closeModal;
+    private final HostServices hostServices;
 
     // Toolbar controls (shared across all tabs)
     private TextField searchField;
@@ -47,13 +50,14 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private TabPane statusTabPane;
 
     public TaskManagementPanel(TaskService taskService, CategoryService categoryService,
-                               StudyService studyService,
+                               StudyService studyService, HostServices hostServices,
                                Consumer<Node> showModal, Runnable closeModal) {
         this.taskService = taskService;
         this.categoryService = categoryService;
         this.studyService = studyService;
         this.showModal = showModal;
         this.closeModal = closeModal;
+        this.hostServices = hostServices;
 
         VBox mainContent = new VBox(0);
         mainContent.getStyleClass().add("panel-bg");
@@ -140,7 +144,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         TaskStyleUtils.fontNormal(sortLabel, 12);
 
         row.getChildren().addAll(searchField, categoryFilter, priorityFilter, sortLabel, sortCombo);
-        toolbar.getChildren().add(row);
+        Button deleteMatching = new Button("Delete matching tasks");
+        deleteMatching.getStyleClass().addAll("btn-danger", "btn-small");
+        deleteMatching.setOnAction(event -> deleteMatchingTasks());
+        toolbar.getChildren().addAll(row, new HBox(deleteMatching));
         return toolbar;
     }
 
@@ -204,6 +211,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private VBox buildTaskCard(Task task, TaskReschedule latestReschedule) {
         VBox wrapper = new VBox(0);
         wrapper.setMaxWidth(Double.MAX_VALUE);
+        if (task.getParentId() != null) wrapper.setPadding(new Insets(0, 0, 0, 28));
 
         HBox card = new HBox(15);
         card.setPadding(new Insets(14));
@@ -281,8 +289,13 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             Button completeBtn = new Button("Done");
             completeBtn.getStyleClass().addAll("btn-success", "btn-small");
             completeBtn.setOnAction(e -> {
-                taskService.updateTaskStatus(task, TaskStatus.COMPLETED);
-                rebuildAllTabs();
+                try {
+                    if (!confirmSubtaskCompletion(task)) return;
+                    taskService.updateTaskStatus(task, TaskStatus.COMPLETED);
+                    rebuildAllTabs();
+                } catch (Exception ex) {
+                    showTaskError(ex);
+                }
             });
             actions.getChildren().add(completeBtn);
         }
@@ -290,19 +303,32 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         Button deleteBtn = new Button("Delete");
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setOnAction(e -> {
-            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                    "Delete \"" + safeTitle + "\"?", ButtonType.OK, ButtonType.CANCEL);
+            int childCount = Task.findSubtasks(task.getId()).size();
+            String message = "Delete \"" + safeTitle + "\"?";
+            if (childCount > 0) message += "\nThis also deletes all " + childCount + " subtasks, including cancelled ones.";
+            message += "\nNotes, links and reschedules are deleted. Goals and study sessions are kept without their task links.";
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, message, ButtonType.OK, ButtonType.CANCEL);
             confirm.setTitle("Delete Task");
             confirm.setHeaderText(null);
             confirm.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
             confirm.showAndWait().ifPresent(bt -> {
                 if (bt == ButtonType.OK) {
-                    taskService.removeTask(task);
-                    rebuildAllTabs();
+                    try {
+                        taskService.removeTask(task, childCount);
+                        rebuildAllTabs();
+                    } catch (Exception ex) {
+                        showTaskError(ex);
+                    }
                 }
             });
         });
 
+        if (task.getParentId() == null) {
+            Button addSubtask = new Button("Add subtask");
+            addSubtask.getStyleClass().add("btn-small");
+            addSubtask.setOnAction(e -> showTaskForm(null, task));
+            actions.getChildren().add(addSubtask);
+        }
         actions.getChildren().addAll(editBtn, deleteBtn);
 
         titleRow.getChildren().addAll(titleLabel, priorityLabel, statusBadge);
@@ -330,6 +356,25 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
          TaskStyleUtils.textColor(catLabel, "#495057");
 
         metaRow.getChildren().add(catLabel);
+        List<Task> children = Task.findSubtasks(task.getId());
+        if (!children.isEmpty()) {
+            Task.Progress progress = Task.progress(children);
+            Label progressLabel = new Label(progress.completed() + "/" + progress.total()
+                    + " subtasks · " + progress.percentage() + "%");
+            TaskStyleUtils.fontNormal(progressLabel, 12);
+            progressLabel.setTooltip(new Tooltip("Cancelled subtasks are excluded."));
+            metaRow.getChildren().add(progressLabel);
+        }
+        TaskService.TaskEstimates estimates = taskService.getTaskEstimates(task);
+        String estimateText = estimates.subtaskHours() != null
+                ? "Estimate: " + estimates.subtaskHours() + " h from subtasks"
+                    + (estimates.plannedHours() != null ? " · " + estimates.plannedHours() + " h planned" : "")
+                : estimates.plannedHours() != null ? "Estimate: " + estimates.plannedHours() + " h" : null;
+        if (estimateText != null) {
+            Label estimate = new Label(estimateText);
+            TaskStyleUtils.fontNormal(estimate, 12);
+            metaRow.getChildren().add(estimate);
+        }
 
         if (task.getDeadline() != null) {
             boolean overdue = task.getDeadline().isBefore(LocalDate.now())
@@ -792,7 +837,57 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     // TASK FORM (modal overlay)
     // ──────────────────────────────────────────────
 
+    private boolean confirmSubtaskCompletion(Task task) {
+        TaskService.CompletionPreview preview = taskService.previewTaskCompletion(task);
+        if (preview.unfinishedSubtasks() == 0) return true;
+        String message = "This also completes " + preview.unfinishedSubtasks() + " unfinished subtasks";
+        if (preview.recurringSubtasks() > 0) {
+            message += "; " + preview.recurringSubtasks() + " of them "
+                    + (preview.recurringSubtasks() == 1 ? "is" : "are") + " recurring and will stop repeating";
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                message + ".", ButtonType.OK, ButtonType.CANCEL);
+        confirm.setTitle("Complete Task");
+        confirm.setHeaderText("Complete \"" + task.getTitle() + "\"?");
+        confirm.initOwner(getScene() != null ? getScene().getWindow() : null);
+        return confirm.showAndWait().filter(ButtonType.OK::equals).isPresent();
+    }
+
+    private void deleteMatchingTasks() {
+        if (statusTabPane == null || statusTabPane.getSelectionModel().getSelectedItem() == null) return;
+        String status = (String) statusTabPane.getSelectionModel().getSelectedItem().getUserData();
+        try {
+            List<String> ids = getMatchingTasks(taskService.getTasks(), status).stream().map(Task::getId).toList();
+            TaskService.DeletionPreview preview = taskService.previewTaskDeletion(ids);
+            if (preview.totalTasks() == 0) return;
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                    "Delete " + preview.totalTasks() + " tasks in total?\nThis deletes " + preview.subtasks()
+                            + " subtasks with their parents, including children outside the current filters."
+                            + "\nNotes, links and reschedules are deleted. Goals and study sessions are kept without their task links.",
+                    ButtonType.OK, ButtonType.CANCEL);
+            confirm.setTitle("Delete Matching Tasks");
+            confirm.setHeaderText(null);
+            confirm.initOwner(getScene() != null ? getScene().getWindow() : null);
+            if (confirm.showAndWait().filter(ButtonType.OK::equals).isPresent()) {
+                taskService.batchDeleteTasks(ids, preview.subtasks());
+                rebuildAllTabs();
+            }
+        } catch (Exception ex) {
+            showTaskError(ex);
+        }
+    }
+
+    private void showTaskError(Exception ex) {
+        Alert error = new Alert(Alert.AlertType.ERROR, ex.getMessage(), ButtonType.OK);
+        error.initOwner(getScene() != null ? getScene().getWindow() : null);
+        error.showAndWait();
+    }
+
     private void showTaskForm(Task existingTask) {
+        showTaskForm(existingTask, null);
+    }
+
+    private void showTaskForm(Task existingTask, Task selectedParent) {
         boolean isNew = existingTask == null;
 
         VBox form = new VBox(12);
@@ -801,7 +896,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         form.setMaxWidth(520);
         form.setMaxHeight(Region.USE_PREF_SIZE);
 
-        Label formTitle = new Label(isNew ? "+ New Task" : "Edit Task");
+        Label formTitle = new Label(isNew ? selectedParent == null ? "+ New Task" : "+ Add subtask" : "Edit Task");
         TaskStyleUtils.fontBold(formTitle, 18);
 
         // Title
@@ -818,6 +913,43 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         doneArea.setPromptText("What done means (optional)");
         doneArea.setPrefRowCount(2);
         doneArea.setWrapText(true);
+
+        TextField estimateField = new TextField(isNew || existingTask.getEstimatedHours() == null
+                ? "" : existingTask.getEstimatedHours().toString());
+        estimateField.setPromptText("Estimated whole hours (optional)");
+
+        ComboBox<Task> parentCombo = new ComboBox<>();
+        parentCombo.setMaxWidth(Double.MAX_VALUE);
+        parentCombo.getItems().add(null);
+        parentCombo.getItems().addAll(taskService.getTasks().stream()
+                .filter(t -> t.getParentId() == null)
+                .filter(t -> isNew || !t.getId().equals(existingTask.getId())).toList());
+        parentCombo.setCellFactory(lv -> parentCell());
+        parentCombo.setButtonCell(parentCell());
+        parentCombo.setValue(selectedParent != null ? selectedParent : isNew ? null
+                : parentCombo.getItems().stream().filter(Objects::nonNull)
+                    .filter(t -> t.getId().equals(existingTask.getParentId())).findFirst().orElse(null));
+        Label hierarchyHint = new Label("One level only. Completing a parent also completes unfinished subtasks. "
+                + "Recurring parents never auto-complete; completing recurring tasks ends all future occurrences. "
+                + "Adding or reopening unfinished work reopens a completed parent.");
+        hierarchyHint.setWrapText(true);
+        TaskStyleUtils.fontNormal(hierarchyHint, 11);
+        TaskStyleUtils.textColor(hierarchyHint, TaskStyleUtils.COLOR_MUTED);
+
+        TextArea notesArea = new TextArea(isNew ? "" : nvl(existingTask.getNotes()));
+        notesArea.setPromptText("Markdown notes: headings, lists, tables, **bold**…");
+        notesArea.setPrefRowCount(6);
+        notesArea.setWrapText(true);
+        TitledPane preview = new TitledPane("Read notes", null);
+        preview.setExpanded(false);
+        WebView notesView = new WebView();
+        notesView.setPrefHeight(240);
+        Runnable renderNotes = () -> notesView.getEngine().loadContent(Markdown.page(Markdown.toHtml(notesArea.getText())));
+        preview.setContent(notesView);
+        preview.expandedProperty().addListener((obs, before, expanded) -> { if (expanded) renderNotes.run(); });
+        notesArea.textProperty().addListener((obs, before, text) -> { if (preview.isExpanded()) renderNotes.run(); });
+        TaskLinksEditor linksEditor = new TaskLinksEditor(isNew ? List.of() : taskService.getTaskLinks(existingTask),
+                url -> hostServices.showDocument(TaskService.validateLinkUrl(url)), this::showTaskError);
 
         // Category
         ComboBox<TaskCategory> catCombo = new ComboBox<>();
@@ -1008,6 +1140,12 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             }
 
             try {
+                Integer estimate = estimateField.getText().isBlank() ? null : Integer.valueOf(estimateField.getText().trim());
+                if (estimate != null && estimate < 0) {
+                    showInlineError(form, "Estimated hours must be a whole number, zero or greater.");
+                    return;
+                }
+                String parentId = parentCombo.getValue() == null ? "" : parentCombo.getValue().getId();
                 LocalDate startDate = recurringCheck.isSelected() ? startDatePicker.getValue() : null;
                 LocalDate recurrenceEnd = recurringCheck.isSelected() ? recurrenceEndPicker.getValue() : null;
                 if (isNew) {
@@ -1016,23 +1154,27 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                             deadlinePicker.getValue(), TaskStatus.OPEN, 0, recurPattern, startDate, recurrenceEnd);
                     newTask.setRemindDaysBefore(deadlinePicker.getValue() != null ? reminderCombo.getValue() : null);
                     newTask.setDoneCriteria(doneArea.getText());
-                    taskService.addTask(newTask);
+                    newTask.setParentId(parentId);
+                    newTask.setEstimatedHours(estimate);
+                    newTask.setNotes(notesArea.getText());
+                    taskService.addTask(newTask, linksEditor.links());
                 } else {
                     TaskUpdate update = new TaskUpdate(title, descArea.getText().trim(),
                             cat.name(), new TaskPriority(prio),
                             deadlinePicker.getValue(), recurPattern, startDate, recurrenceEnd,
                             reminderSelection(deadlinePicker.getValue(), reminderCombo.getValue()),
-                            doneArea.getText().trim());
+                            doneArea.getText().trim(), parentId,
+                            estimate == null ? TaskUpdate.CLEAR_ESTIMATE : estimate, notesArea.getText(),
+                            linksEditor.links(), statusCombo.getValue() == existingTask.getStatus()
+                                    ? null : statusCombo.getValue());
+                    if (update.status() == TaskStatus.COMPLETED && !confirmSubtaskCompletion(existingTask)) return;
                     taskService.updateTask(existingTask, update);
-                    // Apply status change separately if editing
-                    if (statusCombo.getValue() != null && statusCombo.getValue() != existingTask.getStatus()) {
-                        taskService.updateTaskStatus(existingTask, statusCombo.getValue());
-                    }
                 }
                 closeModal.run();
                 rebuildAllTabs();
             } catch (Exception ex) {
-                showInlineError(form, ex.getMessage());
+                showInlineError(form, ex instanceof NumberFormatException
+                        ? "Estimated hours must be a whole number, zero or greater." : ex.getMessage());
             }
         });
 
@@ -1044,6 +1186,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                 new Label("Title:"), titleField,
                 new Label("Description:"), descArea,
                 new Label("Done when:"), doneArea,
+                new Label("Parent task:"), parentCombo, hierarchyHint,
+                new Label("Estimated hours:"), estimateField,
+                new Label("Notes (Markdown):"), notesArea, preview,
+                new Label("Links (in display order):"), linksEditor,
                 new Label("Category:"), catCombo, newCatRow,
                 new Label("Priority:"), priorityCombo,
                 new Label("Deadline:"), deadlinePicker, deadlineHint,
@@ -1097,8 +1243,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     // FILTERING / SORTING
     // ──────────────────────────────────────────────
 
-    private List<Task> getFilteredTasks(String statusGroup) {
-        List<Task> all = taskService.getTasks();
+    private List<Task> getMatchingTasks(List<Task> family, String statusGroup) {
+        List<Task> all = new ArrayList<>(family);
 
         // Status filter
         if (!"All".equals(statusGroup)) {
@@ -1136,9 +1282,13 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             }
         }
 
-        // Sort
+        all.sort(taskComparator());
+        return all;
+    }
+
+    private Comparator<Task> taskComparator() {
         String sort = sortCombo != null ? sortCombo.getValue() : "Priority (high→low)";
-        Comparator<Task> comparator = switch (sort != null ? sort : "") {
+        return switch (sort != null ? sort : "") {
             case "Priority (low→high)" -> Comparator.comparingInt(t -> (t.getPriority() != null ? t.getPriority().stars() : 0));
             case "Deadline (soonest)" -> Comparator.comparing(t -> t.getDeadline() != null ? t.getDeadline() : LocalDate.MAX);
             case "Deadline (latest)" -> Comparator.comparing((Task t) -> t.getDeadline() != null ? t.getDeadline() : LocalDate.MIN).reversed();
@@ -1146,8 +1296,22 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             default -> Comparator.comparingInt((Task t) -> t.getPriority() != null ? t.getPriority().stars() : 0).reversed();
         };
 
-        all.sort(comparator);
-        return all;
+    }
+
+    private List<Task> getFilteredTasks(String statusGroup) {
+        List<Task> family = taskService.getTasks();
+        List<Task> all = getMatchingTasks(family, statusGroup);
+        Set<String> selectedIds = all.stream().map(Task::getId).collect(Collectors.toSet());
+        Set<String> parentIds = all.stream().map(Task::getParentId).filter(Objects::nonNull).collect(Collectors.toSet());
+        List<Task> matching = all;
+        List<Task> ordered = new ArrayList<>();
+        family.stream().filter(t -> t.getParentId() == null)
+                .filter(t -> selectedIds.contains(t.getId()) || parentIds.contains(t.getId()))
+                .sorted(taskComparator()).forEach(parent -> {
+                    ordered.add(parent);
+                    matching.stream().filter(t -> parent.getId().equals(t.getParentId())).forEach(ordered::add);
+                });
+        return ordered;
     }
 
     private void rebuildAllTabs() {
@@ -1249,6 +1413,16 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                 } else {
                     setText(days + " days before the deadline");
                 }
+            }
+        };
+    }
+
+    private ListCell<Task> parentCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(Task item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty ? null : item == null ? "None (standalone task)" : item.getTitle());
             }
         };
     }

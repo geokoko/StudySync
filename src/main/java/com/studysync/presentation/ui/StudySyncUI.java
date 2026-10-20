@@ -2,14 +2,12 @@ package com.studysync.presentation.ui;
 
 import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.service.DateTimeService;
-import com.studysync.domain.service.ProjectService;
 import com.studysync.domain.service.ScoringService;
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskService;
 import com.studysync.integration.drive.GoogleDriveService;
 import com.studysync.presentation.ui.components.CalendarViewPanel;
 import com.studysync.presentation.ui.components.ProfileViewPanel;
-import com.studysync.presentation.ui.components.ProjectManagementPanel;
 import com.studysync.presentation.ui.components.RefreshablePanel;
 import com.studysync.presentation.ui.components.ReflectionDiaryPanel;
 import com.studysync.presentation.ui.components.StudyPlannerPanel;
@@ -59,11 +57,10 @@ public class StudySyncUI {
     private final TaskService taskService;
     private final CategoryService categoryService;
     private final StudyService studyService;
-    private final ProjectService projectService;
     private final DateTimeService dateTimeService;
     private final ScoringService scoringService;
     private final GoogleDriveService googleDriveService;
-    private final Map<Tab, RefreshablePanel> panelMap;
+    private Map<Tab, RefreshablePanel> panelMap;
     private TabPane tabPane;
     private StackPane overlayLayer;
     private Button syncStatusBadge;
@@ -74,22 +71,24 @@ public class StudySyncUI {
     public StudySyncUI(TaskService taskService,
                        CategoryService categoryService,
                        StudyService studyService,
-                       ProjectService projectService,
                        DateTimeService dateTimeService,
                        ScoringService scoringService,
                        GoogleDriveService googleDriveService) {
         this.taskService = Objects.requireNonNull(taskService, "taskService");
         this.categoryService = Objects.requireNonNull(categoryService, "categoryService");
         this.studyService = Objects.requireNonNull(studyService, "studyService");
-        this.projectService = Objects.requireNonNull(projectService, "projectService");
         this.dateTimeService = Objects.requireNonNull(dateTimeService, "dateTimeService");
         this.scoringService = Objects.requireNonNull(scoringService, "scoringService");
         this.googleDriveService = Objects.requireNonNull(googleDriveService, "googleDriveService");
 
+    }
+
+    public void start(Stage primaryStage, javafx.application.HostServices hostServices) {
+        Application.setUserAgentStylesheet(Application.STYLESHEET_MODENA);
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
         Tab calendarTab = new Tab("Calendar View");
         calendarTab.setGraphic(TaskStyleUtils.iconLabel("\u25A6", 14));
-        panels.put(calendarTab, new CalendarViewPanel(this.studyService, this.taskService, this.projectService, this.scoringService));
+        panels.put(calendarTab, new CalendarViewPanel(this.studyService, this.taskService, this.scoringService));
         Tab plannerTab = new Tab("Study Planner");
         plannerTab.setGraphic(TaskStyleUtils.iconLabel("\u270E", 14));
         panels.put(plannerTab, new StudyPlannerPanel(this.studyService, this.dateTimeService, this.taskService,
@@ -97,19 +96,11 @@ public class StudySyncUI {
         Tab reflectionTab = new Tab("Reflection Diary");
         reflectionTab.setGraphic(TaskStyleUtils.iconLabel("\u2605", 14));
         panels.put(reflectionTab, new ReflectionDiaryPanel(this.studyService, this.dateTimeService));
-        Tab projectsTab = new Tab("Projects");
-        projectsTab.setGraphic(TaskStyleUtils.iconLabel("\u2261", 14));
-        panels.put(projectsTab, new ProjectManagementPanel(this.projectService, this.categoryService,
-                this::showModal, this::closeModal));
         Tab tasksTab = new Tab("Tasks");
         tasksTab.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
         panels.put(tasksTab, new TaskManagementPanel(this.taskService, this.categoryService,
-                this.studyService, this::showModal, this::closeModal));
+                this.studyService, hostServices, this::showModal, this::closeModal));
         panelMap = Collections.unmodifiableMap(panels);
-    }
-
-    public void start(Stage primaryStage) {
-        Application.setUserAgentStylesheet(Application.STYLESHEET_MODENA);
 
         this.tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);

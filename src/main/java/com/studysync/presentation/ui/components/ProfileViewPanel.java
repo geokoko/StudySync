@@ -745,7 +745,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             row1.setAlignment(Pos.CENTER);
 
             VBox sessionsCard = createStatCard("Sessions", String.valueOf(score.sessions()),
-                    "Study and project, last " + SCORE_WINDOW_DAYS + " days", "#3498db");
+                    "Study sessions, last " + SCORE_WINDOW_DAYS + " days", "#3498db");
             VBox hoursCard = createStatCard("Hours Logged", String.format("%.1f", score.minutes() / 60.0),
                     "Total time spent", "#e74c3c");
             VBox pointsCard = createStatCard("Points Earned", String.valueOf(score.points()),
@@ -761,7 +761,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             VBox goalsCard = createStatCard("Goal Net", String.format("%+d", score.netGoals()),
                     "Achieved minus missed, last " + SCORE_WINDOW_DAYS + " days", "#27ae60");
             VBox tasksCard = createStatCard("Tasks Done", String.valueOf(score.tasksCompleted()),
-                    "Completed in the last " + SCORE_WINDOW_DAYS + " days", "#16a085");
+                    "Without subtasks, last " + SCORE_WINDOW_DAYS + " days", "#16a085");
             VBox efficiencyCard = createStatCard("Efficiency",
                     String.format("%.1f", score.pointsPerHour()),
                     "Points per hour", "#8e44ad");

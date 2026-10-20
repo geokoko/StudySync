@@ -1,7 +1,10 @@
 package com.studysync.domain.service;
 
 import com.studysync.domain.valueobject.TaskPriority;
+import com.studysync.domain.valueobject.TaskStatus;
+import com.studysync.domain.entity.TaskLink;
 import java.time.LocalDate;
+import java.util.List;
 
 public record TaskUpdate(
     String title,
@@ -14,8 +17,25 @@ public record TaskUpdate(
     LocalDate recurrenceEndDate,
     Integer remindDaysBefore,
     /** What finishing the task means; {@code null} keeps the existing text, blank clears it. */
-    String doneCriteria
+    String doneCriteria,
+    /** Null keeps the parent; blank makes the task standalone. */
+    String parentId,
+    /** Null keeps the estimate; CLEAR_ESTIMATE removes it. */
+    Integer estimatedHours,
+    /** Null keeps notes; empty text clears them without trimming Markdown. */
+    String notes,
+    /** Null keeps links; an empty list removes them all. */
+    List<TaskLink> links,
+    TaskStatus status
 ) {
+    public static final Integer CLEAR_ESTIMATE = -1;
+
+    public TaskUpdate(String title, String description, String category, TaskPriority priority, LocalDate deadline,
+                      String recurringPattern, LocalDate startDate, LocalDate recurrenceEndDate,
+                      Integer remindDaysBefore, String doneCriteria) {
+        this(title, description, category, priority, deadline, recurringPattern, startDate, recurrenceEndDate,
+                remindDaysBefore, doneCriteria, null, null, null, null, null);
+    }
     /**
      * Value of {@link #remindDaysBefore} that clears an existing reminder.
      *

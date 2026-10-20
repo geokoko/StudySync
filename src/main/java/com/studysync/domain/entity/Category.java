@@ -16,7 +16,7 @@ import java.util.UUID;
  * Domain entity representing a category in the StudySync system.
  * Uses Active Record pattern - handles its own database operations.
  * 
- * <p>Categories provide a way to organize and group related tasks and projects.
+ * <p>Categories provide a way to organize and group related tasks and subtasks.
  * They enable filtering and reporting capabilities within the application.</p>
  * 
  * @author geokoko 
