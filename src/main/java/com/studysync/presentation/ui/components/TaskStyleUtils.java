@@ -87,6 +87,16 @@ public final class TaskStyleUtils {
     }
 
     /**
+     * Applies a semantic text colour via inline style. {@code setTextFill}
+     * loses to the global {@code .label} rule in styles.css (a scene
+     * stylesheet outranks values set from code), so a colour that has to show
+     * on a Label in the main window must be inline.
+     */
+    public static void textColor(Labeled node, String hex) {
+        appendStyle(node, "-fx-text-fill: " + hex + ";");
+    }
+
+    /**
      * Creates a small Label with the Noto Emoji font, suitable for use
      * as a {@link Labeled#setGraphic(javafx.scene.Node) graphic} on
      * buttons or labels that mix icon characters with regular text.

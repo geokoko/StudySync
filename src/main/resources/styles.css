@@ -125,6 +125,11 @@
     -fx-fill: #2c3e50;
 }
 
+/* The arrow is drawn in -fx-mark-color, which .root sets to white for checkbox ticks. */
+.titled-pane > .title > .arrow-button > .arrow {
+    -fx-background-color: #2c3e50;
+}
+
 .tooltip {
     -fx-text-fill: white;
     -fx-background-color: rgba(44, 62, 80, 0.9);
@@ -543,4 +548,123 @@
 .transparent-bg {
     -fx-background-color: transparent;
     -fx-background: transparent;
+}
+
+/* CALENDAR
+ * Day cells carry their state as pseudo-classes (:today, :selected, :past,
+ * :outside, :off, :drop) so selecting a day or hovering a drop restyles the
+ * cell without rebuilding it. Later rules win over earlier ones. */
+.cal-weekday {
+    -fx-background-color: #ecf0f1;
+    -fx-background-radius: 4;
+    -fx-padding: 6;
+    -fx-alignment: center;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+
+.cal-cell {
+    -fx-background-color: white;
+    -fx-background-radius: 6;
+    -fx-border-color: #dfe4ea;
+    -fx-border-radius: 6;
+    -fx-padding: 6 8 6 8;
+    -fx-cursor: hand;
+}
+
+.cal-cell:hover {
+    -fx-background-color: #f4f6f8;
+}
+
+.cal-cell:past {
+    -fx-background-color: #fafafa;
+}
+
+.cal-cell:outside {
+    -fx-opacity: 0.5;
+}
+
+.cal-cell:off {
+    -fx-background-color: #fdf0d5;
+}
+
+.cal-cell:today {
+    -fx-background-color: #e3f2fd;
+    -fx-border-color: #3498db;
+    -fx-border-width: 2;
+}
+
+.cal-cell:selected {
+    -fx-border-color: #2c3e50;
+    -fx-border-width: 2;
+}
+
+.cal-cell:drop {
+    -fx-background-color: #f3e5f5;
+    -fx-border-color: #9b59b6;
+    -fx-border-width: 2;
+    -fx-border-style: segments(6, 4);
+}
+
+.cal-day-number {
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+
+.cal-cell:past .cal-day-number {
+    -fx-text-fill: #7f8c8d;
+}
+
+.cal-cell:today .cal-day-number {
+    -fx-text-fill: #3498db;
+}
+
+.cal-minutes {
+    -fx-font-size: 10px;
+    -fx-text-fill: #7f8c8d;
+}
+
+.cal-off-label {
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #d68910;
+}
+
+.cal-more {
+    -fx-font-size: 10px;
+    -fx-text-fill: #7f8c8d;
+    -fx-padding: 0 0 0 14;
+}
+
+.cal-entry {
+    -fx-background-radius: 3;
+    -fx-padding: 0 2 0 2;
+}
+
+.cal-draggable:hover {
+    -fx-background-color: #f3e5f5;
+    -fx-cursor: move;
+}
+
+.cal-bar-track {
+    -fx-background-color: #ecf0f1;
+    -fx-background-radius: 3;
+}
+
+.cal-plan-item {
+    -fx-background-color: white;
+    -fx-background-radius: 6;
+    -fx-border-color: #dfe4ea;
+    -fx-border-radius: 6;
+    -fx-padding: 8 10 8 10;
+    -fx-cursor: move;
+}
+
+.cal-plan-item:hover {
+    -fx-background-color: #faf5fc;
+    -fx-border-color: #9b59b6;
+}
+
+.cal-task-line {
+    -fx-padding: 3 0 3 0;
 }

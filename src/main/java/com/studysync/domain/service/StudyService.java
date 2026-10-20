@@ -21,6 +21,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -603,6 +604,33 @@ public class StudyService {
             ensureOverdueAttemptsProcessed();
         }
         return StudyGoal.findAllByDate(date);
+    }
+
+    /**
+     * {@link #getGoalsForDate} for a whole range in one query, so a calendar
+     * month does not cost a query per day.
+     *
+     * @return goal attempts planned within {@code [from, to]}, by date
+     */
+    @Transactional
+    public List<StudyGoal> getGoalsInRange(LocalDate from, LocalDate to) {
+        if (from == null || to == null) {
+            throw ValidationException.requiredFieldMissing(from == null ? "from" : "to");
+        }
+        if (!from.isAfter(dateTimeService.getCurrentDate())) {
+            ensureOverdueAttemptsProcessed();
+        }
+        return StudyGoal.findAllInRange(from, to);
+    }
+
+    /**
+     * Tasks with a goal already planned for today or later - everything else
+     * active is still waiting to be planned.
+     */
+    @Transactional
+    public Set<String> getTaskIdsWithPlannedGoals() {
+        ensureOverdueAttemptsProcessed();
+        return StudyGoal.findTaskIdsWithPendingAttemptsFrom(dateTimeService.getCurrentDate());
     }
 
     // ================================================================

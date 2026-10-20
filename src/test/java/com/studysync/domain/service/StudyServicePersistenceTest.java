@@ -18,6 +18,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -442,6 +443,37 @@ class StudyServicePersistenceTest {
 
         assertTrue(taskService.getMissedRecurringOccurrences(nextDate).isEmpty());
         assertTrue(taskService.isOccurrenceHandled(task, occurrenceDate));
+    }
+
+    @Test
+    void goalsInRangeListEveryOutcomeInDateOrderAfterSweepingOverdueAttempts() {
+        missedGoal("Missed earlier", null, LocalDate.of(2026, 3, 24));
+        StudyGoal leftPending = new StudyGoal("Left pending yesterday");
+        leftPending.setDate(LocalDate.of(2026, 3, 27));
+        leftPending.save();
+        studyService.addStudyGoal("Planned ahead", LocalDate.of(2026, 3, 30), null);
+        studyService.addStudyGoal("Outside the range", LocalDate.of(2026, 4, 6), null);
+
+        List<StudyGoal> goals = studyService.getGoalsInRange(LocalDate.of(2026, 3, 23), LocalDate.of(2026, 3, 31));
+
+        assertEquals(List.of("Missed earlier", "Left pending yesterday", "Planned ahead"),
+                goals.stream().map(StudyGoal::getDescription).toList());
+        // Same as for a single day: an attempt left pending in the past reads as missed.
+        assertEquals(StudyGoal.AttemptOutcome.MISSED, goals.get(1).getAttemptOutcome());
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, goals.get(2).getAttemptOutcome());
+    }
+
+    @Test
+    void plannedGoalTaskIdsCoverOnlyLiveGoalsPendingFromToday() {
+        studyService.addStudyGoal("Planned for today", LocalDate.of(2026, 3, 28), "today-task");
+        studyService.addStudyGoal("Planned ahead", LocalDate.of(2026, 4, 2), "ahead-task");
+        missedGoal("Missed only", "missed-task", LocalDate.of(2026, 3, 25));
+        studyService.addStudyGoal("Already done", LocalDate.of(2026, 3, 28), "done-task");
+        studyService.updateStudyGoalAchievement(StudyGoal.findByTaskId("done-task").getFirst().getId(), true, null);
+        studyService.addStudyGoal("Dropped", LocalDate.of(2026, 3, 30), "abandoned-task");
+        assertTrue(studyService.markGoalAsFailed(StudyGoal.findByTaskId("abandoned-task").getFirst().getId()));
+
+        assertEquals(Set.of("today-task", "ahead-task"), studyService.getTaskIdsWithPlannedGoals());
     }
 
     @Test

@@ -1,0 +1,139 @@
+package com.studysync.presentation.ui.components;
+
+import com.studysync.domain.entity.StudyGoal;
+import com.studysync.domain.entity.Task;
+import com.studysync.domain.valueobject.TaskPriority;
+import com.studysync.domain.valueobject.TaskStatus;
+import com.studysync.presentation.ui.components.CalendarAgenda.Entry;
+import com.studysync.presentation.ui.components.CalendarAgenda.Kind;
+import org.junit.jupiter.api.Test;
+
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.function.BiPredicate;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class CalendarAgendaTest {
+
+    private static final LocalDate FROM = LocalDate.of(2026, 10, 12);
+    private static final LocalDate TODAY = LocalDate.of(2026, 10, 20);
+    private static final LocalDate TO = LocalDate.of(2026, 10, 25);
+
+    private static final BiPredicate<Task, LocalDate> MONDAYS_AND_THURSDAYS = (task, date) ->
+            date.getDayOfWeek() == DayOfWeek.MONDAY || date.getDayOfWeek() == DayOfWeek.THURSDAY;
+
+    @Test
+    void lateTaskIsListedOnItsDeadlineAndOnTodayOnly() {
+        Task late = task("late", "microlab", LocalDate.of(2026, 10, 15), TaskStatus.DELAYED);
+
+        Map<LocalDate, List<Entry>> days = build(List.of(late), List.of());
+
+        assertEquals(List.of(Kind.DUE), kinds(days, LocalDate.of(2026, 10, 15)));
+        Entry overdue = days.get(TODAY).getFirst();
+        assertEquals(Kind.OVERDUE, overdue.kind());
+        assertEquals("microlab · 5d late", overdue.text());
+        // Not repeated on the days in between, nor on future days.
+        for (LocalDate date = FROM; !date.isAfter(TO); date = date.plusDays(1)) {
+            if (!date.equals(TODAY) && !date.equals(LocalDate.of(2026, 10, 15))) {
+                assertTrue(days.get(date).isEmpty(), "nothing expected on " + date);
+            }
+        }
+    }
+
+    @Test
+    void completedTaskAppearsOnTheDayItWasCompletedInsteadOfItsDeadline() {
+        Task done = task("done", "embedded 6", LocalDate.of(2026, 10, 15), TaskStatus.COMPLETED);
+        done.setCompletedAt(LocalDate.of(2026, 10, 14));
+
+        Map<LocalDate, List<Entry>> days = build(List.of(done), List.of());
+
+        assertEquals(List.of(Kind.COMPLETED), kinds(days, LocalDate.of(2026, 10, 14)));
+        assertTrue(days.get(LocalDate.of(2026, 10, 15)).isEmpty());
+        assertTrue(days.get(TODAY).isEmpty());
+    }
+
+    @Test
+    void postponedAndCancelledTasksAreOutOfThePlan() {
+        Task postponed = task("postponed", "later", LocalDate.of(2026, 10, 15), TaskStatus.POSTPONED);
+        Task cancelled = task("cancelled", "never", LocalDate.of(2026, 10, 22), TaskStatus.CANCELLED);
+
+        Map<LocalDate, List<Entry>> days = build(List.of(postponed, cancelled), List.of());
+
+        assertTrue(days.values().stream().allMatch(List::isEmpty));
+    }
+
+    @Test
+    void goalsAreNamedByTheirTaskAndClassifiedByOutcome() {
+        Task lab = task("lab", "Lab 6", LocalDate.of(2026, 10, 30), TaskStatus.IN_PROGRESS);
+        StudyGoal planned = goal("anafora + code", "lab", LocalDate.of(2026, 10, 22), false, false);
+        StudyGoal achieved = goal("read spec", "lab", LocalDate.of(2026, 10, 16), true, false);
+        StudyGoal missed = goal("write isr", "lab", LocalDate.of(2026, 10, 15), false, true);
+        StudyGoal unlinked = goal("Le-Roi meeting", null, LocalDate.of(2026, 10, 22), false, false);
+
+        Map<LocalDate, List<Entry>> days = build(List.of(lab), List.of(planned, achieved, missed, unlinked));
+
+        List<Entry> thursday = days.get(LocalDate.of(2026, 10, 22));
+        assertEquals(2, thursday.size());
+        Entry taskGoal = thursday.stream().filter(e -> e.task() != null).findFirst().orElseThrow();
+        assertEquals(Kind.GOAL_PENDING, taskGoal.kind());
+        assertEquals("Lab 6 · anafora + code", taskGoal.text());
+        assertTrue(taskGoal.movable());
+        Entry meeting = thursday.stream().filter(e -> e.task() == null).findFirst().orElseThrow();
+        assertEquals("Le-Roi meeting", meeting.title());
+        assertNull(meeting.detail());
+
+        assertEquals(List.of(Kind.GOAL_ACHIEVED), kinds(days, LocalDate.of(2026, 10, 16)));
+        assertEquals(List.of(Kind.GOAL_MISSED), kinds(days, LocalDate.of(2026, 10, 15)));
+        assertFalse(days.get(LocalDate.of(2026, 10, 15)).getFirst().movable());
+    }
+
+    @Test
+    void recurringTaskShowsItsScheduleWithoutRepeatingWhatAGoalOrDeadlineAlreadySays() {
+        Task algorithms = task("algo", "algorithms", LocalDate.of(2026, 10, 22), TaskStatus.IN_PROGRESS);
+        algorithms.setRecurringPattern("1:1,4");
+        StudyGoal handled = goal("ch. 5", "algo", LocalDate.of(2026, 10, 15), true, false);
+
+        Map<LocalDate, List<Entry>> days = build(List.of(algorithms), List.of(handled));
+
+        assertEquals(List.of(Kind.RECURRING_MISSED), kinds(days, LocalDate.of(2026, 10, 12)));
+        assertEquals(List.of(Kind.GOAL_ACHIEVED), kinds(days, LocalDate.of(2026, 10, 15)));
+        assertEquals(List.of(Kind.RECURRING_MISSED), kinds(days, LocalDate.of(2026, 10, 19)));
+        assertTrue(days.get(TODAY).isEmpty());
+        assertEquals(List.of(Kind.DUE), kinds(days, LocalDate.of(2026, 10, 22)));
+    }
+
+    @Test
+    void mostPressingLinesComeFirst() {
+        Task late = task("late", "b late", LocalDate.of(2026, 10, 1), TaskStatus.OPEN);
+        Task dueToday = task("due", "c due", TODAY, TaskStatus.OPEN);
+        Task done = task("done", "a done", null, TaskStatus.COMPLETED);
+        done.setCompletedAt(TODAY);
+        StudyGoal planned = goal("d goal", null, TODAY, false, false);
+
+        Map<LocalDate, List<Entry>> days = build(List.of(done, dueToday, late), List.of(planned));
+
+        assertEquals(List.of(Kind.OVERDUE, Kind.DUE, Kind.GOAL_PENDING, Kind.COMPLETED), kinds(days, TODAY));
+    }
+
+    private static Map<LocalDate, List<Entry>> build(List<Task> tasks, List<StudyGoal> attempts) {
+        return CalendarAgenda.build(FROM, TO, TODAY, tasks, attempts, MONDAYS_AND_THURSDAYS);
+    }
+
+    private static List<Kind> kinds(Map<LocalDate, List<Entry>> days, LocalDate date) {
+        return days.get(date).stream().map(Entry::kind).toList();
+    }
+
+    private static Task task(String id, String title, LocalDate deadline, TaskStatus status) {
+        return new Task(id, title, "", "Study", new TaskPriority(3), deadline, status, 0);
+    }
+
+    private static StudyGoal goal(String description, String taskId, LocalDate date, boolean achieved, boolean missed) {
+        return new StudyGoal(null, date, description, achieved, null, 0, false, 0, taskId, null, missed);
+    }
+}

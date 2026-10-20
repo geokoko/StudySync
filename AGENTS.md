@@ -56,7 +56,8 @@ src/main/java/com/studysync/
         ├── TaskStyleUtils.java        # Shared task status styling (border color, badge bg, emoji)
         │                              # + CSS-safe font helpers (fontBold/fontNormal/fontSemiBold/fontItalic/fontEmoji)
         │                              # + overdue/due-today/missed badge factories
-        ├── CalendarViewPanel.java     # Monthly calendar with tasks and study goals
+        ├── CalendarViewPanel.java     # Month/week calendar, day side panel, "To plan" list, drag to plan
+        ├── CalendarAgenda.java        # Pure: what each calendar day lists (see Calendar)
         ├── StudyPlannerPanel.java     # Daily study planner with sessions, goals, tasks
         ├── ReflectionDiaryPanel.java  # Daily reflection diary with sidebar navigation
         ├── ProjectManagementPanel.java # Project CRUD with categories and timed sessions
@@ -94,7 +95,7 @@ Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordC
 | Entity | Table | Key Static Methods |
 |---|---|---|
 | `Task` | `tasks` | `findAll`, `findById`, `findByStatus`, `findByCategory`, `findDueBy`, `findOverdue`, `findByPriority`, `search`, `findHighPriority`, `findRecurring`, `findActiveRecurring`, `countByStatus`, `existsById`, `updateStatus`, `deleteById`, `deleteByIds`, `save`, `delete` |
-| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `updateDetails`, `setCriterionDone`, `deleteById`, `save`, `delete`; pure `parseCriteria` / `serializeCriteria` / `criteriaFromLines` |
+| `StudyGoal` | `study_goals` | `findAll`, `findById`, `findByDate`, `findAllInRange`, `findTaskIdsWithPendingAttemptsFrom`, `findAchieved`, `findUnachievedByDate`, `findDelayed`, `findDelayedByDate`, `findByTaskIdForDate`, `hasAchievedGoalForTask`, `findUnlinkedForDate`, `countByAchievement`, `updateDetails`, `setCriterionDone`, `deleteById`, `save`, `delete`; pure `parseCriteria` / `serializeCriteria` / `criteriaFromLines` |
 | `StudySession` | `study_sessions` | `findAll`, `findById`, `findByDate`, `findActiveSession`, `countByGoalId`, `save`, `delete` |
 | `Project` | `projects` | `findAll`, `findById`, `findByStatus`, `save`, `delete` |
 | `ProjectSession` | `project_sessions` | `findAll`, `findById`, `findByProjectId`, `findByDate`, `save`, `delete` |
@@ -107,7 +108,7 @@ Entities have a **static `JdbcTemplate`** field set at startup by `ActiveRecordC
 | Service | Responsibility |
 |---|---|
 | `TaskService` | Task CRUD, filtering, status transitions, bulk operations, recurring task date matching, missed occurrence detection, task statistics, async queries |
-| `StudyService` | Study sessions (start/end), study goals, daily reflections, delayed goal processing, off-day CRUD |
+| `StudyService` | Study sessions (start/end), study goals (incl. `getGoalsInRange` for a calendar period), daily reflections, delayed goal processing, off-day CRUD |
 | `ScoringService` | The only place that decides what counts towards a score. `scoreForDate` / `scoreForWindow` return a `ScoreBreakdown`; also `getStudyStreak` and `taskPoints` |
 | `ProjectService` | Project CRUD, project sessions (start/end), progress tracking |
 | `CategoryService` | Category creation and existence checks for tasks and projects |
@@ -174,12 +175,13 @@ Default tab order: Calendar View, Study Planner, Reflection Diary, Projects, Tas
 | Buttons | `.btn-primary`, `.btn-success`, `.btn-danger`, `.btn-cancel`, `.btn-purple`, `.btn-orange`, `.btn-google`, `.btn-gray`, `.btn-success-alt`, `.btn-orange-download`, `.btn-small` |
 | Modals | `.modal-content`, `.modal-content-light` |
 | Utility | `.transparent-bg` |
+| Calendar | `.cal-cell` (state as pseudo-classes `:today` `:selected` `:past` `:outside` `:off` `:drop`), `.cal-weekday`, `.cal-day-number`, `.cal-entry`, `.cal-draggable`, `.cal-plan-item`, `.cal-bar-track`, ... |
 
 ### Styling Guidelines
 
 - **Use CSS classes** for static, reusable styles. Apply via `node.getStyleClass().add("class-name")`.
 - **Keep `setStyle()` for dynamic styles** — anything that varies by data (task status colors, date-dependent cell colors, progress bar widths).
-- **`setTextFill(Color.web("#2c3e50"))`** is the global default — do NOT set it explicitly. Only use `setTextFill()` for semantic colors (muted gray `#7f8c8d`, error red, status-specific colors).
+- **`setTextFill(Color.web("#2c3e50"))`** is the global default — do NOT set it explicitly. For semantic colors (muted gray `#7f8c8d`, error red, status-specific colors) on a Label use `TaskStyleUtils.textColor(label, hex)`: the global `.label` rule is a scene stylesheet, which outranks `setTextFill()`, so a `setTextFill()` color on a Label in the main window never shows.
 - **`setTextFill(Color.WHITE)` on buttons** is handled by button CSS classes — do NOT set it explicitly when using `.btn-*` classes.
 - **Task status styling** is centralized in `TaskStyleUtils` — use its static methods instead of inline switch expressions.
 - The `.button` base CSS class already includes `-fx-font-weight: bold; -fx-cursor: hand;`.
@@ -215,6 +217,31 @@ Tasks earn *timeliness only* — a flat completion bonus would double-count the 
 
 `off_days` rows are excluded from window scores and shrink the denominators, so a holiday is not a zero-productivity day. They are skipped by the streak rather than breaking it. Per-day figures and the profile charts still show what actually happened on an off day.
 
+
+## Calendar
+
+`CalendarAgenda.build` decides what each day lists, by name; the panel only
+draws it. It deliberately does not reuse `TaskService.getTasksForDate`, which
+answers the planner's question and would repeat a late task on every cell and
+judge past days by today's status.
+
+- **Goal attempts** on their planned date: pending, achieved, or missed (a
+  missed or abandoned attempt). Titled by their task when linked.
+- **Deadlines** of unresolved tasks (OPEN / IN_PROGRESS / DELAYED) on the
+  deadline day only. A late task is listed again on **today** as overdue, and
+  nowhere else.
+- **Completed tasks** on `completed_at`, not on their deadline.
+- **Recurring occurrences** of unresolved recurring tasks; a past one is
+  "missed" unless a goal attempt for the task sits on that day (which is
+  listed instead). The deadline line replaces an occurrence on the due day.
+- Postponed and cancelled tasks are left out, as in the planner.
+
+The panel loads a whole month (full Mon–Sun weeks) or week at once:
+`StudyService.getGoalsInRange` plus one `scoreForDate` per past day. Dragging
+a pending goal onto today or later moves it (`updateStudyGoalDetails`); the
+"To plan" list holds active non-recurring tasks with no pending goal from
+today on (`getTaskIdsWithPlannedGoals`), and dropping one opens the add-goal
+dialog with the task preselected.
 
 ## Reminders
 
@@ -306,7 +333,7 @@ Optional feature for syncing the H2 database file to Google Drive.
 - Test config: `src/test/resources/application-test.properties`
 - Coverage: JaCoCo with HTML/XML reports (excludes config classes and entry points)
 - Code style: Checkstyle 10.12.1 (config at `config/checkstyle/checkstyle.xml`)
-- Tests live under `src/test/java`: `*PersistenceTest` classes run services against an in-memory H2 with the schema inlined per test class (so a new column must be added to those DDL blocks too), `ScoringServiceTest` guards the points formulas, and `SessionVisibilityTest` / `MarkdownTest` cover UI helpers
+- Tests live under `src/test/java`: `*PersistenceTest` classes run services against an in-memory H2 with the schema inlined per test class (so a new column must be added to those DDL blocks too), `ScoringServiceTest` guards the points formulas, and `SessionVisibilityTest` / `MarkdownTest` / `CalendarAgendaTest` cover UI helpers
 
 ## Key Patterns
 

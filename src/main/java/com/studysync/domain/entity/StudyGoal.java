@@ -465,6 +465,38 @@ public class StudyGoal {
         return jdbcTemplate.query(sql, getAttemptViewMapper(), date);
     }
 
+    /** Every attempt planned within {@code [from, to]}, outcome and abandonment included. */
+    public static List<StudyGoal> findAllInRange(LocalDate from, LocalDate to) {
+        if (jdbcTemplate == null || from == null || to == null) {
+            return List.of();
+        }
+        String sql = SELECT_ATTEMPT_VIEW + """
+            WHERE a.planned_for_date >= ? AND a.planned_for_date <= ?
+            ORDER BY
+                a.planned_for_date ASC,
+                CASE a.outcome WHEN 'PENDING' THEN 0 WHEN 'ACHIEVED' THEN 1 ELSE 2 END,
+                g.created_at ASC
+            """;
+        return jdbcTemplate.query(sql, getAttemptViewMapper(), from, to);
+    }
+
+    /** Tasks that already have a pending attempt of a live goal on or after {@code from}. */
+    public static Set<String> findTaskIdsWithPendingAttemptsFrom(LocalDate from) {
+        if (jdbcTemplate == null || from == null) {
+            return Set.of();
+        }
+        String sql = """
+            SELECT DISTINCT g.task_id
+            FROM study_goals g
+            JOIN study_goal_attempts a ON a.goal_id = g.id
+            WHERE g.task_id IS NOT NULL
+              AND COALESCE(g.status, 'ACTIVE') <> 'ABANDONED'
+              AND a.outcome = 'PENDING'
+              AND a.planned_for_date >= ?
+            """;
+        return new HashSet<>(jdbcTemplate.queryForList(sql, String.class, from));
+    }
+
     public static List<StudyGoal> findAchieved() {
         requireJdbcTemplate();
         String sql = SELECT_ATTEMPT_VIEW + """

@@ -1,0 +1,158 @@
+package com.studysync.presentation.ui.components;
+
+import com.studysync.domain.entity.StudyGoal;
+import com.studysync.domain.entity.Task;
+import com.studysync.domain.valueobject.TaskStatus;
+
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.BiPredicate;
+
+/**
+ * What a calendar day lists, by name: the plan for today and later, and what
+ * actually happened on past days.
+ *
+ * <p>Deliberately not {@code TaskService.getTasksForDate}. That answers "what
+ * should the planner list on this day", so it keeps a late task on every day
+ * after its deadline and judges past days by the task's status today. A
+ * calendar drawn from it repeats the same overdue task in every cell, future
+ * ones included, and loses a task from the days it was worked on as soon as it
+ * is completed. Here a late task appears on its deadline and on today only,
+ * and a past day is built from what is dated on it.</p>
+ */
+final class CalendarAgenda {
+
+    /** Kinds of line, declared in display order: the most pressing first. */
+    enum Kind {
+        /** Unresolved task past its deadline; listed on today only. */
+        OVERDUE,
+        /** Unresolved task due that day. */
+        DUE,
+        GOAL_PENDING,
+        /** Scheduled occurrence of an unresolved recurring task. */
+        RECURRING,
+        /** Past occurrence with no goal attempt for it that day. */
+        RECURRING_MISSED,
+        /** Missed attempt, or any attempt of an abandoned goal. */
+        GOAL_MISSED,
+        GOAL_ACHIEVED,
+        /** Task completed that day. */
+        COMPLETED
+    }
+
+    /**
+     * One line of a calendar day.
+     *
+     * @param title  the task's title, or the goal's description when the goal has no task
+     * @param detail the goal's description under its task, or how late an overdue task is
+     * @param task   the task the line is about, when there is one
+     * @param goal   the goal attempt the line is about, when there is one
+     */
+    record Entry(Kind kind, String title, String detail, Task task, StudyGoal goal) {
+
+        /** Only a pending attempt can be dragged to another day. */
+        boolean movable() {
+            return kind == Kind.GOAL_PENDING;
+        }
+
+        String text() {
+            return detail == null ? title : title + " · " + detail;
+        }
+    }
+
+    private static final Comparator<Entry> DISPLAY_ORDER = Comparator.comparing(Entry::kind)
+            .thenComparing(Entry::title, String.CASE_INSENSITIVE_ORDER);
+
+    private CalendarAgenda() {
+    }
+
+    /**
+     * Same notion of "still open" as the planner: postponed and cancelled
+     * tasks are out of the plan.
+     */
+    static boolean isActive(TaskStatus status) {
+        return status == TaskStatus.OPEN || status == TaskStatus.IN_PROGRESS || status == TaskStatus.DELAYED;
+    }
+
+    /**
+     * @param attempts     goal attempts planned within the range
+     * @param isOccurrence whether a recurring task's schedule lands on a date
+     * @return every date in {@code [from, to]}, in order, with its lines in display order
+     */
+    static Map<LocalDate, List<Entry>> build(LocalDate from, LocalDate to, LocalDate today,
+                                             List<Task> tasks, List<StudyGoal> attempts,
+                                             BiPredicate<Task, LocalDate> isOccurrence) {
+        Map<LocalDate, List<Entry>> days = new LinkedHashMap<>();
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            days.put(date, new ArrayList<>());
+        }
+        Map<String, Task> tasksById = new LinkedHashMap<>();
+        tasks.forEach(task -> tasksById.putIfAbsent(task.getId(), task));
+
+        // A goal attempt for a task already says the task is worked on that
+        // day, so the task's recurring line would only repeat it.
+        Set<String> taskDaysWithGoal = new HashSet<>();
+        for (StudyGoal attempt : attempts) {
+            List<Entry> day = days.get(attempt.getDate());
+            if (day == null) {
+                continue;
+            }
+            if (attempt.getTaskId() != null) {
+                taskDaysWithGoal.add(attempt.getTaskId() + "|" + attempt.getDate());
+            }
+            day.add(goalEntry(attempt, tasksById.get(attempt.getTaskId())));
+        }
+
+        for (Task task : tasks) {
+            boolean active = isActive(task.getStatus());
+            LocalDate deadline = task.getDeadline();
+            if (active && deadline != null) {
+                add(days, deadline, new Entry(Kind.DUE, task.getTitle(), null, task, null));
+                if (deadline.isBefore(today)) {
+                    long daysLate = ChronoUnit.DAYS.between(deadline, today);
+                    add(days, today, new Entry(Kind.OVERDUE, task.getTitle(), daysLate + "d late", task, null));
+                }
+            }
+            if (task.getStatus() == TaskStatus.COMPLETED && task.getCompletedAt() != null) {
+                add(days, task.getCompletedAt(), new Entry(Kind.COMPLETED, task.getTitle(), null, task, null));
+            }
+            if (active && task.isRecurring()) {
+                for (LocalDate date : days.keySet()) {
+                    // The deadline line already covers an occurrence on the due day.
+                    if (date.equals(deadline) || taskDaysWithGoal.contains(task.getId() + "|" + date)
+                            || !isOccurrence.test(task, date)) {
+                        continue;
+                    }
+                    Kind kind = date.isBefore(today) ? Kind.RECURRING_MISSED : Kind.RECURRING;
+                    days.get(date).add(new Entry(kind, task.getTitle(), null, task, null));
+                }
+            }
+        }
+
+        days.values().forEach(day -> day.sort(DISPLAY_ORDER));
+        return days;
+    }
+
+    private static Entry goalEntry(StudyGoal attempt, Task task) {
+        Kind kind = attempt.getAttemptOutcome() == StudyGoal.AttemptOutcome.ACHIEVED ? Kind.GOAL_ACHIEVED
+                : attempt.isFailed() ? Kind.GOAL_MISSED
+                : Kind.GOAL_PENDING;
+        return task != null
+                ? new Entry(kind, task.getTitle(), attempt.getDescription(), task, attempt)
+                : new Entry(kind, attempt.getDescription(), null, null, attempt);
+    }
+
+    private static void add(Map<LocalDate, List<Entry>> days, LocalDate date, Entry entry) {
+        List<Entry> day = days.get(date);
+        if (day != null) {
+            day.add(entry);
+        }
+    }
+}

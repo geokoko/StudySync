@@ -12,503 +12,566 @@ import com.studysync.domain.entity.Project;
 import com.studysync.domain.entity.ProjectSession;
 import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.OffDay;
+import com.studysync.presentation.ui.components.CalendarAgenda.Entry;
+import com.studysync.presentation.ui.components.CalendarAgenda.Kind;
 
+import javafx.application.Platform;
+import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.DataFormat;
+import javafx.scene.input.Dragboard;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
 import javafx.event.ActionEvent;
 import javafx.scene.Node;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
+import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Objects;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Calendar view panel that displays a full month calendar with daily performance metrics
- * and detailed day views when clicking on specific dates. Replaces the DailyViewPanel
- * with a more comprehensive calendar-based interface similar to Google Calendar.
+ * Month or week calendar that names what is planned on each day and, for past
+ * days, what actually happened. A side panel shows the selected day, and the
+ * active tasks that have no goal planned yet: dragging one onto a day plans
+ * it, and dragging a planned goal to another day moves it.
  */
-public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
+public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
     private static final Logger logger = LoggerFactory.getLogger(CalendarViewPanel.class);
+
+    private enum ViewMode { MONTH, WEEK }
 
     private final StudyService studyService;
     private final TaskService taskService;
     private final ProjectService projectService;
     private final ScoringService scoringService;
-    
+
     // UI Components
-    private VBox mainContainer;
-    private Label monthYearLabel;
-    private GridPane calendarGrid;
-    private YearMonth currentMonth;
+    private final Label periodLabel = new Label();
+    private final GridPane calendarGrid = new GridPane();
+    private final VBox dayPanel = new VBox(16);
+    private final VBox toPlanList = new VBox(6);
+    private final TabPane sidebar = new TabPane();
+    private final Tab dayTab = new Tab("Day");
+    private final Tab toPlanTab = new Tab("To plan");
+
+    private ViewMode viewMode = ViewMode.MONTH;
+    /** Any day inside the visible month or week. */
+    private LocalDate anchor;
     private LocalDate selectedDate;
-    
+
+    // What the visible period was drawn from, kept so selecting a day does
+    // not re-query the whole month.
+    private final Map<LocalDate, DayData> visibleDays = new LinkedHashMap<>();
+    private final Map<LocalDate, VBox> cells = new HashMap<>();
+    private final Map<String, StudyGoal> movableGoals = new HashMap<>();
+    private final Map<String, Task> tasksById = new LinkedHashMap<>();
+
     // Calendar layout constants
-    private static final int DAYS_IN_WEEK = 7;
-    private static final double CELL_WIDTH = 150;
-    private static final double CELL_HEIGHT = 120;
+    private static final int MONTH_ENTRY_LIMIT = 4;
+    private static final double MONTH_CELL_MIN_HEIGHT = 112;
+    private static final double WEEK_CELL_MIN_HEIGHT = 360;
+    private static final double SIDEBAR_WIDTH = 360;
 
     // Off day (holiday) styling
     private static final String OFF_DAY_COLOR = "#d68910";
     private static final String OFF_DAY_BG = "#fdf0d5";
-    private static final String OFF_DAY_ICON = "\u2691";
-    
+    private static final String OFF_DAY_ICON = "⚑";
+
+    private static final PseudoClass TODAY = PseudoClass.getPseudoClass("today");
+    private static final PseudoClass SELECTED = PseudoClass.getPseudoClass("selected");
+    private static final PseudoClass PAST = PseudoClass.getPseudoClass("past");
+    private static final PseudoClass OUTSIDE = PseudoClass.getPseudoClass("outside");
+    private static final PseudoClass OFF = PseudoClass.getPseudoClass("off");
+    private static final PseudoClass DROP = PseudoClass.getPseudoClass("drop");
+
+    private static final DataFormat GOAL_DRAG = dataFormat("application/x-studysync-goal");
+    private static final DataFormat TASK_DRAG = dataFormat("application/x-studysync-task");
+
+    private static final DateTimeFormatter DAY_TITLE = DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy");
+
     public CalendarViewPanel(StudyService studyService, TaskService taskService, ProjectService projectService,
                              ScoringService scoringService) {
         this.studyService = studyService;
         this.taskService = taskService;
         this.projectService = projectService;
         this.scoringService = scoringService;
-        this.currentMonth = YearMonth.now();
-        this.selectedDate = LocalDate.now();
-        
-        // Create main content container
-        mainContainer = new VBox(15);
-        mainContainer.setPadding(new Insets(20));
-        mainContainer.getStyleClass().add("panel-bg-alt");
-        
-        // Set up ScrollPane properties
-        this.setContent(mainContainer);
-        this.setFitToWidth(true);
-        this.setFitToHeight(false);
-        this.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        this.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        this.getStyleClass().add("tab-content-area");
-        
-        initializeComponents();
+        this.anchor = LocalDate.now();
+        this.selectedDate = anchor;
+
+        getStyleClass().add("panel-bg-alt");
+
+        Node calendarCard = createCalendarCard();
+        VBox main = new VBox(12, createToolbar(), calendarCard, createLegend());
+        main.setPadding(new Insets(16));
+        main.setMinWidth(480);
+        VBox.setVgrow(calendarCard, Priority.ALWAYS);
+
+        Node side = createSidebar();
+        SplitPane split = new SplitPane(main, side);
+        split.getStyleClass().add("transparent-bg");
+        split.setDividerPositions(0.74);
+        // Window resizes go to the calendar; the side panel keeps its width.
+        SplitPane.setResizableWithParent(side, false);
+        setCenter(split);
+
         updateDisplay();
     }
 
-    private void initializeComponents() {
-        // Header with navigation
-        createHeaderSection();
-        
-        // Calendar grid
-        createCalendarGrid();
-        
-        // Legend for understanding the metrics
-        createLegendSection();
+    private static DataFormat dataFormat(String mimeType) {
+        DataFormat existing = DataFormat.lookupMimeType(mimeType);
+        return existing != null ? existing : new DataFormat(mimeType);
     }
-    
-    private void createHeaderSection() {
-        VBox headerSection = new VBox(15);
-        headerSection.getStyleClass().add("section-card");
-        
-        // Title and navigation
-        HBox titleBox = new HBox(20);
-        titleBox.setAlignment(Pos.CENTER);
-        
-        Button prevMonthBtn = new Button("Previous");
-        prevMonthBtn.setGraphic(TaskStyleUtils.iconLabel("\u25C0", 14));
-        prevMonthBtn.getStyleClass().add("btn-primary");
-        prevMonthBtn.setOnAction(e -> {
-            currentMonth = currentMonth.minusMonths(1);
-            updateCalendarDisplay();
-        });
-        
-        monthYearLabel = new Label();
-        TaskStyleUtils.fontBold(monthYearLabel, 24);
-        
-        Button nextMonthBtn = new Button("Next");
-        Label nextIcon = TaskStyleUtils.iconLabel("\u25B6", 14);
-        nextMonthBtn.setGraphic(nextIcon);
-        nextMonthBtn.setStyle("-fx-content-display: right;");
-        nextMonthBtn.getStyleClass().add("btn-primary");
-        nextMonthBtn.setOnAction(e -> {
-            currentMonth = currentMonth.plusMonths(1);
-            updateCalendarDisplay();
-        });
-        
+
+    // ================================================================
+    // LAYOUT
+    // ================================================================
+
+    private HBox createToolbar() {
+        Button prevBtn = new Button();
+        prevBtn.setGraphic(TaskStyleUtils.iconLabel("◀", 12));
+        prevBtn.getStyleClass().addAll("btn-primary", "btn-small");
+        prevBtn.setTooltip(new Tooltip("Previous"));
+        prevBtn.setOnAction(e -> shift(-1));
+
         Button todayBtn = new Button("Today");
-        todayBtn.setGraphic(TaskStyleUtils.iconLabel("\u00BB", 14));
-        todayBtn.getStyleClass().add("btn-success");
+        todayBtn.getStyleClass().addAll("btn-success", "btn-small");
         todayBtn.setOnAction(e -> {
-            currentMonth = YearMonth.now();
-            selectedDate = LocalDate.now();
-            updateCalendarDisplay();
+            anchor = LocalDate.now();
+            selectedDate = anchor;
+            refresh();
         });
-        
-        titleBox.getChildren().addAll(prevMonthBtn, monthYearLabel, nextMonthBtn, todayBtn);
-        
-        // Quick stats for current month
-        Label statsLabel = new Label("Click on any day to view detailed information including goals, sessions, and performance metrics.");
-        TaskStyleUtils.fontNormal(statsLabel, 14);
-        statsLabel.setTextFill(Color.web("#7f8c8d"));
-        statsLabel.setWrapText(true);
-        
-        headerSection.getChildren().addAll(titleBox, statsLabel);
-        mainContainer.getChildren().add(headerSection);
-    }
-    
-    private void createCalendarGrid() {
-        VBox calendarSection = new VBox(10);
-        calendarSection.getStyleClass().add("section-card");
-        calendarSection.setPadding(new Insets(15));
-        
-        // Day headers (Mon, Tue, Wed, etc.)
-        HBox dayHeaders = new HBox();
-        dayHeaders.setAlignment(Pos.CENTER);
-        String[] dayNames = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
-        
-        for (String dayName : dayNames) {
-            Label dayLabel = new Label(dayName);
-            dayLabel.setPrefWidth(CELL_WIDTH);
-            dayLabel.setAlignment(Pos.CENTER);
-            dayLabel.setStyle("-fx-background-color: #ecf0f1; -fx-padding: 10;");
-            TaskStyleUtils.fontBold(dayLabel, 14);
-            dayHeaders.getChildren().add(dayLabel);
-        }
-        
-        // Calendar grid
-        calendarGrid = new GridPane();
-        calendarGrid.setAlignment(Pos.CENTER);
-        calendarGrid.setHgap(2);
-        calendarGrid.setVgap(2);
-        
-        calendarSection.getChildren().addAll(dayHeaders, calendarGrid);
-        mainContainer.getChildren().add(calendarSection);
-    }
-    
-    private void createLegendSection() {
-        VBox legendSection = new VBox(10);
-        legendSection.getStyleClass().add("section-card");
-        legendSection.setPadding(new Insets(15));
-        
-        Label legendTitle = new Label("Calendar Legend");
-        legendTitle.setGraphic(TaskStyleUtils.iconLabel("\u00BB", 16));
-        TaskStyleUtils.fontBold(legendTitle, 16);
-        
-        HBox legendItems = new HBox(30);
-        legendItems.setAlignment(Pos.CENTER_LEFT);
-        
-        // Today indicator
-        VBox todayItem = createLegendItem("\u25C6", "Today", "#3498db");
-        
-        // High productivity indicator
-        VBox highProdItem = createLegendItem("\u2605\u2605", "High Productivity", "#27ae60");
-        
-        // Medium productivity indicator
-        VBox medProdItem = createLegendItem("\u2B50", "Medium Productivity", "#f39c12");
-        
-        // Low/No productivity indicator
-        VBox lowProdItem = createLegendItem("\u25CB", "Low/No Activity", "#95a5a6");
-        
-        // Goals indicator
-        VBox goalsItem = createLegendItem("\u25CE", "Goals Achieved", "#9b59b6");
 
-        // Off day indicator
-        VBox offDayItem = createLegendItem(OFF_DAY_ICON, "Off Day / Holiday", OFF_DAY_COLOR);
+        Button nextBtn = new Button();
+        nextBtn.setGraphic(TaskStyleUtils.iconLabel("▶", 12));
+        nextBtn.getStyleClass().addAll("btn-primary", "btn-small");
+        nextBtn.setTooltip(new Tooltip("Next"));
+        nextBtn.setOnAction(e -> shift(1));
 
-        legendItems.getChildren().addAll(todayItem, highProdItem, medProdItem, lowProdItem, goalsItem, offDayItem);
-        
-        legendSection.getChildren().addAll(legendTitle, legendItems);
-        mainContainer.getChildren().add(legendSection);
+        TaskStyleUtils.fontBold(periodLabel, 22);
+        HBox.setMargin(periodLabel, new Insets(0, 0, 0, 8));
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        ToggleButton monthBtn = new ToggleButton("Month");
+        ToggleButton weekBtn = new ToggleButton("Week");
+        ToggleGroup modeGroup = new ToggleGroup();
+        monthBtn.setToggleGroup(modeGroup);
+        weekBtn.setToggleGroup(modeGroup);
+        monthBtn.setSelected(true);
+        monthBtn.getStyleClass().addAll("planner-view-toggle", "btn-small");
+        weekBtn.getStyleClass().addAll("planner-view-toggle", "btn-small");
+        monthBtn.setOnAction(e -> setViewMode(ViewMode.MONTH, monthBtn));
+        weekBtn.setOnAction(e -> setViewMode(ViewMode.WEEK, weekBtn));
+
+        HBox toolbar = new HBox(6, prevBtn, todayBtn, nextBtn, periodLabel, spacer, monthBtn, weekBtn);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        return toolbar;
     }
-    
-    private VBox createLegendItem(String icon, String text, String color) {
-        VBox item = new VBox(2);
-        item.setAlignment(Pos.CENTER);
-        
-        Label iconLabel = new Label(icon);
-        TaskStyleUtils.fontEmoji(iconLabel, 16);
-        
+
+    private Node createCalendarCard() {
+        calendarGrid.setHgap(4);
+        calendarGrid.setVgap(4);
+
+        // Fit to the viewport while it is big enough, scroll once the cells hit their minimum.
+        ScrollPane scroll = new ScrollPane(calendarGrid);
+        scroll.setFitToWidth(true);
+        scroll.setFitToHeight(true);
+        scroll.getStyleClass().add("transparent-bg");
+
+        VBox card = new VBox(scroll);
+        card.getStyleClass().add("section-card-flat");
+        VBox.setVgrow(scroll, Priority.ALWAYS);
+        return card;
+    }
+
+    private Node createLegend() {
+        FlowPane legend = new FlowPane(16, 4);
+        legend.setAlignment(Pos.CENTER_LEFT);
+        legend.getChildren().addAll(
+                legendItem(entryIcon(Kind.GOAL_PENDING), TaskStyleUtils.COLOR_PURPLE, "Planned goal"),
+                legendItem(entryIcon(Kind.GOAL_ACHIEVED), TaskStyleUtils.COLOR_SUCCESS, "Achieved"),
+                legendItem(entryIcon(Kind.GOAL_MISSED), TaskStyleUtils.MISSED_COLOR, "Missed"),
+                legendItem(entryIcon(Kind.DUE), TaskStyleUtils.DUE_TODAY_COLOR, "Deadline"),
+                legendItem(entryIcon(Kind.RECURRING), TaskStyleUtils.COLOR_PRIMARY, "Recurring"),
+                legendItem(entryIcon(Kind.OVERDUE), TaskStyleUtils.OVERDUE_COLOR, "Overdue (on today)"),
+                legendItem(entryIcon(Kind.COMPLETED), TaskStyleUtils.COLOR_SUCCESS, "Task completed"),
+                legendItem(OFF_DAY_ICON, OFF_DAY_COLOR, "Off day"),
+                legendItem("▬", TaskStyleUtils.COLOR_MUTED,
+                        "Study time vs. " + ScoringService.DAILY_MINUTES_TARGET / 60 + "h target"));
+
+        Label dragHint = new Label("Drag a planned goal to move it, or a task from \"To plan\" onto a day to plan it.");
+        TaskStyleUtils.fontItalic(dragHint, 11);
+        TaskStyleUtils.textColor(dragHint, TaskStyleUtils.COLOR_MUTED);
+        legend.getChildren().add(dragHint);
+        return legend;
+    }
+
+    private HBox legendItem(String icon, String color, String text) {
+        Label iconLabel = TaskStyleUtils.iconLabel(icon, 12);
+        iconLabel.setMinWidth(Region.USE_PREF_SIZE);
+        TaskStyleUtils.textColor(iconLabel, color);
         Label textLabel = new Label(text);
-        TaskStyleUtils.fontNormal(textLabel, 10);
-        textLabel.setTextFill(Color.web(color));
-        
-        item.getChildren().addAll(iconLabel, textLabel);
+        TaskStyleUtils.fontNormal(textLabel, 11);
+        TaskStyleUtils.textColor(textLabel, TaskStyleUtils.COLOR_MUTED);
+        HBox item = new HBox(4, iconLabel, textLabel);
+        item.setAlignment(Pos.CENTER_LEFT);
         return item;
     }
-    
-    private void updateCalendarDisplay() {
-        // Update month/year label
-        String monthYear = currentMonth.getMonth().getDisplayName(TextStyle.FULL, Locale.getDefault()) + " " + currentMonth.getYear();
-        monthYearLabel.setText(monthYear);
-        
-        // Clear existing calendar
-        calendarGrid.getChildren().clear();
-        
-        // Get first day of month and calculate starting position
-        LocalDate firstOfMonth = currentMonth.atDay(1);
-        int dayOfWeek = firstOfMonth.getDayOfWeek().getValue(); // 1 = Monday, 7 = Sunday
-        int startCol = (dayOfWeek - 1) % 7; // Convert to 0-6 where 0 = Monday
-        
-        // Fill in the calendar days
-        int daysInMonth = currentMonth.lengthOfMonth();
-        int row = 0;
-        int col = startCol;
 
-        // Batch-query all handled (task, date) pairs for the visible month
-        // to avoid an N+1 SQL query per recurring task per day cell.
-        LocalDate monthStart = currentMonth.atDay(1);
-        LocalDate monthEnd = currentMonth.atEndOfMonth();
-        java.util.Set<String> handledPairs = StudyGoal.findHandledTaskDatePairs(monthStart, monthEnd);
+    private Node createSidebar() {
+        dayPanel.setPadding(new Insets(16));
+        ScrollPane dayScroll = new ScrollPane(dayPanel);
+        dayScroll.setFitToWidth(true);
+        dayScroll.getStyleClass().add("transparent-bg");
+        dayTab.setContent(dayScroll);
 
-        // Same reasoning for off days: one query for the whole month.
-        Map<LocalDate, String> offDays = studyService.getOffDays(monthStart, monthEnd);
+        Label hint = new Label("Active tasks with no goal planned yet. Drag one onto a day to plan it, "
+                + "or double-click it to plan it for the selected day.");
+        wrap(hint);
+        TaskStyleUtils.fontNormal(hint, 11);
+        TaskStyleUtils.textColor(hint, TaskStyleUtils.COLOR_MUTED);
+        ScrollPane listScroll = new ScrollPane(toPlanList);
+        listScroll.setFitToWidth(true);
+        listScroll.getStyleClass().add("transparent-bg");
+        VBox toPlanBox = new VBox(12, hint, listScroll);
+        toPlanBox.setPadding(new Insets(16));
+        VBox.setVgrow(listScroll, Priority.ALWAYS);
+        toPlanTab.setContent(toPlanBox);
 
-        for (int day = 1; day <= daysInMonth; day++) {
-            LocalDate date = currentMonth.atDay(day);
-            VBox dayCell = createDayCell(date, handledPairs, offDays.get(date));
+        sidebar.getTabs().addAll(dayTab, toPlanTab);
+        sidebar.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        sidebar.setMinWidth(280);
+        sidebar.setPrefWidth(SIDEBAR_WIDTH);
+        return sidebar;
+    }
 
-            calendarGrid.add(dayCell, col, row);
+    private void shift(int periods) {
+        anchor = viewMode == ViewMode.MONTH ? anchor.plusMonths(periods) : anchor.plusWeeks(periods);
+        refresh();
+    }
 
-            col++;
-            if (col >= DAYS_IN_WEEK) {
-                col = 0;
-                row++;
-            }
+    private void setViewMode(ViewMode mode, ToggleButton button) {
+        if (!button.isSelected()) {
+            button.setSelected(true); // a toggle group would otherwise allow no mode at all
+        }
+        if (viewMode != mode) {
+            viewMode = mode;
+            // Open the week of the selected day rather than wherever the month started.
+            anchor = selectedDate;
+            refresh();
         }
     }
 
-    private VBox createDayCell(LocalDate date, java.util.Set<String> handledPairs, String offDayLabel) {
-        VBox dayCell = new VBox(5);
-        dayCell.setPrefSize(CELL_WIDTH, CELL_HEIGHT);
-        dayCell.setPadding(new Insets(8));
-        dayCell.setAlignment(Pos.TOP_LEFT);
-        
-        // Determine cell styling based on date
-        boolean isToday = date.equals(LocalDate.now());
-        boolean isPastDate = date.isBefore(LocalDate.now());
-        boolean isFutureDate = date.isAfter(LocalDate.now());
-        boolean isSelected = date.equals(selectedDate);
-        
-        String baseStyle = "-fx-border-color: #ddd; -fx-border-width: 1; -fx-background-radius: 5; -fx-border-radius: 5;";
-        
-        if (isToday) {
-            baseStyle += " -fx-background-color: #e3f2fd; -fx-border-color: #3498db; -fx-border-width: 2;";
-        } else if (isSelected) {
-            baseStyle += " -fx-background-color: #f0f8ff; -fx-border-color: #2980b9; -fx-border-width: 2;";
-        } else if (isPastDate) {
-            baseStyle += " -fx-background-color: #fafafa;";
-        } else if (isFutureDate) {
-            baseStyle += " -fx-background-color: #f0fff4; -fx-border-color: #27ae60; -fx-border-style: dashed;";
+    // ================================================================
+    // RENDERING
+    // ================================================================
+
+    private void refresh() {
+        LocalDate today = LocalDate.now();
+        LocalDate from;
+        LocalDate to;
+        if (viewMode == ViewMode.MONTH) {
+            YearMonth month = YearMonth.from(anchor);
+            from = month.atDay(1).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            to = month.atEndOfMonth().with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
+            periodLabel.setText(month.getMonth().getDisplayName(TextStyle.FULL, Locale.getDefault())
+                    + " " + month.getYear());
         } else {
-            baseStyle += " -fx-background-color: white;";
+            from = anchor.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            to = from.plusDays(6);
+            periodLabel.setText(formatWeek(from, to));
         }
 
-        // Background only, so the today/selected border still wins.
-        if (offDayLabel != null) {
-            baseStyle += " -fx-background-color: " + OFF_DAY_BG + ";";
-        }
-
-        final String finalBaseStyle = baseStyle;
-        dayCell.setStyle(baseStyle);
-        
-        // Day number
-        Label dayLabel = new Label(String.valueOf(date.getDayOfMonth()));
-        TaskStyleUtils.fontBold(dayLabel, 16);
-        dayLabel.setTextFill(isToday ? Color.web("#3498db") : Color.web("#2c3e50"));
-        
-        // Get data for this date
-        DayData dayData = getDayData(date);
-        
-        // Performance indicators
-        VBox metricsBox = new VBox(2);
-
-        // Off day marker
-        if (offDayLabel != null) {
-            Label offDayBadge = new Label(OFF_DAY_ICON + " " + offDayLabel);
-            TaskStyleUtils.fontBold(offDayBadge, 9);
-            offDayBadge.setTextFill(Color.web(OFF_DAY_COLOR));
-            offDayBadge.setWrapText(true);
-            offDayBadge.setTooltip(new Tooltip("Off day - not counted towards global scores"));
-            metricsBox.getChildren().add(offDayBadge);
-        }
-
-        // Study sessions indicator
-        if (dayData.totalSessions() > 0) {
-            HBox sessionsBox = new HBox(3);
-            sessionsBox.setAlignment(Pos.CENTER_LEFT);
-            
-            Label sessionIcon = new Label("\u25B8");
-            TaskStyleUtils.fontEmoji(sessionIcon, 12);
-            
-            Label sessionText = new Label(dayData.totalSessions() + "s");
-            TaskStyleUtils.fontNormal(sessionText, 9);
-            sessionText.setTextFill(Color.web("#3498db"));
-            
-            // Focus rating stars
-            String focusStars = "\u2605".repeat(Math.max(0, Math.min(5, dayData.avgFocusLevel()))) + 
-                               "\u2606".repeat(Math.max(0, 5 - Math.max(0, dayData.avgFocusLevel())));
-            Label focusLabel = new Label(focusStars);
-            TaskStyleUtils.fontEmoji(focusLabel, 10);
-            focusLabel.setTextFill(Color.web("#f39c12"));
-            
-            sessionsBox.getChildren().addAll(sessionIcon, sessionText, focusLabel);
-            metricsBox.getChildren().add(sessionsBox);
-        }
-        
-        // Goals indicator
-        if (dayData.score.goalsTotal() > 0) {
-            HBox goalsBox = new HBox(3);
-            goalsBox.setAlignment(Pos.CENTER_LEFT);
-            
-            Label goalIcon = new Label("\u25CE");
-            TaskStyleUtils.fontEmoji(goalIcon, 12);
-            
-            Label goalText = new Label(dayData.score.goalsAchieved() + "/" + dayData.score.goalsTotal());
-            TaskStyleUtils.fontNormal(goalText, 9);
-            goalText.setTextFill(dayData.score.goalsAchieved() == dayData.score.goalsTotal() ? Color.web("#27ae60") : Color.web("#e74c3c"));
-            
-            goalsBox.getChildren().addAll(goalIcon, goalText);
-            metricsBox.getChildren().add(goalsBox);
-        }
-        
-        // Tasks indicator — split overdue / missed / due-today / normal
-        if (!dayData.tasks.isEmpty()) {
-            LocalDate today = LocalDate.now();
-            long overdueCount = dayData.tasks.stream()
-                    .filter(t -> TaskStyleUtils.isOverdue(t, date)).count();
-            long dueTodayCount = dayData.tasks.stream()
-                    .filter(t -> TaskStyleUtils.isDueToday(t, date)).count();
-
-            // Missed recurring-task occurrences (past dates only). A late
-            // recurring task also shows up on days it is not scheduled for, so
-            // "missed" has to ask whether the schedule really lands here rather
-            // than assuming presence means occurrence.
-            long missedCount = 0;
-            if (date.isBefore(today)) {
-                missedCount = dayData.tasks.stream()
-                        .filter(t -> taskService.isRecurringOccurrence(t, date))
-                        .filter(t -> !TaskStyleUtils.isOverdue(t, date) && !TaskStyleUtils.isDueToday(t, date))
-                        .filter(t -> !handledPairs.contains(t.getId() + "|" + date))
-                        .count();
-            }
-            // The three labelled states are mutually exclusive, so whatever is
-            // left over is an ordinary task for this day.
-            long normalCount = dayData.tasks.size() - overdueCount - dueTodayCount - missedCount;
-
-            // Overdue line (red)
-            if (overdueCount > 0) {
-                HBox overdueBox = new HBox(3);
-                overdueBox.setAlignment(Pos.CENTER_LEFT);
-                Label warnIcon = new Label("\u26A0");
-                TaskStyleUtils.fontNormal(warnIcon, 10);
-                warnIcon.setTextFill(Color.web(TaskStyleUtils.OVERDUE_COLOR));
-                Label overdueLabel = new Label(overdueCount + " overdue");
-                TaskStyleUtils.fontNormal(overdueLabel, 9);
-                overdueLabel.setTextFill(Color.web(TaskStyleUtils.OVERDUE_COLOR));
-                overdueBox.getChildren().addAll(warnIcon, overdueLabel);
-                metricsBox.getChildren().add(overdueBox);
-            }
-
-            // Missed recurring line (red)
-            if (missedCount > 0) {
-                HBox missedBox = new HBox(3);
-                missedBox.setAlignment(Pos.CENTER_LEFT);
-                Label missedIcon = new Label("\u26A0");
-                TaskStyleUtils.fontNormal(missedIcon, 10);
-                missedIcon.setTextFill(Color.web(TaskStyleUtils.MISSED_COLOR));
-                Label missedLabel = new Label(missedCount + " missed");
-                TaskStyleUtils.fontNormal(missedLabel, 9);
-                missedLabel.setTextFill(Color.web(TaskStyleUtils.MISSED_COLOR));
-                missedBox.getChildren().addAll(missedIcon, missedLabel);
-                metricsBox.getChildren().add(missedBox);
-            }
-
-            // Due-today line (amber)
-            if (dueTodayCount > 0) {
-                HBox dueTodayBox = new HBox(3);
-                dueTodayBox.setAlignment(Pos.CENTER_LEFT);
-                Label dueIcon = new Label("\u2611");
-                TaskStyleUtils.fontEmoji(dueIcon, 10);
-                dueIcon.setTextFill(Color.web(TaskStyleUtils.DUE_TODAY_COLOR));
-                Label dueLabel = new Label(dueTodayCount + " due");
-                TaskStyleUtils.fontNormal(dueLabel, 9);
-                dueLabel.setTextFill(Color.web(TaskStyleUtils.DUE_TODAY_COLOR));
-                dueTodayBox.getChildren().addAll(dueIcon, dueLabel);
-                metricsBox.getChildren().add(dueTodayBox);
-            }
-
-            // Normal tasks line (purple — handled recurring or no special state)
-            if (normalCount > 0) {
-                HBox tasksBox = new HBox(3);
-                tasksBox.setAlignment(Pos.CENTER_LEFT);
-                Label taskIcon = new Label("\u2611");
-                TaskStyleUtils.fontEmoji(taskIcon, 11);
-                taskIcon.setTextFill(Color.web("#9b59b6"));
-                Label taskLabel = new Label(normalCount + " task" + (normalCount > 1 ? "s" : ""));
-                TaskStyleUtils.fontNormal(taskLabel, 9);
-                taskLabel.setTextFill(Color.web("#9b59b6"));
-                tasksBox.getChildren().addAll(taskIcon, taskLabel);
-                metricsBox.getChildren().add(tasksBox);
-            }
-        }
-        
-        // Productivity indicator
-        String productivityIcon = getProductivityIcon(dayData.score.productivity());
-        Label prodLabel = new Label(productivityIcon);
-        TaskStyleUtils.fontEmoji(prodLabel, 12);
-        metricsBox.getChildren().add(prodLabel);
-        
-        // Study time indicator
-        if (dayData.totalMinutes() > 0) {
-            Label timeLabel = new Label(formatStudyTime(dayData.totalMinutes()));
-            TaskStyleUtils.fontNormal(timeLabel, 8);
-            timeLabel.setTextFill(Color.web("#7f8c8d"));
-            metricsBox.getChildren().add(timeLabel);
-        }
-        
-        dayCell.getChildren().addAll(dayLabel, metricsBox);
-        
-        // Make clickable for all dates (past, today, and future)
-        dayCell.setOnMouseClicked(e -> {
-            selectedDate = date;
-            updateCalendarDisplay(); // Refresh to show selection
-            showDayDetailDialog(date, dayData);
-        });
-        dayCell.setOnMouseEntered(e -> {
-            if (!isToday && !isSelected) {
-                String hoverColor = offDayLabel != null ? "#f7e3b5" : (isFutureDate ? "#e8f5e9" : "#f8f9fa");
-                dayCell.setStyle(finalBaseStyle + " -fx-background-color: " + hoverColor + ";");
-            }
-            dayCell.setStyle(dayCell.getStyle() + " -fx-cursor: hand;");
-        });
-        dayCell.setOnMouseExited(e -> {
-            if (!isToday && !isSelected) {
-                dayCell.setStyle(finalBaseStyle);
-            }
-        });
-        
-        return dayCell;
+        loadDays(from, to, today);
+        renderGrid(from, to, today);
+        showDay(selectedDate);
+        renderToPlan(today);
     }
-    
-    // Deliberately one score query per rendered day cell (~31 per month) - the
-    // same order of magnitude as before, against an embedded database. If month
-    // rendering ever drags, the fix is a ScoringService.scoreForEachDate(range)
-    // that batches the way findHandledTaskDatePairs already does.
-    private DayData getDayData(LocalDate date) {
-        DayData data = new DayData();
-        data.date = date;
+
+    private void loadDays(LocalDate from, LocalDate to, LocalDate today) {
+        visibleDays.clear();
+        movableGoals.clear();
+        tasksById.clear();
         try {
-            data.score = scoringService.scoreForDate(date);
-            data.tasks = taskService.getTasksForDate(date);
+            List<Task> tasks = taskService.getTasks();
+            tasks.forEach(task -> tasksById.put(task.getId(), task));
+            Map<LocalDate, String> offDays = studyService.getOffDays(from, to);
+            Map<LocalDate, List<Entry>> agenda = CalendarAgenda.build(from, to, today, tasks,
+                    studyService.getGoalsInRange(from, to), taskService::isRecurringOccurrence);
+
+            agenda.forEach((date, entries) -> {
+                visibleDays.put(date, new DayData(date, scoreFor(date, today), entries, offDays.get(date)));
+                entries.stream().filter(Entry::movable).forEach(e -> movableGoals.put(e.goal().getId(), e.goal()));
+            });
+        } catch (Exception e) {
+            logger.warn("Unable to load calendar {}..{}", from, to, e);
+        }
+    }
+
+    /** A single day outside the visible period, e.g. a selection kept while paging. */
+    private DayData loadDay(LocalDate date, LocalDate today) {
+        try {
+            List<Entry> entries = CalendarAgenda.build(date, date, today, taskService.getTasks(),
+                    studyService.getGoalsForDate(date), taskService::isRecurringOccurrence).get(date);
+            return new DayData(date, scoreFor(date, today), entries, studyService.getOffDayLabel(date).orElse(null));
+        } catch (Exception e) {
+            logger.warn("Unable to load calendar day {}", date, e);
+            return DayData.empty(date);
+        }
+    }
+
+    // Deliberately one score query per past day in view (up to 42) - the same
+    // order of magnitude as before, against an embedded database. If paging
+    // ever drags, the fix is a ScoringService.scoreForEachDate(range) that
+    // batches the way getGoalsInRange does. Future days have nothing to score.
+    private ScoreBreakdown scoreFor(LocalDate date, LocalDate today) {
+        if (date.isAfter(today)) {
+            return ScoreBreakdown.empty(1);
+        }
+        try {
+            return scoringService.scoreForDate(date);
         } catch (Exception e) {
             logger.warn("Unable to score {}", date, e);
+            return ScoreBreakdown.empty(1);
         }
-        return data;
     }
 
+    private void renderGrid(LocalDate from, LocalDate to, LocalDate today) {
+        calendarGrid.getChildren().clear();
+        calendarGrid.getColumnConstraints().clear();
+        calendarGrid.getRowConstraints().clear();
+        cells.clear();
 
+        for (int col = 0; col < 7; col++) {
+            ColumnConstraints column = new ColumnConstraints();
+            column.setPercentWidth(100.0 / 7);
+            column.setHgrow(Priority.ALWAYS);
+            calendarGrid.getColumnConstraints().add(column);
 
-    private String getProductivityIcon(double score) {
-        if (score >= 70) return "\u2605\u2605"; // High productivity
-        else if (score >= 40) return "\u2B50"; // Medium productivity  
-        else if (score >= 10) return "\u25CB"; // Low productivity
-        else return ""; // No activity
+            Label dayName = new Label(DayOfWeek.of(col + 1).getDisplayName(TextStyle.SHORT, Locale.getDefault()));
+            dayName.getStyleClass().add("cal-weekday");
+            dayName.setMaxWidth(Double.MAX_VALUE);
+            calendarGrid.add(dayName, col, 0);
+        }
+        calendarGrid.getRowConstraints().add(new RowConstraints());
+
+        long weeks = ChronoUnit.WEEKS.between(from, to.plusDays(1));
+        for (int row = 0; row < weeks; row++) {
+            RowConstraints constraints = new RowConstraints();
+            constraints.setVgrow(Priority.ALWAYS);
+            constraints.setMinHeight(viewMode == ViewMode.MONTH ? MONTH_CELL_MIN_HEIGHT : WEEK_CELL_MIN_HEIGHT);
+            calendarGrid.getRowConstraints().add(constraints);
+        }
+
+        YearMonth month = YearMonth.from(anchor);
+        int index = 0;
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1), index++) {
+            DayData day = visibleDays.getOrDefault(date, DayData.empty(date));
+            boolean outside = viewMode == ViewMode.MONTH && !YearMonth.from(date).equals(month);
+            VBox cell = createDayCell(day, today, outside);
+            cells.put(date, cell);
+            calendarGrid.add(cell, index % 7, 1 + index / 7);
+        }
     }
-    
+
+    private VBox createDayCell(DayData day, LocalDate today, boolean outsideMonth) {
+        LocalDate date = day.date();
+        boolean week = viewMode == ViewMode.WEEK;
+
+        VBox cell = new VBox(3);
+        cell.getStyleClass().add("cal-cell");
+        cell.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+        cell.pseudoClassStateChanged(TODAY, date.equals(today));
+        cell.pseudoClassStateChanged(PAST, date.isBefore(today));
+        cell.pseudoClassStateChanged(OUTSIDE, outsideMonth);
+        cell.pseudoClassStateChanged(OFF, day.offDayLabel() != null);
+        cell.pseudoClassStateChanged(SELECTED, date.equals(selectedDate));
+
+        Label number = new Label(week ? date.format(DateTimeFormatter.ofPattern("EEE d"))
+                : String.valueOf(date.getDayOfMonth()));
+        number.getStyleClass().add("cal-day-number");
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+        HBox header = new HBox(4, number, headerSpacer);
+        header.setAlignment(Pos.CENTER_LEFT);
+        if (day.score().minutes() > 0) {
+            Label minutes = new Label(formatStudyTime(day.score().minutes()));
+            minutes.getStyleClass().add("cal-minutes");
+            header.getChildren().add(minutes);
+        }
+        cell.getChildren().add(header);
+
+        if (day.offDayLabel() != null) {
+            Label offDay = new Label(OFF_DAY_ICON + " " + day.offDayLabel());
+            offDay.getStyleClass().add("cal-off-label");
+            offDay.setMinWidth(0);
+            offDay.setTooltip(new Tooltip("Off day - not counted towards global scores"));
+            cell.getChildren().add(offDay);
+        }
+
+        List<Entry> entries = day.entries();
+        int limit = week ? entries.size() : MONTH_ENTRY_LIMIT;
+        // "+1 more" would take the same line as the entry it hides.
+        if (entries.size() == limit + 1) {
+            limit++;
+        }
+        entries.stream().limit(limit).forEach(entry -> cell.getChildren().add(entryRow(entry, date, today)));
+        if (entries.size() > limit) {
+            Label more = new Label("+" + (entries.size() - limit) + " more");
+            more.getStyleClass().add("cal-more");
+            cell.getChildren().add(more);
+        }
+
+        Region filler = new Region();
+        VBox.setVgrow(filler, Priority.ALWAYS);
+        cell.getChildren().add(filler);
+        if (day.score().minutes() > 0) {
+            cell.getChildren().add(activityBar(day.score()));
+        }
+
+        cell.setOnMouseClicked(e -> {
+            if (!e.isStillSincePress()) {
+                return;
+            }
+            select(date);
+            if (e.getClickCount() == 2 && !date.isBefore(today)) {
+                showAddGoalDialog(date, null);
+            }
+        });
+        installDropTarget(cell, date, today);
+        return cell;
+    }
+
+    private Node entryRow(Entry entry, LocalDate date, LocalDate today) {
+        boolean week = viewMode == ViewMode.WEEK;
+        Label icon = TaskStyleUtils.iconLabel(entryIcon(entry.kind()), week ? 12 : 10);
+        icon.setMinWidth(Region.USE_PREF_SIZE);
+        TaskStyleUtils.textColor(icon, entryColor(entry.kind(), date, today));
+
+        Label text = new Label(entry.text());
+        TaskStyleUtils.fontNormal(text, week ? 12 : 11);
+        switch (entry.kind()) {
+            case OVERDUE -> TaskStyleUtils.textColor(text, TaskStyleUtils.OVERDUE_COLOR);
+            case GOAL_ACHIEVED, GOAL_MISSED, COMPLETED, RECURRING_MISSED ->
+                    TaskStyleUtils.textColor(text, TaskStyleUtils.COLOR_MUTED);
+            default -> { }
+        }
+        text.setWrapText(week);
+        text.setMinWidth(0);
+        text.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(text, Priority.ALWAYS);
+
+        HBox row = new HBox(4, icon, text);
+        row.setAlignment(week ? Pos.TOP_LEFT : Pos.CENTER_LEFT);
+        row.setMinWidth(0);
+        row.getStyleClass().add("cal-entry");
+        Tooltip.install(row, new Tooltip(entryTooltip(entry, date, today)));
+        if (entry.movable() && !date.isBefore(today)) {
+            makeDraggable(row, GOAL_DRAG, entry.goal().getId());
+        }
+        return row;
+    }
+
+    private static String entryIcon(Kind kind) {
+        return switch (kind) {
+            case OVERDUE -> "⚠";
+            case DUE -> "⚑";
+            case GOAL_PENDING -> "○";
+            case RECURRING, RECURRING_MISSED -> "↺";
+            case GOAL_MISSED -> "✕";
+            case GOAL_ACHIEVED -> "✓";
+            case COMPLETED -> "☑";
+        };
+    }
+
+    private static String entryColor(Kind kind, LocalDate date, LocalDate today) {
+        return switch (kind) {
+            case OVERDUE -> TaskStyleUtils.OVERDUE_COLOR;
+            case DUE -> date.isBefore(today) ? TaskStyleUtils.OVERDUE_COLOR : TaskStyleUtils.DUE_TODAY_COLOR;
+            case GOAL_PENDING -> TaskStyleUtils.COLOR_PURPLE;
+            case RECURRING -> TaskStyleUtils.COLOR_PRIMARY;
+            case RECURRING_MISSED, GOAL_MISSED -> TaskStyleUtils.MISSED_COLOR;
+            case GOAL_ACHIEVED, COMPLETED -> TaskStyleUtils.COLOR_SUCCESS;
+        };
+    }
+
+    private static String entryLabel(Entry entry, LocalDate date, LocalDate today) {
+        return switch (entry.kind()) {
+            case OVERDUE -> "Overdue - was due " + entry.task().getDeadline();
+            case DUE -> date.isBefore(today) ? "Deadline (passed)" : "Deadline";
+            case GOAL_PENDING -> "Planned goal";
+            case RECURRING -> "Recurring - " + entry.task().getRecurringSummary();
+            case RECURRING_MISSED -> "Missed recurring occurrence";
+            case GOAL_MISSED -> entry.goal().getStatus() == StudyGoal.GoalStatus.ABANDONED
+                    ? "Abandoned goal" : "Missed goal";
+            case GOAL_ACHIEVED -> "Achieved goal";
+            case COMPLETED -> "Task completed";
+        };
+    }
+
+    private static String entryTooltip(Entry entry, LocalDate date, LocalDate today) {
+        StringBuilder text = new StringBuilder(entryLabel(entry, date, today)).append('\n').append(entry.title());
+        if (entry.detail() != null) {
+            text.append('\n').append(entry.detail());
+        }
+        if (entry.movable() && !date.isBefore(today)) {
+            text.append("\n\nDrag to another day to move it.");
+        }
+        return text.toString();
+    }
+
+    private Node activityBar(ScoreBreakdown score) {
+        double fraction = Math.min(1.0, (double) score.minutes() / ScoringService.DAILY_MINUTES_TARGET);
+
+        Region track = new Region();
+        track.getStyleClass().add("cal-bar-track");
+        track.setMaxWidth(Double.MAX_VALUE);
+        Region fill = new Region();
+        fill.setStyle("-fx-background-color: " + productivityHex(score.productivity())
+                + "; -fx-background-radius: 3;");
+
+        StackPane bar = new StackPane(track, fill);
+        StackPane.setAlignment(fill, Pos.CENTER_LEFT);
+        bar.setMinHeight(6);
+        bar.setPrefHeight(6);
+        bar.setMaxHeight(6);
+        fill.maxWidthProperty().bind(bar.widthProperty().multiply(fraction));
+
+        Tooltip.install(bar, new Tooltip(String.format("%s studied (%.0f%% of the %dh target)%n"
+                        + "Productivity %.0f%% · %+d pts",
+                formatStudyTime(score.minutes()), fraction * 100, ScoringService.DAILY_MINUTES_TARGET / 60,
+                score.productivity(), score.points())));
+        return bar;
+    }
+
+    private static String formatWeek(LocalDate from, LocalDate to) {
+        if (from.getMonth() == to.getMonth()) {
+            return from.format(DateTimeFormatter.ofPattern("MMMM d")) + " – "
+                    + to.format(DateTimeFormatter.ofPattern("d, yyyy"));
+        }
+        String start = from.getYear() == to.getYear() ? "MMM d" : "MMM d, yyyy";
+        return from.format(DateTimeFormatter.ofPattern(start)) + " – "
+                + to.format(DateTimeFormatter.ofPattern("MMM d, yyyy"));
+    }
+
     private String formatStudyTime(int minutes) {
         if (minutes >= 60) {
             int hours = minutes / 60;
@@ -522,76 +585,186 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             return minutes + "m";
         }
     }
-    
-    /** Wraps a VBox in a ScrollPane so tab content is scrollable. */
-    private ScrollPane scrollWrap(VBox content) {
-        ScrollPane sp = new ScrollPane(content);
-        sp.setFitToWidth(true);
-        sp.getStyleClass().add("transparent-bg");
-        return sp;
+
+    // ================================================================
+    // SELECTION, DRAG AND DROP
+    // ================================================================
+
+    private void select(LocalDate date) {
+        VBox previous = cells.get(selectedDate);
+        if (previous != null) {
+            previous.pseudoClassStateChanged(SELECTED, false);
+        }
+        selectedDate = date;
+        VBox cell = cells.get(date);
+        if (cell != null) {
+            cell.pseudoClassStateChanged(SELECTED, true);
+        }
+        showDay(date);
+        sidebar.getSelectionModel().select(dayTab);
     }
 
-    private void showDayDetailDialog(LocalDate date, DayData dayData) {
-        Dialog<Void> dialog = new Dialog<>();
-        dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
-        dialog.setTitle("Day Details - " + date.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy")));
-        dialog.setHeaderText("» Complete Day Overview");
-        
-        // Create tabbed content similar to original DailyViewPanel
-        TabPane tabPane = new TabPane();
-        tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        tabPane.setPrefSize(800, 600);
-        
-        // Overview Tab
-        Tab overviewTab = new Tab("Overview");
-        overviewTab.setGraphic(TaskStyleUtils.iconLabel("\u25AA", 12));
-        overviewTab.setContent(scrollWrap(createOverviewTab(date, dayData, overviewTab)));
-        
-        // Goals Tab  
-        Tab goalsTab = new Tab("Goals");
-        goalsTab.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 12));
-        goalsTab.setContent(scrollWrap(createGoalsTab(date, goalsTab)));
-        
-        // Sessions Tab
-        Tab sessionsTab = new Tab("Sessions", scrollWrap(createSessionsTab(date)));
-        sessionsTab.setGraphic(TaskStyleUtils.iconLabel("\u00BB", 12));
-        
-        // Tasks Tab
-        Tab tasksTab = new Tab("Tasks", scrollWrap(createTasksTab(date, dayData)));
-        tasksTab.setGraphic(TaskStyleUtils.iconLabel("\u2611", 12));
-        
-        // Performance Tab
-        Tab performanceTab = new Tab("Performance", scrollWrap(createPerformanceTab(date, dayData)));
-        performanceTab.setGraphic(TaskStyleUtils.iconLabel("\u2191", 12));
-        
-        tabPane.getTabs().addAll(overviewTab, goalsTab, sessionsTab, tasksTab, performanceTab);
-        
-        DialogPane dialogPane = dialog.getDialogPane();
-        dialogPane.setContent(tabPane);
-        dialogPane.getButtonTypes().add(ButtonType.CLOSE);
-        dialogPane.setMinSize(820, 640);
-        dialogPane.setPrefSize(820, 640);
-        dialog.setResizable(true);
-
-        // Force the dialog window size explicitly — on GNOME, pref/min sizes
-        // on the DialogPane alone can be ignored due to platform scaling.
-        dialog.setOnShown(e -> {
-            dialog.setWidth(850);
-            dialog.setHeight(680);
+    private void makeDraggable(Node node, DataFormat format, String id) {
+        node.getStyleClass().add("cal-draggable");
+        node.setOnDragDetected(e -> {
+            Dragboard dragboard = node.startDragAndDrop(TransferMode.MOVE);
+            ClipboardContent content = new ClipboardContent();
+            content.put(format, id);
+            dragboard.setContent(content);
+            dragboard.setDragView(node.snapshot(null, null));
+            e.consume();
         });
-
-        dialog.showAndWait();
     }
-    
+
+    /** Only today and later accept drops: a goal cannot be planned into the past. */
+    private void installDropTarget(VBox cell, LocalDate date, LocalDate today) {
+        if (date.isBefore(today)) {
+            return;
+        }
+        cell.setOnDragOver(e -> {
+            if (acceptsDrop(e.getDragboard(), date)) {
+                e.acceptTransferModes(TransferMode.MOVE);
+            }
+            e.consume();
+        });
+        cell.setOnDragEntered(e -> {
+            cell.pseudoClassStateChanged(DROP, acceptsDrop(e.getDragboard(), date));
+            e.consume();
+        });
+        cell.setOnDragExited(e -> {
+            cell.pseudoClassStateChanged(DROP, false);
+            e.consume();
+        });
+        cell.setOnDragDropped(e -> {
+            Dragboard dragboard = e.getDragboard();
+            boolean accepted = acceptsDrop(dragboard, date);
+            if (accepted && dragboard.hasContent(GOAL_DRAG)) {
+                StudyGoal goal = movableGoals.get((String) dragboard.getContent(GOAL_DRAG));
+                // Redraw after the gesture: this cell is replaced by the redraw.
+                Platform.runLater(() -> moveGoal(goal, date));
+            } else if (accepted) {
+                Task task = tasksById.get((String) dragboard.getContent(TASK_DRAG));
+                // A modal dialog cannot open in the middle of the drag gesture.
+                Platform.runLater(() -> showAddGoalDialog(date, task));
+            }
+            e.setDropCompleted(accepted);
+            e.consume();
+        });
+    }
+
+    private boolean acceptsDrop(Dragboard dragboard, LocalDate date) {
+        if (dragboard.hasContent(GOAL_DRAG)) {
+            StudyGoal goal = movableGoals.get((String) dragboard.getContent(GOAL_DRAG));
+            return goal != null && !goal.getDate().equals(date);
+        }
+        return dragboard.hasContent(TASK_DRAG) && tasksById.containsKey((String) dragboard.getContent(TASK_DRAG));
+    }
+
+    private void moveGoal(StudyGoal goal, LocalDate date) {
+        try {
+            studyService.updateStudyGoalDetails(goal.getId(), goal.getDescription(), date, null);
+        } catch (Exception e) {
+            logger.warn("Unable to move goal {} to {}", goal.getId(), date, e);
+            showError("Could not move goal", e.getMessage());
+        }
+        refresh();
+    }
+
+    // ================================================================
+    // TO PLAN
+    // ================================================================
+
+    private void renderToPlan(LocalDate today) {
+        toPlanList.getChildren().clear();
+        List<Task> unplanned = List.of();
+        try {
+            Set<String> planned = studyService.getTaskIdsWithPlannedGoals();
+            // Recurring tasks are left out: their schedule already plans them.
+            unplanned = tasksById.values().stream()
+                    .filter(task -> CalendarAgenda.isActive(task.getStatus()))
+                    .filter(task -> !task.isRecurring() && !planned.contains(task.getId()))
+                    .sorted(Comparator.comparing((Task task) -> task.getDeadline() != null ? task.getDeadline() : LocalDate.MAX)
+                            .thenComparing(task -> task.getPriority() != null ? -task.getPriority().stars() : 0)
+                            .thenComparing(Task::getTitle, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        } catch (Exception e) {
+            logger.warn("Unable to load tasks still to plan", e);
+        }
+
+        toPlanTab.setText("To plan (" + unplanned.size() + ")");
+        if (unplanned.isEmpty()) {
+            Label empty = new Label("Every active task has a goal planned.");
+            TaskStyleUtils.fontItalic(empty, 12);
+            TaskStyleUtils.textColor(empty, TaskStyleUtils.COLOR_MUTED);
+            toPlanList.getChildren().add(empty);
+            return;
+        }
+        unplanned.forEach(task -> toPlanList.getChildren().add(toPlanRow(task, today)));
+    }
+
+    private Node toPlanRow(Task task, LocalDate today) {
+        Label title = new Label(task.getTitle());
+        TaskStyleUtils.fontSemiBold(title, 12);
+        title.setMinWidth(0);
+        title.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(title, Priority.ALWAYS);
+
+        LocalDate deadline = task.getDeadline();
+        Label due = new Label(dueHint(deadline, today));
+        TaskStyleUtils.fontNormal(due, 11);
+        due.setMinWidth(Region.USE_PREF_SIZE);
+        TaskStyleUtils.textColor(due, deadline == null ? TaskStyleUtils.COLOR_MUTED
+                : deadline.isBefore(today) ? TaskStyleUtils.OVERDUE_COLOR
+                : !deadline.isAfter(today.plusDays(2)) ? TaskStyleUtils.DUE_TODAY_COLOR
+                : TaskStyleUtils.COLOR_MUTED);
+
+        HBox row = new HBox(8, title, due);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("cal-plan-item");
+        Tooltip.install(row, new Tooltip(task.getTitle()
+                + "\n\nDrag onto a day to plan a goal for it, or double-click to plan it for the selected day."));
+        makeDraggable(row, TASK_DRAG, task.getId());
+        row.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2 && e.isStillSincePress()) {
+                showAddGoalDialog(selectedDate.isBefore(today) ? today : selectedDate, task);
+            }
+        });
+        return row;
+    }
+
+    private static String dueHint(LocalDate deadline, LocalDate today) {
+        if (deadline == null) {
+            return "no deadline";
+        }
+        long days = ChronoUnit.DAYS.between(today, deadline);
+        if (days < 0) {
+            return -days + "d late";
+        }
+        if (days == 0) {
+            return "due today";
+        }
+        if (days == 1) {
+            return "due tomorrow";
+        }
+        if (days < 7) {
+            return "due " + deadline.getDayOfWeek().getDisplayName(TextStyle.SHORT, Locale.getDefault());
+        }
+        return "due " + deadline.format(DateTimeFormatter.ofPattern("MMM d"));
+    }
+
+    // ================================================================
+    // DAY PANEL
+    // ================================================================
+
     /**
-     * A day's numbers, straight from {@link ScoringService}, plus the tasks
-     * scheduled for it (which are shown but not scored on the day itself -
-     * a task scores on the day it is completed).
+     * A day's numbers, straight from {@link ScoringService}, plus the lines
+     * the calendar lists for it.
      */
-    private static class DayData {
-        LocalDate date;
-        ScoreBreakdown score = ScoreBreakdown.empty(1);
-        List<Task> tasks = List.of();
+    private record DayData(LocalDate date, ScoreBreakdown score, List<Entry> entries, String offDayLabel) {
+
+        static DayData empty(LocalDate date) {
+            return new DayData(date, ScoreBreakdown.empty(1), List.of(), null);
+        }
 
         int totalSessions() {
             return score.sessions();
@@ -605,68 +778,142 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             return (int) Math.round(score.avgFocus());
         }
     }
-    
-    private VBox createOverviewTab(LocalDate date, DayData dayData, Tab parentTab) {
-        VBox content = new VBox(20);
-        content.setPadding(new Insets(20));
-        
-        // Day summary header
-        VBox summarySection = new VBox(10);
-        summarySection.setStyle("-fx-background-color: #f8f9fa; -fx-background-radius: 10; -fx-padding: 20;");
-        
-        Label dateLabel = new Label(date.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy")));
-        TaskStyleUtils.fontBold(dateLabel, 20);
-        
-        // Key metrics
-        GridPane metricsGrid = new GridPane();
-        metricsGrid.setHgap(30);
-        metricsGrid.setVgap(15);
-        metricsGrid.setPadding(new Insets(15, 0, 0, 0));
-        
-        // Sessions
-        metricsGrid.add(new Label("Study Sessions:"), 0, 0);
-        metricsGrid.add(new Label(String.valueOf(dayData.totalSessions())), 1, 0);
-        
-        // Study time
-        metricsGrid.add(new Label("Total Study Time:"), 0, 1);
-        metricsGrid.add(new Label(formatStudyTime(dayData.totalMinutes())), 1, 1);
-        
-        // Points earned
-        metricsGrid.add(new Label("Points Earned:"), 0, 2);
-        metricsGrid.add(new Label(String.valueOf(dayData.score.points())), 1, 2);
-        
-        // Goal attempts
-        metricsGrid.add(new Label("Attempts Achieved:"), 0, 3);
-        metricsGrid.add(new Label(dayData.score.goalsAchieved() + "/" + dayData.score.goalsTotal()), 1, 3);
-        
-        // Tasks
-        metricsGrid.add(new Label("Tasks Scheduled:"), 0, 4);
-        Label tasksCountLabel = new Label(String.valueOf(dayData.tasks.size()));
-        tasksCountLabel.setTextFill(dayData.tasks.isEmpty() ? Color.web("#7f8c8d") : Color.web("#9b59b6"));
-        metricsGrid.add(tasksCountLabel, 1, 4);
-        
-        // Average focus
-        metricsGrid.add(new Label("Average Focus:"), 0, 5);
-        Label focusLabel = new Label("\u2605".repeat(dayData.avgFocusLevel()) + "\u2606".repeat(5 - dayData.avgFocusLevel()) + " (" + dayData.avgFocusLevel() + "/5)");
-        focusLabel.setTextFill(Color.web("#f39c12"));
-        metricsGrid.add(focusLabel, 1, 5);
-        
-        // Productivity score
-        metricsGrid.add(new Label("Productivity Score:"), 0, 6);
-        Label productivityLabel = new Label(String.format("%.0f%%", dayData.score.productivity()));
-        productivityLabel.setTextFill(getProductivityColor(dayData.score.productivity()));
-        metricsGrid.add(productivityLabel, 1, 6);
-        
-        summarySection.getChildren().addAll(dateLabel, metricsGrid);
 
-        // Off day (holiday) toggle
-        VBox offDaySection = createOffDaySection(date, dayData, parentTab);
+    private void showDay(LocalDate date) {
+        LocalDate today = LocalDate.now();
+        DayData day = visibleDays.containsKey(date) ? visibleDays.get(date) : loadDay(date, today);
+        boolean loggable = !date.isAfter(today);
+        dayPanel.getChildren().clear();
 
-        // Day reflection if exists
-        VBox reflectionSection = createReflectionSection(date);
+        Label title = new Label(date.format(DAY_TITLE));
+        TaskStyleUtils.fontBold(title, 18);
+        wrap(title);
+        dayPanel.getChildren().add(title);
 
-        content.getChildren().addAll(summarySection, offDaySection, reflectionSection);
-        return content;
+        if (loggable) {
+            dayPanel.getChildren().add(createDaySummary(day));
+        }
+
+        dayPanel.getChildren().add(createGoalsSection(day, today));
+
+        List<Entry> taskEntries = day.entries().stream().filter(entry -> entry.goal() == null).toList();
+        if (!taskEntries.isEmpty()) {
+            VBox tasks = new VBox(6, sectionTitle("Tasks", "☑"));
+            taskEntries.forEach(entry -> tasks.getChildren().add(createTaskLine(entry, date, today)));
+            dayPanel.getChildren().add(tasks);
+        }
+
+        if (loggable) {
+            dayPanel.getChildren().addAll(createSessionsSection(date), createReflectionSection(date));
+            if (day.score().hasActivity()) {
+                TitledPane performance = new TitledPane("Points & insights", createPerformanceSection(day));
+                performance.setExpanded(false);
+                dayPanel.getChildren().add(performance);
+            }
+        }
+
+        dayPanel.getChildren().add(createOffDaySection(date));
+    }
+
+    /** Wraps a label's text; without the min height a ScrollPane can cut it back to one line. */
+    private static void wrap(Label label) {
+        label.setWrapText(true);
+        label.setMinHeight(Region.USE_PREF_SIZE);
+    }
+
+    private Label sectionTitle(String text, String icon) {
+        Label title = new Label(text);
+        title.setGraphic(TaskStyleUtils.iconLabel(icon, 14));
+        TaskStyleUtils.fontBold(title, 14);
+        return title;
+    }
+
+    private Node createDaySummary(DayData day) {
+        ScoreBreakdown score = day.score();
+        String text;
+        if (!score.hasActivity()) {
+            text = "Nothing logged.";
+        } else {
+            text = formatStudyTime(score.minutes()) + " studied · "
+                    + score.sessions() + (score.sessions() == 1 ? " session" : " sessions") + " · "
+                    + score.goalsAchieved() + "/" + score.goalsTotal() + " goals · "
+                    + String.format("%+d pts · %.0f%% productive", score.points(), score.productivity());
+        }
+        Label summary = new Label(text);
+        wrap(summary);
+        TaskStyleUtils.fontNormal(summary, 12);
+        TaskStyleUtils.textColor(summary, TaskStyleUtils.COLOR_MUTED);
+        return summary;
+    }
+
+    private Node createGoalsSection(DayData day, LocalDate today) {
+        LocalDate date = day.date();
+        Label title = sectionTitle("Goals", "◎");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox header = new HBox(8, title, spacer);
+        header.setAlignment(Pos.CENTER_LEFT);
+        if (!date.isBefore(today)) {
+            Button addGoalBtn = new Button("+ Add Goal");
+            addGoalBtn.getStyleClass().addAll("btn-purple", "btn-small");
+            addGoalBtn.setOnAction(e -> showAddGoalDialog(date, null));
+            header.getChildren().add(addGoalBtn);
+        }
+
+        VBox section = new VBox(8, header);
+        List<StudyGoal> goals = day.entries().stream().map(Entry::goal).filter(goal -> goal != null).toList();
+        if (goals.isEmpty()) {
+            Label none = new Label(date.isBefore(today) ? "No goals were planned."
+                    : "No goals planned yet. Drag a task here from \"To plan\", or add one.");
+            wrap(none);
+            TaskStyleUtils.fontItalic(none, 12);
+            TaskStyleUtils.textColor(none, TaskStyleUtils.COLOR_MUTED);
+            section.getChildren().add(none);
+        } else {
+            goals.forEach(goal -> section.getChildren().add(createStudyGoalBox(goal)));
+        }
+        return section;
+    }
+
+    private Node createTaskLine(Entry entry, LocalDate date, LocalDate today) {
+        Label icon = TaskStyleUtils.iconLabel(entryIcon(entry.kind()), 12);
+        icon.setMinWidth(Region.USE_PREF_SIZE);
+        TaskStyleUtils.textColor(icon, entryColor(entry.kind(), date, today));
+
+        Label name = new Label(entry.title());
+        TaskStyleUtils.fontSemiBold(name, 12);
+        wrap(name);
+        name.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(name, Priority.ALWAYS);
+
+        Label kind = new Label(entry.kind() == Kind.OVERDUE ? entry.detail() : entryLabel(entry, date, today));
+        TaskStyleUtils.fontNormal(kind, 11);
+        TaskStyleUtils.textColor(kind, entryColor(entry.kind(), date, today));
+        kind.setMinWidth(Region.USE_PREF_SIZE);
+
+        HBox line = new HBox(6, icon, name, kind);
+        line.setAlignment(Pos.CENTER_LEFT);
+        line.getStyleClass().add("cal-task-line");
+        if (entry.task() != null && entry.task().getCategory() != null && !entry.task().getCategory().isBlank()) {
+            Tooltip.install(line, new Tooltip(entry.task().getTitle() + "\nCategory: " + entry.task().getCategory()));
+        }
+        return line;
+    }
+
+    private Node createSessionsSection(LocalDate date) {
+        VBox section = new VBox(8, sectionTitle("Sessions", "▸"));
+        List<StudySession> studySessions = studyService.getSessionsForDate(date);
+        List<ProjectSession> projectSessions = projectService.getProjectSessionsForDate(date);
+        if (studySessions.isEmpty() && projectSessions.isEmpty()) {
+            Label none = new Label("No sessions recorded.");
+            TaskStyleUtils.fontItalic(none, 12);
+            TaskStyleUtils.textColor(none, TaskStyleUtils.COLOR_MUTED);
+            section.getChildren().add(none);
+            return section;
+        }
+        studySessions.forEach(session -> section.getChildren().add(createStudySessionBox(session)));
+        projectSessions.forEach(session -> section.getChildren().add(createProjectSessionBox(session)));
+        return section;
     }
 
     /**
@@ -674,26 +921,27 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
      * logged on it visible here, but takes it out of the global scores shown
      * in the profile panel.
      */
-    private VBox createOffDaySection(LocalDate date, DayData dayData, Tab parentTab) {
+    private VBox createOffDaySection(LocalDate date) {
         VBox section = new VBox(10);
-        section.setStyle("-fx-background-color: " + OFF_DAY_BG + "; -fx-background-radius: 10; -fx-padding: 20;");
+        section.setStyle("-fx-background-color: " + OFF_DAY_BG + "; -fx-background-radius: 10; -fx-padding: 16;");
 
         String offDayLabel = studyService.getOffDayLabel(date).orElse(null);
         boolean isOffDay = offDayLabel != null;
 
         Label title = new Label(isOffDay ? "Off day: " + offDayLabel : "Off day / holiday");
-        title.setGraphic(TaskStyleUtils.iconLabel(OFF_DAY_ICON, 16));
-        TaskStyleUtils.fontBold(title, 16);
-        title.setTextFill(Color.web(OFF_DAY_COLOR));
+        title.setGraphic(TaskStyleUtils.iconLabel(OFF_DAY_ICON, 14));
+        wrap(title);
+        TaskStyleUtils.fontBold(title, 14);
+        TaskStyleUtils.textColor(title, OFF_DAY_COLOR);
 
         Label hint = new Label(isOffDay
                 ? "Nothing on this day counts towards your global scores, and it never breaks your study streak."
                 : "Mark this day off (holiday, sick day, break) to keep it out of your global scores.");
         TaskStyleUtils.fontNormal(hint, 12);
-        hint.setWrapText(true);
+        wrap(hint);
 
         Button toggleBtn = new Button(isOffDay ? "Remove off-day" : "Mark as off-day");
-        toggleBtn.setGraphic(TaskStyleUtils.iconLabel(isOffDay ? "\u2715" : OFF_DAY_ICON, 12));
+        toggleBtn.setGraphic(TaskStyleUtils.iconLabel(isOffDay ? "✕" : OFF_DAY_ICON, 12));
         toggleBtn.getStyleClass().addAll(isOffDay ? "btn-gray" : "btn-warning", "btn-small");
         toggleBtn.setOnAction(e -> {
             if (isOffDay) {
@@ -702,8 +950,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                 TextInputDialog prompt = new TextInputDialog(OffDay.DEFAULT_LABEL);
                 prompt.initOwner(section.getScene() != null ? section.getScene().getWindow() : null);
                 prompt.setTitle("Mark Off Day");
-                prompt.setHeaderText("Mark " + date.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy"))
-                        + " as an off day");
+                prompt.setHeaderText("Mark " + date.format(DAY_TITLE) + " as an off day");
                 prompt.setContentText("Label:");
 
                 String chosenLabel = prompt.showAndWait().orElse(null);
@@ -712,22 +959,21 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                 }
                 studyService.markOffDay(date, chosenLabel);
             }
-            updateCalendarDisplay();
-            parentTab.setContent(scrollWrap(createOverviewTab(date, dayData, parentTab)));
+            refresh();
         });
 
         section.getChildren().addAll(title, hint, toggleBtn);
         return section;
     }
-    
+
     private VBox createReflectionSection(LocalDate date) {
         VBox section = new VBox(10);
-        section.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 10; -fx-padding: 20;");
-        
+        section.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 10; -fx-padding: 16;");
+
         Label reflectionTitle = new Label("Daily Reflection");
-        reflectionTitle.setGraphic(TaskStyleUtils.iconLabel("\u270E", 16));
-        TaskStyleUtils.fontBold(reflectionTitle, 16);
-        
+        reflectionTitle.setGraphic(TaskStyleUtils.iconLabel("✎", 14));
+        TaskStyleUtils.fontBold(reflectionTitle, 14);
+
         try {
             DailyReflection reflection = studyService.getDailyReflectionForDate(date).orElse(null);
             if (reflection != null && reflection.getReflectionText() != null && !reflection.getReflectionText().trim().isEmpty()) {
@@ -740,246 +986,27 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             } else {
                 Label noReflectionLabel = new Label("No reflection recorded for this day.");
                 TaskStyleUtils.fontItalic(noReflectionLabel, 12);
-                noReflectionLabel.setTextFill(Color.web("#7f8c8d"));
+                TaskStyleUtils.textColor(noReflectionLabel, TaskStyleUtils.COLOR_MUTED);
                 section.getChildren().addAll(reflectionTitle, noReflectionLabel);
             }
         } catch (Exception e) {
             Label errorLabel = new Label("Unable to load reflection data.");
-            errorLabel.setTextFill(Color.web("#e74c3c"));
+            TaskStyleUtils.textColor(errorLabel, TaskStyleUtils.COLOR_DANGER);
             section.getChildren().addAll(reflectionTitle, errorLabel);
         }
-        
+
         return section;
     }
-    
-    private VBox createGoalsTab(LocalDate date, Tab parentTab) {
-        VBox content = new VBox(15);
-        content.setPadding(new Insets(20));
-        
-        // Determine if this is a plannable date (today or future)
-        boolean isPlannableDate = !date.isBefore(LocalDate.now());
-        boolean isFutureDate = date.isAfter(LocalDate.now());
-        
-        // Add "Plan Goal" button at the top for plannable dates
-        if (isPlannableDate) {
-            HBox headerBox = new HBox(15);
-            headerBox.setAlignment(Pos.CENTER_LEFT);
-            
-            Button addGoalBtn = new Button("+ Add Goal");
-            addGoalBtn.getStyleClass().add("btn-purple");
-            addGoalBtn.setStyle("-fx-font-size: 12px; -fx-padding: 8 16;");
-            addGoalBtn.setOnAction(e -> {
-                showAddGoalDialog(date);
-                // Refresh the goals tab content after the dialog closes
-                parentTab.setContent(scrollWrap(createGoalsTab(date, parentTab)));
-            });
-            
-            Label hintLabel = new Label(isFutureDate ? "» Plan ahead for this day" : "» Set goals for today");
-            TaskStyleUtils.fontNormal(hintLabel, 11);
-            hintLabel.setTextFill(Color.web("#7f8c8d"));
-            
-            headerBox.getChildren().addAll(addGoalBtn, hintLabel);
-            content.getChildren().add(headerBox);
-        }
-        
-        List<StudyGoal> studyGoals = studyService.getGoalsForDate(date);
-        
-        if (studyGoals.isEmpty()) {
-            String emptyMessage = isFutureDate
-                ? "No goals planned yet. Click the button above to plan ahead!"
-                : "No goals recorded for this date";
-            Label noGoalsLabel = new Label(emptyMessage);
-            noGoalsLabel.setGraphic(TaskStyleUtils.iconLabel(isFutureDate ? "\u25C6" : "\u25CB", 14));
-            TaskStyleUtils.fontNormal(noGoalsLabel, 14);
-            noGoalsLabel.setTextFill(Color.GRAY);
-            noGoalsLabel.setPadding(new Insets(30));
-            noGoalsLabel.setWrapText(true);
-            content.getChildren().add(noGoalsLabel);
-            return content;
-        }
-        
-        Label goalsTitle = new Label("\u25CE Study Goals (" + studyGoals.size() + ")");
-        TaskStyleUtils.fontBold(goalsTitle, 18);
-        goalsTitle.setTextFill(Color.web("#9b59b6"));
-        content.getChildren().add(goalsTitle);
-        
-        for (StudyGoal goal : studyGoals) {
-            VBox goalBox = createStudyGoalBox(goal);
-            content.getChildren().add(goalBox);
-        }
-        
-        return content;
-    }
-    
-    private VBox createSessionsTab(LocalDate date) {
-        VBox content = new VBox(15);
-        content.setPadding(new Insets(20));
-        
-        List<StudySession> studySessions = studyService.getSessionsForDate(date);
-        List<ProjectSession> projectSessions = projectService.getProjectSessionsForDate(date);
-        
-        if (studySessions.isEmpty() && projectSessions.isEmpty()) {
-            Label noSessionsLabel = new Label("No sessions recorded for this date");
-            noSessionsLabel.setGraphic(TaskStyleUtils.iconLabel("\u25CB", 16));
-            TaskStyleUtils.fontNormal(noSessionsLabel, 16);
-            noSessionsLabel.setTextFill(Color.GRAY);
-            noSessionsLabel.setPadding(new Insets(50));
-            content.getChildren().add(noSessionsLabel);
-            return content;
-        }
-        
-        // Study Sessions
-        if (!studySessions.isEmpty()) {
-            Label studyTitle = new Label("» Study Sessions (" + studySessions.size() + ")");
-            TaskStyleUtils.fontBold(studyTitle, 16);
-            studyTitle.setTextFill(Color.web("#3498db"));
-            content.getChildren().add(studyTitle);
-            
-            for (StudySession session : studySessions) {
-                VBox sessionBox = createStudySessionBox(session);
-                content.getChildren().add(sessionBox);
-            }
-        }
-        
-        // Project Sessions
-        if (!projectSessions.isEmpty()) {
-            Label projectTitle = new Label("Project Sessions (" + projectSessions.size() + ")");
-            projectTitle.setGraphic(TaskStyleUtils.iconLabel("\u2261", 16));
-            TaskStyleUtils.fontBold(projectTitle, 16);
-            projectTitle.setTextFill(Color.web("#e74c3c"));
-            projectTitle.setPadding(new Insets(15, 0, 5, 0));
-            content.getChildren().add(projectTitle);
-            
-            for (ProjectSession session : projectSessions) {
-                VBox sessionBox = createProjectSessionBox(session);
-                content.getChildren().add(sessionBox);
-            }
-        }
-        
-        return content;
-    }
-    
-    private VBox createTasksTab(LocalDate date, DayData dayData) {
-        VBox content = new VBox(12);
-        content.setPadding(new Insets(20));
 
-        if (dayData.tasks.isEmpty()) {
-            Label noTasksLabel = new Label("No tasks scheduled for this day.");
-            noTasksLabel.setGraphic(TaskStyleUtils.iconLabel("\u2611", 14));
-            TaskStyleUtils.fontNormal(noTasksLabel, 14);
-            noTasksLabel.setTextFill(Color.web("#7f8c8d"));
-            noTasksLabel.setPadding(new Insets(30));
-            content.getChildren().add(noTasksLabel);
-            return content;
-        }
+    private VBox createPerformanceSection(DayData dayData) {
+        VBox content = new VBox(14);
 
-        Label title = new Label("Tasks (" + dayData.tasks.size() + ")");
-        title.setGraphic(TaskStyleUtils.iconLabel("\u2611", 18));
-        TaskStyleUtils.fontBold(title, 18);
-        title.setTextFill(Color.web("#9b59b6"));
-        content.getChildren().add(title);
-
-        for (Task task : dayData.tasks) {
-            VBox taskBox = new VBox(6);
-            taskBox.setPadding(new Insets(12));
-
-            String borderColor = TaskStyleUtils.taskBorderColor(task, date);
-            taskBox.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
-                    " -fx-border-color: " + borderColor + "; -fx-border-radius: 8;");
-
-            // Title + status row
-            HBox headerRow = new HBox(10);
-            headerRow.setAlignment(Pos.CENTER_LEFT);
-
-            Label taskTitle = new Label(task.getTitle());
-            TaskStyleUtils.fontBold(taskTitle, 14);
-
-            Label statusBadge = new Label(task.getStatus().name());
-            statusBadge.setPadding(new Insets(2, 6, 2, 6));
-            statusBadge.setStyle("-fx-background-color: " + TaskStyleUtils.statusBadgeBg(task.getStatus()) +
-                    "; -fx-background-radius: 10;");
-            TaskStyleUtils.fontBold(statusBadge, 10);
-            statusBadge.setTextFill(TaskStyleUtils.statusTextColor(task.getStatus()));
-
-            if (task.isRecurring()) {
-                Label recurBadge = new Label("\u21BA");
-                TaskStyleUtils.fontNormal(recurBadge, 12);
-                recurBadge.setTooltip(new Tooltip(task.getRecurringSummary()));
-                headerRow.getChildren().add(recurBadge);
-            }
-
-            Region spacer = new Region();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
-            headerRow.getChildren().addAll(taskTitle, spacer);
-
-            // Overdue / due-today / missed badge (between spacer and status badge)
-            if (TaskStyleUtils.isOverdue(task, date)) {
-                headerRow.getChildren().add(TaskStyleUtils.createOverdueBadge());
-            } else if (TaskStyleUtils.isDueToday(task, date)) {
-                headerRow.getChildren().add(TaskStyleUtils.createDueTodayBadge());
-            } else if (taskService.isRecurringOccurrence(task, date) && date.isBefore(LocalDate.now())
-                       && !StudyGoal.hasHandledGoalForTaskOccurrence(task.getId(), date)) {
-                headerRow.getChildren().add(TaskStyleUtils.createMissedBadge());
-                // Red border for missed recurring occurrence
-                taskBox.setStyle("-fx-background-color: white; -fx-background-radius: 8;" +
-                        " -fx-border-color: " + TaskStyleUtils.MISSED_COLOR + "; -fx-border-radius: 8;");
-            }
-
-            headerRow.getChildren().add(statusBadge);
-            taskBox.getChildren().add(headerRow);
-
-            // Description (if non-empty)
-            if (task.getDescription() != null && !task.getDescription().isBlank()) {
-                Label descLabel = new Label(task.getDescription());
-                TaskStyleUtils.fontNormal(descLabel, 12);
-                descLabel.setTextFill(Color.web("#555"));
-                descLabel.setWrapText(true);
-                taskBox.getChildren().add(descLabel);
-            }
-
-            // Priority + category row
-            HBox metaRow = new HBox(15);
-            metaRow.setAlignment(Pos.CENTER_LEFT);
-            if (task.getPriority() != null) {
-                Label prioLabel = new Label("Priority: " + task.getPriority());
-                TaskStyleUtils.fontNormal(prioLabel, 11);
-                prioLabel.setTextFill(Color.web("#f39c12"));
-                metaRow.getChildren().add(prioLabel);
-            }
-            if (task.getCategory() != null && !task.getCategory().isBlank()) {
-                Label catLabel = new Label("Category: " + task.getCategory());
-                TaskStyleUtils.fontNormal(catLabel, 11);
-                catLabel.setTextFill(Color.web("#3498db"));
-                metaRow.getChildren().add(catLabel);
-            }
-            if (!metaRow.getChildren().isEmpty()) {
-                taskBox.getChildren().add(metaRow);
-            }
-
-            content.getChildren().add(taskBox);
-        }
-
-        return content;
-    }
-
-    private VBox createPerformanceTab(LocalDate date, DayData dayData) {
-        VBox content = new VBox(20);
-        content.setPadding(new Insets(20));
-        
-        // Performance summary
-        VBox performanceSection = new VBox(15);
-        performanceSection.setStyle("-fx-background-color: #f0f8ff; -fx-background-radius: 10; -fx-padding: 20;");
-        
-        Label performanceTitle = new Label("Performance Analysis");
-        performanceTitle.setGraphic(TaskStyleUtils.iconLabel("\u2191", 18));
-        TaskStyleUtils.fontBold(performanceTitle, 18);
-        
         // Performance breakdown
         VBox metricsBreakdown = new VBox(10);
 
         // Where the day's points came from — worth spelling out now that
         // finishing a task late can subtract from the total.
-        ScoreBreakdown score = dayData.score;
+        ScoreBreakdown score = dayData.score();
         if (score.points() != 0 || score.taskPoints() != 0) {
             GridPane pointsGrid = new GridPane();
             pointsGrid.setHgap(20);
@@ -993,7 +1020,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
 
             pointsGrid.add(new Label("Tasks completed:"), 0, 2);
             Label taskPointsLabel = new Label(String.format("%+d pts", score.taskPoints()));
-            taskPointsLabel.setTextFill(score.taskPoints() < 0 ? Color.web("#c0392b") : Color.web("#27ae60"));
+            TaskStyleUtils.textColor(taskPointsLabel, score.taskPoints() < 0 ? "#c0392b" : "#27ae60");
             pointsGrid.add(taskPointsLabel, 1, 2);
 
             Label totalLabel = new Label("Day total:");
@@ -1009,62 +1036,50 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                 Label hint = new Label("Negative task points mean a task was finished after its deadline, "
                         + "or its deadline was pushed back.");
                 TaskStyleUtils.fontItalic(hint, 11);
-                hint.setTextFill(Color.web("#7f8c8d"));
-                hint.setWrapText(true);
+                TaskStyleUtils.textColor(hint, TaskStyleUtils.COLOR_MUTED);
+                wrap(hint);
                 metricsBreakdown.getChildren().add(hint);
             }
         }
 
         // Efficiency metrics
         if (dayData.totalSessions() > 0) {
-            double pointsPerMinute = dayData.totalMinutes() > 0 ? (double) dayData.score.points() / dayData.totalMinutes() : 0;
-            double pointsPerSession = (double) dayData.score.points() / dayData.totalSessions();
+            double pointsPerMinute = dayData.totalMinutes() > 0 ? (double) dayData.score().points() / dayData.totalMinutes() : 0;
+            double pointsPerSession = (double) dayData.score().points() / dayData.totalSessions();
             double avgSessionLength = (double) dayData.totalMinutes() / dayData.totalSessions();
-            
+
             GridPane efficiencyGrid = new GridPane();
             efficiencyGrid.setHgap(20);
             efficiencyGrid.setVgap(8);
-            
+
             efficiencyGrid.add(new Label("Points per Minute:"), 0, 0);
             efficiencyGrid.add(new Label(String.format("%.2f", pointsPerMinute)), 1, 0);
-            
+
             efficiencyGrid.add(new Label("Points per Session:"), 0, 1);
             efficiencyGrid.add(new Label(String.format("%.1f", pointsPerSession)), 1, 1);
-            
+
             efficiencyGrid.add(new Label("Avg Session Length:"), 0, 2);
             efficiencyGrid.add(new Label(String.format("%.0f min", avgSessionLength)), 1, 2);
-            
+
+            efficiencyGrid.add(new Label("Average Focus:"), 0, 3);
+            efficiencyGrid.add(new Label(dayData.avgFocusLevel() + "/5"), 1, 3);
+
             metricsBreakdown.getChildren().add(efficiencyGrid);
         }
-        
-        // Goal achievement analysis
-        if (dayData.score.goalsTotal() > 0) {
-            double goalCompletionRate = ((double) dayData.score.goalsAchieved() / dayData.score.goalsTotal()) * 100;
-            Label goalAnalysis = new Label(String.format("Goal Completion: %.0f%% (%d out of %d goals achieved)",
-                goalCompletionRate, dayData.score.goalsAchieved(), dayData.score.goalsTotal()));
-            TaskStyleUtils.fontNormal(goalAnalysis, 12);
-            goalAnalysis.setTextFill(goalCompletionRate == 100 ? Color.web("#27ae60") : Color.web("#e74c3c"));
-            metricsBreakdown.getChildren().add(goalAnalysis);
-        }
-        
-        performanceSection.getChildren().addAll(performanceTitle, metricsBreakdown);
-        
-        // Recommendations
-        VBox recommendationsSection = createRecommendationsSection(dayData);
-        
-        content.getChildren().addAll(performanceSection, recommendationsSection);
+
+        content.getChildren().addAll(metricsBreakdown, createRecommendationsSection(dayData));
         return content;
     }
-    
+
     private VBox createRecommendationsSection(DayData dayData) {
         VBox section = new VBox(10);
-        section.setStyle("-fx-background-color: #f0fff0; -fx-background-radius: 10; -fx-padding: 20;");
-        
+        section.setStyle("-fx-background-color: #f0fff0; -fx-background-radius: 10; -fx-padding: 16;");
+
         Label recommendationsTitle = new Label("•  Insights & Recommendations");
-        TaskStyleUtils.fontBold(recommendationsTitle, 16);
-        
+        TaskStyleUtils.fontBold(recommendationsTitle, 14);
+
         VBox recommendations = new VBox(5);
-        
+
         // Generate recommendations based on performance
         if (dayData.totalSessions() == 0) {
             recommendations.getChildren().add(createRecommendationLabel("• No study activity recorded - consider setting daily study goals"));
@@ -1072,39 +1087,38 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             if (dayData.avgFocusLevel() < 3) {
                 recommendations.getChildren().add(createRecommendationLabel("• Focus level could be improved - try removing distractions"));
             }
-            
+
             if (dayData.totalMinutes() < 60) {
                 recommendations.getChildren().add(createRecommendationLabel("• Consider longer study sessions for better deep work"));
             }
-            
-            if (dayData.score.goalsTotal() > 0 && dayData.score.goalsAchieved() < dayData.score.goalsTotal()) {
+
+            if (dayData.score().goalsTotal() > 0 && dayData.score().goalsAchieved() < dayData.score().goalsTotal()) {
                 recommendations.getChildren().add(createRecommendationLabel("• Some goals were missed - review and adjust goal difficulty"));
             }
-            
-            if (dayData.score.productivity() >= 80) {
+
+            if (dayData.score().productivity() >= 80) {
                 recommendations.getChildren().add(createRecommendationLabel("• Excellent productivity day! Keep up the great work!"));
             }
         }
-        
+
         section.getChildren().addAll(recommendationsTitle, recommendations);
         return section;
     }
-    
+
     private Label createRecommendationLabel(String text) {
         Label label = new Label(text);
         TaskStyleUtils.fontNormal(label, 12);
-        label.setWrapText(true);
+        wrap(label);
         return label;
     }
-    
-    private Color getProductivityColor(double score) {
-        if (score >= 80) return Color.web("#27ae60");
-        else if (score >= 60) return Color.web("#3498db");
-        else if (score >= 40) return Color.web("#f39c12");
-        else return Color.web("#e74c3c");
+
+    private static String productivityHex(double score) {
+        if (score >= 80) return TaskStyleUtils.COLOR_SUCCESS;
+        else if (score >= 60) return TaskStyleUtils.COLOR_PRIMARY;
+        else if (score >= 40) return "#f39c12";
+        else return TaskStyleUtils.COLOR_DANGER;
     }
-    
-    // Reuse methods from DailyViewPanel for consistency
+
     private VBox createStudyGoalBox(StudyGoal goal) {
         VBox goalBox = new VBox(8);
         goalBox.setPadding(new Insets(12));
@@ -1141,53 +1155,62 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         String statusIcon;
         String statusText;
         if (goal.isFailed()) {
-            statusIcon = "\u2715";
+            statusIcon = "✕";
             statusText = goal.getStatus() == StudyGoal.GoalStatus.ABANDONED ? "Abandoned Goal" : "Missed Goal";
         } else if (goal.isAchieved()) {
-            statusIcon = "\u2705";
+            statusIcon = "✅";
             statusText = "Achieved Goal";
         } else if (goal.isDelayed()) {
             statusIcon = "[!] ";
             statusText = "Retry Goal";
         } else {
-            statusIcon = "\u25CB";
+            statusIcon = "○";
             statusText = "Pending Goal";
         }
 
         Label statusLabel = new Label(statusIcon + " " + statusText);
         TaskStyleUtils.fontBold(statusLabel, 12);
         if (goal.isFailed()) {
-            statusLabel.setTextFill(Color.web("#c0392b"));
+            TaskStyleUtils.textColor(statusLabel, "#c0392b");
         }
 
-        Label descriptionLabel = new Label("\u25CE " + goal.getDescription());
+        Label descriptionLabel = new Label("◎ " + goal.getDescription());
         TaskStyleUtils.fontNormal(descriptionLabel, 13);
-        descriptionLabel.setWrapText(true);
+        wrap(descriptionLabel);
+
+        Task linkedTask = goal.getTaskId() != null ? tasksById.get(goal.getTaskId()) : null;
 
         Label attemptLabel = new Label(formatGoalAttemptSummary(goal));
-        attemptLabel.setWrapText(true);
+        wrap(attemptLabel);
         TaskStyleUtils.fontNormal(attemptLabel, 11);
-        attemptLabel.setTextFill(goal.getMissedAttemptCount() > 0 ? Color.web("#ff5722") : Color.web("#6c757d"));
+        TaskStyleUtils.textColor(attemptLabel, goal.getMissedAttemptCount() > 0 ? "#ff5722" : "#6c757d");
 
         goalBox.getChildren().addAll(statusLabel, descriptionLabel);
+        if (linkedTask != null) {
+            Label taskLabel = new Label("Task: " + linkedTask.getTitle());
+            wrap(taskLabel);
+            TaskStyleUtils.fontSemiBold(taskLabel, 11);
+            TaskStyleUtils.textColor(taskLabel, TaskStyleUtils.COLOR_PURPLE);
+            goalBox.getChildren().add(taskLabel);
+        }
         if (!goal.getCriteria().isEmpty()) {
             goalBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), null));
         }
         goalBox.getChildren().add(attemptLabel);
 
         // Action buttons
-        HBox actionBox = new HBox(8);
+        FlowPane actionBox = new FlowPane(8, 6);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
 
         Button editBtn = new Button("Edit");
         editBtn.getStyleClass().addAll("btn-primary", "btn-small");
-        editBtn.setOnAction(e -> showEditGoalDialog(goal, goalBox));
+        editBtn.setOnAction(e -> showEditGoalDialog(goal));
         actionBox.getChildren().add(editBtn);
 
         // "Abandon" button — keeps the attempt timeline but stops future replanning.
         if (!goal.isAchieved() && !goal.isFailed()) {
             Button failBtn = new Button("Abandon Goal");
-            failBtn.setGraphic(TaskStyleUtils.iconLabel("\u2716", 12));
+            failBtn.setGraphic(TaskStyleUtils.iconLabel("✖", 12));
             failBtn.getStyleClass().addAll("btn-warning", "btn-small");
             failBtn.setOnAction(e -> {
                 Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
@@ -1200,7 +1223,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                 confirmation.showAndWait().ifPresent(response -> {
                     if (response == ButtonType.OK) {
                         studyService.markGoalAsFailed(goal.getId());
-                        updateCalendarDisplay();
+                        refresh();
                     }
                 });
             });
@@ -1209,7 +1232,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
 
         // Delete button — permanent removal
         Button deleteBtn = new Button("Delete");
-        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("\u2715", 12));
+        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("✕", 12));
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
@@ -1221,8 +1244,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             confirmation.showAndWait().ifPresent(response -> {
                 if (response == ButtonType.OK) {
                     studyService.deleteStudyGoal(goal.getId());
-                    updateCalendarDisplay();
-                    ((VBox) goalBox.getParent()).getChildren().remove(goalBox);
+                    refresh();
                 }
             });
         });
@@ -1235,9 +1257,10 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
 
     /**
      * Edit a goal's description, done-when checklist and (while pending) its
-     * date, then redraw its box in place so the day view stays open.
+     * date. The whole period is redrawn afterwards, which also moves the goal
+     * to its new day if the date changed.
      */
-    private void showEditGoalDialog(StudyGoal goal, VBox goalBox) {
+    private void showEditGoalDialog(StudyGoal goal) {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         dialog.setTitle("Edit Goal");
@@ -1259,19 +1282,7 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             }
         });
 
-        dialog.showAndWait().filter(bt -> bt == ButtonType.OK).ifPresent(bt -> {
-            // Reload the very attempt this pane listed, through the same query that built
-            // the pane; findById would prefer a later pending retry over the one shown here.
-            VBox parent = (VBox) goalBox.getParent();
-            studyService.getGoalsForDate(goal.getDate()).stream()
-                    .filter(g -> Objects.equals(g.getAttemptId(), goal.getAttemptId()))
-                    .findFirst()
-                    .ifPresentOrElse(
-                            updated -> parent.getChildren().set(parent.getChildren().indexOf(goalBox),
-                                    createStudyGoalBox(updated)),
-                            () -> parent.getChildren().remove(goalBox)); // moved to another day
-            updateCalendarDisplay();
-        });
+        dialog.showAndWait().filter(bt -> bt == ButtonType.OK).ifPresent(bt -> refresh());
     }
 
     static String formatGoalAttemptSummary(StudyGoal goal) {
@@ -1286,33 +1297,33 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         }
         return summary + TaskStyleUtils.criteriaProgress(goal.getCriteria());
     }
-    
+
     private VBox createStudySessionBox(StudySession session) {
         VBox sessionBox = new VBox(8);
         sessionBox.setPadding(new Insets(12));
         sessionBox.setStyle("-fx-background-color: #f8f9ff; -fx-background-radius: 8; -fx-border-color: #3498db; -fx-border-radius: 8;");
-        
+
         // Time and duration
-        String startTime = session.getStartTime() != null ? 
+        String startTime = session.getStartTime() != null ?
             session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "Unknown";
-        String endTime = session.getEndTime() != null ? 
+        String endTime = session.getEndTime() != null ?
             session.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "Unknown";
-        
+
         Label timeLabel = new Label(startTime + " - " + endTime + " (" + session.getDurationMinutes() + " min)");
-        timeLabel.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 12));
+        timeLabel.setGraphic(TaskStyleUtils.iconLabel("⏰", 12));
         TaskStyleUtils.fontBold(timeLabel, 12);
 
         // Focus and points
-        Label focusLabel = new Label("Focus: " + "\u2605".repeat(session.getFocusLevel()) + "\u2606".repeat(5 - session.getFocusLevel()) + " (" + session.getFocusLevel() + "/5)");
-        focusLabel.setGraphic(TaskStyleUtils.iconLabel("\u25CE", 11));
+        Label focusLabel = new Label("Focus: " + "★".repeat(session.getFocusLevel()) + "☆".repeat(5 - session.getFocusLevel()) + " (" + session.getFocusLevel() + "/5)");
+        focusLabel.setGraphic(TaskStyleUtils.iconLabel("◎", 11));
         TaskStyleUtils.fontNormal(focusLabel, 11);
-        focusLabel.setTextFill(Color.web("#f39c12"));
+        TaskStyleUtils.textColor(focusLabel, "#f39c12");
 
         Label pointsLabel = new Label(session.getPointsEarned() + " points earned");
-        pointsLabel.setGraphic(TaskStyleUtils.iconLabel("\u2666", 11));
+        pointsLabel.setGraphic(TaskStyleUtils.iconLabel("♦", 11));
         TaskStyleUtils.fontNormal(pointsLabel, 11);
-        pointsLabel.setTextFill(Color.web("#27ae60"));
-        
+        TaskStyleUtils.textColor(pointsLabel, TaskStyleUtils.COLOR_SUCCESS);
+
         sessionBox.getChildren().addAll(timeLabel, focusLabel, pointsLabel);
 
         // What this session was working on
@@ -1327,46 +1338,45 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             TaskStyleUtils.fontNormal(subjectLabel, 11);
             sessionBox.getChildren().add(subjectLabel);
         }
-        
+
         // Action buttons
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
-        
+
         Button deleteBtn = new Button("Delete");
-        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("\u2715", 12));
+        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("✕", 12));
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
             confirmation.initOwner(sessionBox.getScene() != null ? sessionBox.getScene().getWindow() : null);
             confirmation.setTitle("Delete Study Session");
             confirmation.setHeaderText("Are you sure you want to delete this study session?");
-            
+
             confirmation.showAndWait().ifPresent(response -> {
                 if (response == ButtonType.OK) {
                     studyService.deleteStudySession(session.getId());
-                    updateCalendarDisplay();
-                    ((VBox) sessionBox.getParent()).getChildren().remove(sessionBox);
+                    refresh();
                 }
             });
         });
-        
+
         actionBox.getChildren().add(deleteBtn);
         sessionBox.getChildren().add(actionBox);
-        
+
         return sessionBox;
     }
-    
+
     private VBox createProjectSessionBox(ProjectSession session) {
         VBox sessionBox = new VBox(8);
         sessionBox.setPadding(new Insets(12));
         sessionBox.setStyle("-fx-background-color: #fff8f8; -fx-background-radius: 8; -fx-border-color: #e74c3c; -fx-border-radius: 8;");
-        
+
         // Project info
         Project project = projectService.getProjectById(session.getProjectId()).orElse(null);
         String projectTitle = project != null ? project.getTitle() : "Unknown Project";
-        
+
         Label projectLabel = new Label(projectTitle);
-        projectLabel.setGraphic(TaskStyleUtils.iconLabel("\u2261", 12));
+        projectLabel.setGraphic(TaskStyleUtils.iconLabel("≡", 12));
         TaskStyleUtils.fontBold(projectLabel, 12);
 
         // Time and duration
@@ -1374,69 +1384,69 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
             session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "Unknown";
 
         Label timeLabel = new Label(startTime + " (" + session.getDurationMinutes() + " min)");
-        timeLabel.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 11));
+        timeLabel.setGraphic(TaskStyleUtils.iconLabel("⏰", 11));
         TaskStyleUtils.fontNormal(timeLabel, 11);
 
         Label pointsLabel = new Label(session.getPointsEarned() + " points earned");
-        pointsLabel.setGraphic(TaskStyleUtils.iconLabel("\u2666", 11));
+        pointsLabel.setGraphic(TaskStyleUtils.iconLabel("♦", 11));
         TaskStyleUtils.fontNormal(pointsLabel, 11);
-        pointsLabel.setTextFill(Color.web("#27ae60"));
-        
+        TaskStyleUtils.textColor(pointsLabel, TaskStyleUtils.COLOR_SUCCESS);
+
         sessionBox.getChildren().addAll(projectLabel, timeLabel, pointsLabel);
-        
+
         // Action buttons
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
-        
+
         Button deleteBtn = new Button("Delete");
-        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("\u2715", 12));
+        deleteBtn.setGraphic(TaskStyleUtils.iconLabel("✕", 12));
         deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
         deleteBtn.setOnAction(e -> {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
             confirmation.initOwner(sessionBox.getScene() != null ? sessionBox.getScene().getWindow() : null);
             confirmation.setTitle("Delete Project Session");
             confirmation.setHeaderText("Are you sure you want to delete this project session?");
-            
+
             confirmation.showAndWait().ifPresent(response -> {
                 if (response == ButtonType.OK) {
                     projectService.deleteProjectSession(session.getId());
-                    updateCalendarDisplay();
-                    ((VBox) sessionBox.getParent()).getChildren().remove(sessionBox);
+                    refresh();
                 }
             });
         });
-        
+
         actionBox.getChildren().add(deleteBtn);
         sessionBox.getChildren().add(actionBox);
-        
+
         return sessionBox;
     }
-    
+
     /**
      * Shows a dialog to add a new study goal for the specified date.
      * Works for today and future dates to enable planning ahead.
-     * 
+     *
      * @param date the date to add the goal for
+     * @param task task to link the goal to up front, e.g. one dropped onto the day; may be {@code null}
      */
-    private void showAddGoalDialog(LocalDate date) {
+    private void showAddGoalDialog(LocalDate date, Task task) {
         Dialog<String> dialog = new Dialog<>();
         dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         boolean isFutureDate = date.isAfter(LocalDate.now());
-        
+
         dialog.setTitle(isFutureDate ? "Plan Goal" : "Add Goal");
-        dialog.setHeaderText("Add a goal for " + date.format(DateTimeFormatter.ofPattern("EEEE, MMMM dd, yyyy")));
-        
+        dialog.setHeaderText("Add a goal for " + date.format(DAY_TITLE));
+
         DialogPane dialogPane = dialog.getDialogPane();
         dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-        
+
         VBox content = new VBox(10);
         content.setPadding(new Insets(20));
-        
-        Label instructionLabel = new Label(isFutureDate 
+
+        Label instructionLabel = new Label(isFutureDate
             ? "Plan what you want to study on this day:"
             : "What do you want to study today?");
         TaskStyleUtils.fontNormal(instructionLabel, 12);
-        
+
         TextArea goalTextArea = new TextArea();
         goalTextArea.setPromptText("e.g., Complete Chapter 5, Practice 10 problems, Review notes from class...");
         goalTextArea.setPrefRowCount(3);
@@ -1453,6 +1463,11 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
         taskCombo.setMaxWidth(Double.MAX_VALUE);
         taskCombo.getItems().add(null);
         taskCombo.getItems().addAll(taskService.getActiveTasks());
+        // A late task is DELAYED, which the active list leaves out, but it is
+        // exactly the kind of task that gets dropped onto a day to plan.
+        if (task != null && taskCombo.getItems().stream().noneMatch(t -> t != null && t.getId().equals(task.getId()))) {
+            taskCombo.getItems().add(task);
+        }
         taskCombo.setCellFactory(lv -> new ListCell<>() {
             @Override
             protected void updateItem(Task item, boolean empty) {
@@ -1467,58 +1482,64 @@ public class CalendarViewPanel extends ScrollPane implements RefreshablePanel {
                 setText(empty || item == null ? "None" : item.getTitle());
             }
         });
+        if (task != null) {
+            taskCombo.getItems().stream()
+                    .filter(t -> t != null && t.getId().equals(task.getId()))
+                    .findFirst()
+                    .ifPresent(taskCombo::setValue);
+            // Something to accept or type over, so planning a dropped task is one keystroke.
+            goalTextArea.setText(task.getTitle());
+            goalTextArea.selectAll();
+        }
 
         content.getChildren().addAll(instructionLabel, goalTextArea, criteriaLabel, criteriaArea, taskLabel, taskCombo);
         dialogPane.setContent(content);
-        
+
         // Enable/disable OK button based on input
         Button okButton = (Button) dialogPane.lookupButton(ButtonType.OK);
-        okButton.setDisable(true);
+        okButton.setDisable(goalTextArea.getText().trim().isEmpty());
         goalTextArea.textProperty().addListener((observable, oldValue, newValue) -> {
             okButton.setDisable(newValue.trim().isEmpty());
         });
-        
+        dialog.setOnShown(e -> goalTextArea.requestFocus());
+
         dialog.setResultConverter(dialogButton -> {
             if (dialogButton == ButtonType.OK) {
                 return goalTextArea.getText().trim();
             }
             return null;
         });
-        
+
         dialog.showAndWait().ifPresent(goalDescription -> {
             if (!goalDescription.isEmpty()) {
                 try {
                     Task linkedTask = taskCombo.getValue();
                     studyService.addStudyGoal(goalDescription, date,
                             linkedTask != null ? linkedTask.getId() : null, criteriaArea.getText());
-                    updateCalendarDisplay();
-                    
-                    // Show confirmation
-                    Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
-                    successAlert.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
-                    successAlert.setTitle("Goal Added");
-                    successAlert.setHeaderText(null);
-                    successAlert.setContentText("Goal added successfully for "
-                        + date.format(DateTimeFormatter.ofPattern("MMMM dd, yyyy")));
-                    successAlert.showAndWait();
+                    selectedDate = date;
+                    refresh();
                 } catch (Exception e) {
-                    Alert errorAlert = new Alert(Alert.AlertType.ERROR);
-                    errorAlert.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
-                    errorAlert.setTitle("Error");
-                    errorAlert.setHeaderText("Failed to add study goal");
-                    errorAlert.setContentText(e.getMessage());
-                    errorAlert.showAndWait();
+                    showError("Failed to add study goal", e.getMessage());
                 }
             }
         });
     }
-    
+
+    private void showError(String header, String message) {
+        Alert errorAlert = new Alert(Alert.AlertType.ERROR);
+        errorAlert.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
+        errorAlert.setTitle("Error");
+        errorAlert.setHeaderText(header);
+        errorAlert.setContentText(message);
+        errorAlert.showAndWait();
+    }
+
     @Override
     public void updateDisplay() {
-        logger.debug("CalendarViewPanel.updateDisplay() called for month {}", currentMonth);
-        updateCalendarDisplay();
+        logger.debug("CalendarViewPanel.updateDisplay() called for {} around {}", viewMode, anchor);
+        refresh();
     }
-    
+
     @Override
     public Node getView() {
         return this;

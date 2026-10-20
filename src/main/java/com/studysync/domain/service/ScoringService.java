@@ -63,7 +63,7 @@ public class ScoringService {
     public static final int TASK_MIN_POINTS = -15;
 
     /** Minutes of study in a day that count as a full day's work. */
-    private static final int DAILY_MINUTES_TARGET = 120;
+    public static final int DAILY_MINUTES_TARGET = 120;
 
     /** How far back {@link #getStudyStreak()} looks for study activity. */
     private static final int STREAK_WINDOW_DAYS = 90;
