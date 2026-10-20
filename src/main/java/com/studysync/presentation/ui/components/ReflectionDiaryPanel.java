@@ -595,7 +595,7 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
             String text = Markdown.previewLine(entry.getReflectionText());
             Label preview = new Label(text.length() > 70 ? text.substring(0, 70) + "…" : text);
             TaskStyleUtils.fontNormal(preview, 11);
-            TaskStyleUtils.textColor(preview, TaskStyleUtils.COLOR_MUTED);
+            preview.getStyleClass().add("cell-muted"); // stays readable when the row is selected
 
             VBox box = new VBox(2, date, preview);
             box.setPadding(new Insets(4, 0, 4, 0));

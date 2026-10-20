@@ -39,6 +39,9 @@ public class StudyService {
     /** Guards processAllDelayedGoals() so the full scan runs at most once per calendar day. */
     private LocalDate lastDelayProcessingDate;
 
+    /** While true, reading goals does not sweep overdue attempts; see {@link #holdOverdueSweep()}. */
+    private boolean overdueSweepHeld;
+
     @Autowired
     public StudyService(GoogleDriveService googleDriveService, DateTimeService dateTimeService) {
         this.googleDriveService = googleDriveService;
@@ -128,8 +131,25 @@ public class StudyService {
     }
 
     /**
+     * Stops reads from sweeping overdue attempts until {@link #releaseOverdueSweep()}.
+     *
+     * <p>The UI holds the sweep while it starts, because building the panels reads
+     * goals before the startup Drive check has decided whether maintenance may run:
+     * with a newer Drive copy or a conflict, this database must not be changed.</p>
+     */
+    public synchronized void holdOverdueSweep() {
+        overdueSweepHeld = true;
+    }
+
+    /** Lets reads sweep overdue attempts again, once startup maintenance is allowed. */
+    public synchronized void releaseOverdueSweep() {
+        overdueSweepHeld = false;
+    }
+
+    /**
      * Runs processAllDelayedGoals() at most once per calendar day.
-     * Subsequent calls on the same day are no-ops.
+     * Subsequent calls on the same day are no-ops, as are calls while the sweep
+     * is held.
      *
      * <p>Public because scoring has to be able to guarantee the sweep has run
      * before it reads attempt outcomes: an overdue attempt still sitting at
@@ -139,7 +159,7 @@ public class StudyService {
     public void ensureOverdueAttemptsProcessed() {
         LocalDate today = dateTimeService.getCurrentDate();
         synchronized (this) {
-            if (!today.equals(lastDelayProcessingDate)) {
+            if (!overdueSweepHeld && !today.equals(lastDelayProcessingDate)) {
                 processAllDelayedGoals();
                 lastDelayProcessingDate = today;
             }
@@ -403,15 +423,8 @@ public class StudyService {
     }
 
     public void endStudySession(StudySession session, StudySessionEnd endDetails) {
-        // Apply user input from dialog to the session
-        session.setFocusLevel(endDetails.getFocusLevel());
-        session.setNotes(endDetails.getNotes());
-        
-        // End the session (calculates points, sets timestamps)
-        session.endSession();
-        
-        // Save to database
-        session.save();
+        // Calculates points and timestamps; a failed save leaves the session running.
+        session.endAndSave(endDetails.getFocusLevel(), endDetails.getNotes());
         markDirtyAndSaveLocally("study session completion");
         logger.info("Completed study session {} on {} for {} minutes (focus={})",
                 session.getId(), session.getDate(), session.getDurationMinutes(), session.getFocusLevel());

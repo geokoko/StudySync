@@ -150,8 +150,9 @@ final class CalendarAgenda {
                 : new Entry(kind, attempt.getDescription(), null, null, attempt);
     }
 
-    private static String taskTitle(Task task, Map<String, Task> tasksById) {
-        Task parent = tasksById.get(task.getParentId());
+    /** "Parent / Subtask", or the task's own title when it has no parent in {@code tasksById}. */
+    static String taskTitle(Task task, Map<String, Task> tasksById) {
+        Task parent = task.getParentId() == null ? null : tasksById.get(task.getParentId());
         return parent == null ? task.getTitle() : parent.getTitle() + " / " + task.getTitle();
     }
 

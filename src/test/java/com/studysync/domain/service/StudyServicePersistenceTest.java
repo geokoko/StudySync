@@ -206,6 +206,24 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void aFailedEndLeavesTheSessionRunning() {
+        StudySession session = studyService.startStudySession();
+        // Make only this session's completion fail at the database.
+        jdbcTemplate.execute("ALTER TABLE study_sessions ADD CONSTRAINT refuse_end CHECK (NOT (id = '"
+                + session.getId() + "' AND completed))");
+
+        assertThrows(RuntimeException.class,
+                () -> studyService.endStudySession(session, new StudySessionEnd(5, "Lost")));
+
+        assertTrue(session.isActive());
+        assertFalse(session.isCompleted());
+        assertNull(session.getEndTime());
+        assertNull(session.getNotes());
+        assertEquals(0, session.getPointsEarned());
+        assertTrue(StudySession.findById(session.getId()).orElseThrow().isActive());
+    }
+
+    @Test
     void findByDateRestoresPersistedIncompleteSessionMetadata() {
         LocalDate date = LocalDate.of(2026, 3, 27);
         LocalDateTime lastUpdate = LocalDateTime.of(2026, 3, 27, 18, 45);
@@ -755,6 +773,23 @@ class StudyServicePersistenceTest {
         assertEquals(startTime, restored.getStartTime());
         assertTrue(restored.isActive());
         assertFalse(restored.isCompleted());
+    }
+
+    @Test
+    void readingGoalsDoesNotSweepWhileTheSweepIsHeld() {
+        StudyGoal goal = new StudyGoal("Overdue while Drive is checked");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.save();
+
+        studyService.holdOverdueSweep();
+        studyService.getAllGoalsForDate(LocalDate.of(2026, 3, 27));
+        assertEquals(StudyGoal.AttemptOutcome.PENDING,
+                StudyGoal.findById(goal.getId()).orElseThrow().getAttemptOutcome());
+
+        studyService.releaseOverdueSweep();
+        studyService.getAllGoalsForDate(LocalDate.of(2026, 3, 27));
+        assertEquals(StudyGoal.AttemptOutcome.MISSED,
+                StudyGoal.findById(goal.getId()).orElseThrow().getAttemptOutcome());
     }
 
     @Test

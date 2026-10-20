@@ -247,6 +247,12 @@
     -fx-text-fill: white;
 }
 
+/* Muted text in a list cell. A class, not an inline colour, so that the
+   selected-row rule below can still turn it white. */
+.list-cell .cell-muted {
+    -fx-text-fill: #7f8c8d;
+}
+
 .list-view .list-cell:filled:selected .label {
     -fx-text-fill: white;
 }
@@ -327,6 +333,13 @@
 
 .alert .label {
     -fx-text-fill: #2c3e50;
+}
+
+/* The dialog rules above are at least as specific as `.label .label`, so an icon
+   label used as a graphic inside a dialog needs its own inherit rule. */
+.dialog-pane .label .label,
+.alert .label .label {
+    -fx-text-fill: inherit;
 }
 
 /*
