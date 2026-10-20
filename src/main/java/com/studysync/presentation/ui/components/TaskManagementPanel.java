@@ -211,7 +211,7 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         Label title = new Label(taskTitle(task));
         title.setWrapText(true);
         TaskStyleUtils.fontBold(title, 14);
-        Label meta = detailLabel((task.getDeadline() == null ? "No deadline" : "Due " + task.getDeadline())
+        Label meta = detailLabel(deadlineText(task)
                 + " · " + (task.getPriority() == null ? "No priority" : task.getPriority())
                 + " · " + categoryName(task));
         FlowPane badges = new FlowPane(6, 4, statusBadge(task));
@@ -227,7 +227,7 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         row.setFocusTraversable(true);
         row.setAccessibleRole(javafx.scene.AccessibleRole.BUTTON);
         row.setAccessibleText(taskTitle(task) + ", " + task.getStatus().getDisplayName()
-                + ", " + (task.getDeadline() == null ? "No deadline" : "Due " + task.getDeadline()));
+                + ", " + deadlineText(task));
         row.setMaxWidth(Double.MAX_VALUE);
         row.setMinWidth(0);
         row.getStyleClass().add("task-list-row");
@@ -267,6 +267,12 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         if (changed) detailScroll.setVvalue(0);
     }
 
+    /** A postponed task's deadline is the day it comes back, not when it is due. */
+    private static String deadlineText(Task task) {
+        if (task.getDeadline() == null) return "No deadline";
+        return (task.getStatus() == TaskStatus.POSTPONED ? "Postponed until " : "Due ") + task.getDeadline();
+    }
+
     private void updateSelectionHighlight() {
         taskRows.forEach((id, row) -> row.pseudoClassStateChanged(SELECTED, id.equals(selectedTaskId)));
     }
@@ -297,7 +303,8 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
                 });
             }
             taskDetails.getChildren().addAll(
-                    detailLabel("Due date: " + (task.getDeadline() == null ? "No deadline" : task.getDeadline())),
+                    detailLabel((task.getStatus() == TaskStatus.POSTPONED ? "Postponed until: " : "Due date: ")
+                            + (task.getDeadline() == null ? "No deadline" : task.getDeadline())),
                     detailLabel("Priority: " + (task.getPriority() == null ? "None" : task.getPriority())),
                     detailLabel("Category: " + categoryName(task)),
                     detailLabel("Reminder: " + task.reminderDate().map(date -> date + " ("
@@ -718,7 +725,11 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
                     fields.save(studyService, existingGoal);
                 }
                 closeModal.run();
-                populateGoalHistory(ownerPane, task);
+                if (isNew) {
+                    refreshData(); // planning a goal moves an open task to In progress
+                } else {
+                    populateGoalHistory(ownerPane, task);
+                }
             } catch (Exception ex) {
                 fields.showError(ex.getMessage());
             }
