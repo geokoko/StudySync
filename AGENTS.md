@@ -19,9 +19,9 @@ Google Drive sync. There is no FXML: all UI is built in Java code.
 ## Build
 
 Use the Gradle 8.12.1 wrapper, started with JDK 21 via `JAVA_HOME`. The Java 21
-toolchain only controls compilation; a newer JVM cannot run this Gradle (Java 25
-fails with `Unsupported class file major version 69`). See README, "Build from
-source".
+toolchain only controls compilation, not the JVM that runs Gradle, and Gradle
+8.12.1 cannot run on Java 24 or later (Java 25 fails with `Unsupported class
+file major version 69`). See README, "Build from source".
 
 | Command | Purpose |
 |---|---|
@@ -42,8 +42,10 @@ source".
 ## Persistence
 
 - Active Record: each entity in `domain/entity` holds a static `JdbcTemplate`
-  that `config/ActiveRecordConfig` sets at startup, and all database operations
-  are static methods on the entity classes (`Task.findAll()`, `task.save()`).
+  that `config/ActiveRecordConfig` sets at startup, and does its own database
+  work: queries and bulk updates are static methods (`Task.findAll()`,
+  `Task.updateStatus(...)`), saving or deleting one row is an instance method
+  (`task.save()`).
 - The database is the H2 file `./data/studysync.mv.db`.
 - `schema.sql` runs on every startup (`spring.sql.init.mode: always`), so every
   statement must be safe to re-run: `CREATE TABLE IF NOT EXISTS`,
@@ -89,11 +91,10 @@ Syncs the whole H2 file. OAuth client credentials live in
 - `styles.css` is a scene stylesheet on the main and Profile windows, including
   their modal overlays and owned dialogs (JavaFX binds the owner's
   stylesheets). Its first part forces dark text (`#2c3e50`) on every control,
-  because JavaFX 21's Modena follows OS dark mode and would draw white text on
-  our light backgrounds; `StudySyncUI.start()` also forces
-  `STYLESHEET_MODENA`. Reusable classes (`.btn-*`, `.section-card*`,
-  `.panel-bg*`, `.modal-content*`, `.cal-*`, ...) follow under
-  "APPLICATION CSS CLASSES".
+  so text stays readable on our light backgrounds under a dark desktop theme;
+  `StudySyncUI.start()` also forces `STYLESHEET_MODENA`. Reusable classes
+  (`.btn-*`, `.section-card*`, `.panel-bg*`, `.modal-content*`, `.cal-*`, ...)
+  follow under "APPLICATION CSS CLASSES".
 - Static, reusable styles go in a CSS class (`getStyleClass().add(...)`);
   `setStyle()` is for styles that vary with data (status colors, date-dependent
   cell colors, progress widths).
