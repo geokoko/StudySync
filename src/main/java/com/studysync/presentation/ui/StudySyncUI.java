@@ -85,6 +85,8 @@ public class StudySyncUI {
 
     public void start(Stage primaryStage, javafx.application.HostServices hostServices) {
         Application.setUserAgentStylesheet(Application.STYLESHEET_MODENA);
+        // Building the panels reads goals; runStartupMaintenance releases the sweep.
+        studyService.holdOverdueSweep();
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
         Tab calendarTab = new Tab("Calendar View");
         calendarTab.setGraphic(TaskStyleUtils.iconLabel("\u25A6", 14));
@@ -113,6 +115,8 @@ public class StudySyncUI {
                 panelMap.get(newTab).updateDisplay();
             }
         });
+        // Panels date what they show (today, overdue); redraw the open one when the day changes.
+        dateTimeService.addDateChangeListener(date -> refreshSelectedPanel());
 
         BorderPane mainLayout = new BorderPane();
         HBox header = createHeader();
@@ -152,7 +156,10 @@ public class StudySyncUI {
         primaryStage.show();
 
         resolveDriveSyncOnStartup();
+        refreshSelectedPanel();
+    }
 
+    private void refreshSelectedPanel() {
         Tab selectedTab = tabPane.getSelectionModel().getSelectedItem();
         if (selectedTab != null && panelMap.containsKey(selectedTab)) {
             panelMap.get(selectedTab).updateDisplay();
@@ -323,6 +330,7 @@ public class StudySyncUI {
 
     private void runStartupMaintenance() {
         googleDriveService.runStartupMaintenanceWithoutDirtyTracking(() -> {
+            studyService.releaseOverdueSweep();
             markDelayedTasksOnStartup();
             processDelayedGoalsOnStartup();
             refreshAllPanels();

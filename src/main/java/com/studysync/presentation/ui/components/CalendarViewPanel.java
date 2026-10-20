@@ -635,6 +635,9 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
     }
 
     private boolean acceptsDrop(Dragboard dragboard, LocalDate date) {
+        if (date.isBefore(LocalDate.now())) {
+            return false; // the grid was drawn before midnight
+        }
         if (dragboard.hasContent(GOAL_DRAG)) {
             StudyGoal goal = movableGoals.get((String) dragboard.getContent(GOAL_DRAG));
             return goal != null && !goal.getDate().equals(date);
@@ -690,7 +693,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
                 : deadline.isBefore(today) ? TaskStyleUtils.OVERDUE_COLOR
                 : !deadline.isAfter(today.plusDays(2)) ? TaskStyleUtils.DUE_TODAY_COLOR
                 : TaskStyleUtils.COLOR_MUTED;
-        return PlanningRow.create(CalendarAgenda.taskTitle(task, tasksById), dueHint(deadline, today), color,
+        return PlanningRow.create(taskTitle(task), dueHint(deadline, today), color,
                 "Drag onto a day, double-click, or press Enter to plan for the selected day.",
                 TASK_DRAG, task.getId(),
                 () -> showAddGoalDialog(selectedDate.isBefore(today) ? today : selectedDate, task));
@@ -859,7 +862,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         line.setAlignment(Pos.CENTER_LEFT);
         line.getStyleClass().add("cal-task-line");
         if (entry.task() != null && entry.task().getCategory() != null && !entry.task().getCategory().isBlank()) {
-            Tooltip.install(line, new Tooltip(entry.task().getTitle() + "\nCategory: " + entry.task().getCategory()));
+            Tooltip.install(line, new Tooltip(entry.title() + "\nCategory: " + entry.task().getCategory()));
         }
         return line;
     }
@@ -1149,7 +1152,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
 
         goalBox.getChildren().addAll(statusLabel, descriptionLabel);
         if (linkedTask != null) {
-            Label taskLabel = new Label("Task: " + linkedTask.getTitle());
+            Label taskLabel = new Label("Task: " + taskTitle(linkedTask));
             wrap(taskLabel);
             TaskStyleUtils.fontSemiBold(taskLabel, 11);
             TaskStyleUtils.textColor(taskLabel, TaskStyleUtils.COLOR_PURPLE);
@@ -1379,14 +1382,14 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             @Override
             protected void updateItem(Task item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? "None" : item.getTitle());
+                setText(empty || item == null ? "None" : taskTitle(item));
             }
         });
         taskCombo.setButtonCell(new ListCell<>() {
             @Override
             protected void updateItem(Task item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? "None" : item.getTitle());
+                setText(empty || item == null ? "None" : taskTitle(item));
             }
         });
         if (task != null) {
@@ -1418,7 +1421,11 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         });
 
         dialog.showAndWait().ifPresent(goalDescription -> {
-            if (!goalDescription.isEmpty()) {
+            if (date.isBefore(LocalDate.now())) {
+                // The dialog was opened before midnight; goals are never planned into the past.
+                showError("Failed to add study goal", date + " has passed. Plan the goal for today or later.");
+                refresh();
+            } else if (!goalDescription.isEmpty()) {
                 try {
                     Task linkedTask = taskCombo.getValue();
                     studyService.addStudyGoal(goalDescription, date,
@@ -1430,6 +1437,10 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
                 }
             }
         });
+    }
+
+    private String taskTitle(Task task) {
+        return CalendarAgenda.taskTitle(task, tasksById);
     }
 
     private void showError(String header, String message) {
