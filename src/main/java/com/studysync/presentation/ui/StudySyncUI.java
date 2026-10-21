@@ -69,6 +69,8 @@ public class StudySyncUI {
     private Button syncStatusBadge;
     /** Bumped on every badge update; stale async checks compare against it. FX thread only. */
     private int syncBadgeGeneration;
+    /** Deferred startup maintenance runs once, even if sync is checked repeatedly. FX thread only. */
+    private boolean startupMaintenanceComplete;
 
     @Autowired
     public StudySyncUI(TaskService taskService,
@@ -248,7 +250,7 @@ public class StudySyncUI {
                 + "-fx-text-fill: " + textColor + ";";
     }
 
-    /** Re-checks Drive sync state off the FX thread and updates the header badge. */
+    /** Re-checks Drive sync state and resumes maintenance after a startup conflict is resolved. */
     private void refreshSyncStatusBadge() {
         // Stale-result fence: only the newest in-flight check may update the
         // badge, so a check started before sign-out can't resurface it.
@@ -261,8 +263,14 @@ public class StudySyncUI {
                     if (generation != syncBadgeGeneration) {
                         return;
                     }
-                    applySyncStatusBadge(error != null
-                            ? GoogleDriveService.SyncStatus.UNKNOWN : status);
+                    GoogleDriveService.SyncStatus resolvedStatus = error != null
+                            ? GoogleDriveService.SyncStatus.UNKNOWN : status;
+                    applySyncStatusBadge(resolvedStatus);
+                    switch (resolvedStatus) {
+                        case UP_TO_DATE, LOCAL_NEWER, DISABLED -> runStartupMaintenance();
+                        // An unknown result cannot establish that an earlier conflict was resolved.
+                        default -> { }
+                    }
                 }));
     }
 
@@ -313,8 +321,12 @@ public class StudySyncUI {
             return;
         }
 
+        int generation = ++syncBadgeGeneration;
         CompletableFuture.supplyAsync(googleDriveService::checkSyncStatus)
                 .whenComplete((status, error) -> Platform.runLater(() -> {
+                    if (generation != syncBadgeGeneration) {
+                        return;
+                    }
                     if (error != null) {
                         logger.warn("Failed to resolve startup Drive sync state", error);
                         handleStartupSyncStatus(GoogleDriveService.SyncStatus.UNKNOWN);
@@ -338,10 +350,16 @@ public class StudySyncUI {
     }
 
     private void runStartupMaintenance() {
+        // Check at the point of mutation: a download may have been staged while a check was in flight.
+        if (startupMaintenanceComplete || googleDriveService.hasPendingDownload()
+                || googleDriveService.hasFailedPendingDownload()) {
+            return;
+        }
         googleDriveService.runStartupMaintenanceWithoutDirtyTracking(() -> {
             studyService.releaseOverdueSweep();
             markDelayedTasksOnStartup();
             processDelayedGoalsOnStartup();
+            startupMaintenanceComplete = true;
             refreshAllPanels();
         });
     }
@@ -415,7 +433,7 @@ public class StudySyncUI {
 
         profileStage.setScene(profileScene);
         // Drive actions (upload/download/sign-in) happen in the Profile window,
-        // so the header badge re-checks once it closes.
+        // so re-check once it closes and resume any deferred maintenance when safe.
         profileStage.setOnHidden(e -> refreshSyncStatusBadge());
         profileStage.setMinWidth(900);
         profileStage.setMinHeight(600);
