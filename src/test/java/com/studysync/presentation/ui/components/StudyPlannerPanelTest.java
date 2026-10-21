@@ -151,6 +151,29 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void aLongSessionGoalDoesNotWidenThePlannerPastTheSmallestWindow() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.goal.setDescription("Revise the introduction and tighten every paragraph ".repeat(8));
+                StudySession running = new StudySession();
+                running.setGoalId(fixture.goal.getId());
+                running.setTaskId(fixture.child.getId());
+                running.startSession();
+                when(fixture.study.getActiveSession()).thenReturn(Optional.of(running));
+
+                StudyPlannerPanel panel = fixture.panel();
+                Scene scene = new Scene(panel, 900, 600);
+                scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+                panel.applyCss();
+                panel.layout();
+
+                // 900 is the main window's minimum width.
+                assertTrue(panel.getTop().minWidth(-1) < 900, "session bar min width " + panel.getTop().minWidth(-1));
+            }
+        });
+    }
+
+    @Test
     void stoppedSessionSaveFailureKeepsTimerAndDialogAvailable() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {

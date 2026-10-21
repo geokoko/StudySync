@@ -13,6 +13,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiPredicate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,6 +52,18 @@ class CalendarAgendaTest {
         assertEquals("Thesis", CalendarAgenda.taskTitle(parent, Map.of()));
         assertEquals("Introduction", CalendarAgenda.taskTitle(child, Map.of()));
         assertEquals("Thesis / Introduction", CalendarAgenda.taskTitle(child, Map.of("parent", parent)));
+    }
+
+    @Test
+    void aSubtasksGoalCoversItsParentButNotItsSiblings() {
+        Task parent = task("parent", "Thesis", null, TaskStatus.OPEN);
+        Task planned = task("planned", "Introduction", null, TaskStatus.OPEN);
+        Task sibling = task("sibling", "Proofread", null, TaskStatus.OPEN);
+        planned.setParentId(parent.getId());
+        sibling.setParentId(parent.getId());
+        assertEquals(Set.of("planned", "parent"),
+                CalendarAgenda.withParents(Set.of("planned"), List.of(parent, planned, sibling)));
+        assertEquals(Set.of("parent"), CalendarAgenda.withParents(Set.of("parent"), List.of(parent, planned, sibling)));
     }
 
     @Test

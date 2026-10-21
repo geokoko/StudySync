@@ -663,7 +663,8 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         toPlanList.getChildren().clear();
         List<Task> unplanned = List.of();
         try {
-            Set<String> planned = studyService.getTaskIdsWithPlannedGoals();
+            Set<String> planned = CalendarAgenda.withParents(studyService.getTaskIdsWithPlannedGoals(),
+                    tasksById.values());
             // Recurring tasks are left out: their schedule already plans them.
             unplanned = tasksById.values().stream()
                     .filter(task -> CalendarAgenda.isActive(task.getStatus()))

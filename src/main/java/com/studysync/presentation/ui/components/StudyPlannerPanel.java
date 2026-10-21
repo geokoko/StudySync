@@ -308,7 +308,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
     }
 
     private void createSessionBar() {
-        FlowPane bar = new FlowPane(12, 8);
+        // An HBox, not a FlowPane: a FlowPane is at least as wide as its widest child's
+        // preferred width, so a long goal name would set the whole planner's minimum width.
+        HBox bar = new HBox(12);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.getStyleClass().add("planner-session-bar");
         startSessionBtn = new Button("Start Session");

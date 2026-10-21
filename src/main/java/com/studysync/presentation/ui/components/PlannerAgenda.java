@@ -9,7 +9,6 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,10 +60,9 @@ final class PlannerAgenda {
                              List<MissedOccurrence> missed, BiPredicate<Task, LocalDate> isOccurrence) {
         Map<String, Task> tasksById = new LinkedHashMap<>();
         tasks.forEach(task -> tasksById.putIfAbsent(task.getId(), task));
-        Set<String> plannedTasks = attempts.stream().filter(goal -> date.equals(goal.getDate()))
-                .map(StudyGoal::getTaskId).collect(Collectors.toCollection(HashSet::new));
-        tasksById.values().stream().filter(task -> task.getParentId() != null && plannedTasks.contains(task.getId()))
-                .map(Task::getParentId).toList().forEach(plannedTasks::add);
+        Set<String> plannedTasks = CalendarAgenda.withParents(attempts.stream()
+                .filter(goal -> date.equals(goal.getDate()))
+                .map(StudyGoal::getTaskId).collect(Collectors.toSet()), tasksById.values());
         Set<String> plannedGoals = attempts.stream().filter(goal -> date.equals(goal.getDate()))
                 .map(StudyGoal::getId).collect(Collectors.toSet());
         Map<String, List<StudyGoal>> retriesByTask = new LinkedHashMap<>();
