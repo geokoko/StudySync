@@ -758,8 +758,13 @@
 }
 
 .planner-goal-row {
-    -fx-padding: 12;
-    -fx-background-radius: 5;
+    -fx-padding: 8 10 8 10;
+    -fx-background-radius: 6;
+}
+
+/* Planning tiles (Needs a plan): size comes from their TilePane */
+.plan-tile {
+    -fx-padding: 8 10 8 10;
 }
 
 .planner-progress {

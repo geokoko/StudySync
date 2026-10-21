@@ -55,6 +55,38 @@ class CalendarAgendaTest {
     }
 
     @Test
+    void aDayCellShowsOneLinePerTaskWithItsGoalsCounted() {
+        Task essay = task("essay", "Essay", TODAY, TaskStatus.OPEN);
+        Task reading = task("reading", "Reading", null, TaskStatus.OPEN);
+        StudyGoal outline = goal("Outline", essay.getId(), TODAY, true, false);
+        StudyGoal draft = goal("Draft", essay.getId(), TODAY, false, false);
+        StudyGoal chapter = goal("Chapter 3", reading.getId(), TODAY, false, false);
+        StudyGoal desk = goal("Tidy desk", null, TODAY, false, false);
+        StudyGoal mail = goal("Answer mail", null, TODAY, false, false);
+        List<Entry> day = build(List.of(essay, reading), List.of(outline, draft, chapter, desk, mail)).get(TODAY);
+
+        List<CalendarAgenda.TaskLine> lines = CalendarAgenda.byTask(day);
+
+        assertEquals(List.of("Essay · 1 of 2 goals done", "Goals without a task · 2 goals", "Reading · 1 goal"),
+                lines.stream().map(CalendarAgenda.TaskLine::text).toList());
+        assertEquals(Kind.DUE, lines.getFirst().kind());
+        assertEquals(2, lines.getFirst().goals().size());
+        assertNull(lines.getFirst().movableGoal(), "a deadline line folded with goals is not dragged");
+        assertEquals(chapter, lines.get(2).movableGoal());
+    }
+
+    @Test
+    void aLoneGoalWithoutATaskKeepsItsOwnTitleAndALateTaskKeepsItsLateness() {
+        Task late = task("late", "Report", TODAY.minusDays(2), TaskStatus.OPEN);
+        StudyGoal fix = goal("Fix figures", late.getId(), TODAY, false, false);
+        StudyGoal desk = goal("Tidy desk", null, TODAY, true, false);
+        List<Entry> day = build(List.of(late), List.of(fix, desk)).get(TODAY);
+
+        assertEquals(List.of("Report · 2d late · 1 goal", "Tidy desk"),
+                CalendarAgenda.byTask(day).stream().map(CalendarAgenda.TaskLine::text).toList());
+    }
+
+    @Test
     void aSubtasksGoalCoversItsParentButNotItsSiblings() {
         Task parent = task("parent", "Thesis", null, TaskStatus.OPEN);
         Task planned = task("planned", "Introduction", null, TaskStatus.OPEN);

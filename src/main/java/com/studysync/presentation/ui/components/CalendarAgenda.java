@@ -69,8 +69,34 @@ final class CalendarAgenda {
         }
     }
 
+    /**
+     * What a day cell shows for one task: every line of that day about the
+     * task, folded into one (goals become a count). Goals without a task share
+     * a line. The day panel still lists each entry.
+     *
+     * @param kind    the most pressing of the folded entries
+     * @param entries the folded entries, in display order
+     */
+    record TaskLine(Kind kind, String title, String detail, Task task, List<Entry> entries) {
+
+        List<StudyGoal> goals() {
+            return entries.stream().map(Entry::goal).filter(goal -> goal != null).toList();
+        }
+
+        /** The goal a drag moves: only a line that is nothing but one pending goal can be dragged. */
+        StudyGoal movableGoal() {
+            return entries.size() == 1 && entries.getFirst().movable() ? entries.getFirst().goal() : null;
+        }
+
+        String text() {
+            return detail == null ? title : title + " · " + detail;
+        }
+    }
+
     private static final Comparator<Entry> DISPLAY_ORDER = Comparator.comparing(Entry::kind)
             .thenComparing(Entry::title, String.CASE_INSENSITIVE_ORDER);
+    private static final Comparator<TaskLine> LINE_ORDER = Comparator.comparing(TaskLine::kind)
+            .thenComparing(TaskLine::title, String.CASE_INSENSITIVE_ORDER);
 
     private CalendarAgenda() {
     }
@@ -162,6 +188,44 @@ final class CalendarAgenda {
         return task != null
                 ? new Entry(kind, taskTitle(task, tasksById), attempt.getDescription(), task, attempt)
                 : new Entry(kind, attempt.getDescription(), null, null, attempt);
+    }
+
+    /** One line per task for a day's entries, most pressing first; see {@link TaskLine}. */
+    static List<TaskLine> byTask(List<Entry> day) {
+        Map<String, List<Entry>> groups = new LinkedHashMap<>();
+        for (Entry entry : day) {
+            String key = entry.task() != null ? "task:" + entry.task().getId() : "unlinked";
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
+        }
+        List<TaskLine> lines = new ArrayList<>();
+        groups.values().forEach(entries -> {
+            entries.sort(DISPLAY_ORDER);
+            Entry first = entries.getFirst();
+            List<String> details = new ArrayList<>();
+            entries.stream().filter(entry -> entry.kind() == Kind.OVERDUE).findFirst()
+                    .ifPresent(entry -> details.add(entry.detail()));
+            long goals = entries.stream().filter(entry -> entry.goal() != null).count();
+            long done = entries.stream().filter(entry -> entry.kind() == Kind.GOAL_ACHIEVED).count();
+            String title = first.task() != null ? first.title()
+                    : goals == 1 ? first.title() : "Goals without a task";
+            if (first.task() != null || goals > 1) {
+                if (done == goals && goals > 0) {
+                    details.add(count(goals, "goal") + " done");
+                } else if (done > 0) {
+                    details.add(done + " of " + count(goals, "goal") + " done");
+                } else if (goals > 0) {
+                    details.add(count(goals, "goal"));
+                }
+            }
+            lines.add(new TaskLine(first.kind(), title, details.isEmpty() ? null : String.join(" · ", details),
+                    first.task(), List.copyOf(entries)));
+        });
+        lines.sort(LINE_ORDER);
+        return lines;
+    }
+
+    private static String count(long n, String noun) {
+        return n + " " + noun + (n == 1 ? "" : "s");
     }
 
     /** "Parent / Subtask", or the task's own title when it has no parent in {@code tasksById}. */

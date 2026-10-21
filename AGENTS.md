@@ -137,7 +137,9 @@ Syncs the whole H2 file. OAuth client credentials live in
 - What a calendar day lists is decided by `CalendarAgenda` alone, never by
   `TaskService.getTasksForDate`: that answers the planner's question, so it
   repeats a late task on every day and judges past days by today's status. The
-  rules are in `CalendarAgenda`'s class doc.
+  rules are in `CalendarAgenda`'s class doc. A day cell folds those lines into
+  one per task with a goal count (`CalendarAgenda.byTask`); the day panel still
+  lists every goal.
 - Task-list urgency and family ordering are decided by `TaskListAgenda`.
   Its class doc defines family/filter placement and the seven-day window;
   recurring tasks without a deadline stay in No deadline.

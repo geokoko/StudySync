@@ -11,6 +11,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 /** Shared task-to-goal interaction for the calendar and daily planner. */
@@ -26,33 +27,65 @@ final class PlanningRow {
         name.setWrapText(true);
         name.setMinWidth(0);
         name.setMaxWidth(Double.MAX_VALUE);
-        Label detail = new Label(reason);
-        TaskStyleUtils.fontNormal(detail, 11);
-        TaskStyleUtils.textColor(detail, color);
-        detail.setWrapText(true);
-        VBox text = new VBox(4, name, detail);
+        VBox text = new VBox(4, name, reasonLabel(reason, color));
         text.setMinWidth(0);
         HBox.setHgrow(text, Priority.ALWAYS);
         HBox row = new HBox(text);
         row.setAlignment(Pos.CENTER_LEFT);
-        row.getStyleClass().add("cal-plan-item");
-        row.setFocusTraversable(true);
-        row.setAccessibleText(title + ". " + reason + ". " + hint);
-        Tooltip.install(row, new Tooltip(title + "\n" + reason + "\n\n" + hint));
-        makeDraggable(row, format, id);
-        row.setOnMouseClicked(event -> {
+        install(row, title, reason, hint, format, id, plan);
+        return row;
+    }
+
+    /**
+     * The same item as a fixed-size tile, for a grid: the title takes up to three
+     * lines and the reason sits at the bottom, so tiles in a row line up.
+     */
+    static VBox tile(String title, String reason, String color, String hint,
+                     DataFormat format, String id, Runnable plan) {
+        Label name = new Label(title);
+        TaskStyleUtils.fontSemiBold(name, 12);
+        name.setWrapText(true);
+        name.setMinHeight(0);
+        name.setMaxHeight(Double.MAX_VALUE);
+        VBox.setVgrow(name, Priority.ALWAYS);
+        name.setAlignment(Pos.TOP_LEFT);
+        Label detail = reasonLabel(reason, color);
+        detail.setMinHeight(Region.USE_PREF_SIZE);
+        VBox tile = new VBox(6, name, detail);
+        tile.getStyleClass().add("plan-tile");
+        install(tile, title, reason, hint, format, id, plan);
+        return tile;
+    }
+
+    private static Label reasonLabel(String reason, String color) {
+        Label detail = new Label(reason);
+        TaskStyleUtils.fontNormal(detail, 11);
+        TaskStyleUtils.textColor(detail, color);
+        detail.setWrapText(true);
+        return detail;
+    }
+
+    private static void install(Region item, String title, String reason, String hint,
+                                DataFormat format, String id, Runnable plan) {
+        item.getStyleClass().add("cal-plan-item");
+        item.setFocusTraversable(true);
+        item.setAccessibleText(title + ". " + reason + ". " + hint);
+        Tooltip.install(item, new Tooltip(title + "\n" + reason + "\n\n" + hint));
+        if (format != null) {
+            makeDraggable(item, format, id);
+        }
+        item.setOnMouseClicked(event -> {
             if (event.getClickCount() == 2 && event.isStillSincePress()) {
                 plan.run();
                 event.consume();
             }
         });
-        row.setOnKeyPressed(event -> {
+        item.setOnKeyPressed(event -> {
             if (event.getCode() == KeyCode.ENTER || event.getCode() == KeyCode.SPACE) {
                 plan.run();
                 event.consume();
             }
         });
-        return row;
     }
 
     static void makeDraggable(Node node, DataFormat format, String id) {
