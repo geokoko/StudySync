@@ -277,6 +277,12 @@
     -fx-tab-max-width: 150px;
 }
 
+/* The calendar's side panel is narrower than two of the main window's tabs */
+.tab-pane.cal-sidebar {
+    -fx-tab-min-width: 0;
+    -fx-tab-max-width: 200px;
+}
+
 .tab {
     -fx-background-color: #ecf0f1;
     -fx-text-fill: #2c3e50;
@@ -545,9 +551,12 @@
 }
 
 /* TRANSPARENT CONTAINERS */
-.transparent-bg {
+/* Clears the backgrounds only. Redefining -fx-background instead would also turn
+   every Modena colour derived from it (tab headers, separators, borders) black in
+   everything below, such as the calendar's side panel. */
+.transparent-bg,
+.transparent-bg > .viewport {
     -fx-background-color: transparent;
-    -fx-background: transparent;
 }
 
 /* CALENDAR
