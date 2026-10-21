@@ -10,6 +10,7 @@ import com.studysync.domain.entity.Task;
 import com.studysync.domain.entity.DailyReflection;
 import com.studysync.domain.entity.OffDay;
 import com.studysync.presentation.ui.components.CalendarAgenda.Entry;
+import com.studysync.presentation.ui.components.CalendarAgenda.TaskLine;
 import com.studysync.presentation.ui.components.CalendarAgenda.Kind;
 
 import javafx.application.Platform;
@@ -426,15 +427,16 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             cell.getChildren().add(offDay);
         }
 
-        List<Entry> entries = day.entries();
-        int limit = week ? entries.size() : MONTH_ENTRY_LIMIT;
+        // One line per task; the day panel lists each goal.
+        List<TaskLine> lines = CalendarAgenda.byTask(day.entries());
+        int limit = week ? lines.size() : MONTH_ENTRY_LIMIT;
         // "+1 more" would take the same line as the entry it hides.
-        if (entries.size() == limit + 1) {
+        if (lines.size() == limit + 1) {
             limit++;
         }
-        entries.stream().limit(limit).forEach(entry -> cell.getChildren().add(entryRow(entry, date, today)));
-        if (entries.size() > limit) {
-            Label more = new Label("+" + (entries.size() - limit) + " more");
+        lines.stream().limit(limit).forEach(line -> cell.getChildren().add(entryRow(line, date, today)));
+        if (lines.size() > limit) {
+            Label more = new Label("+" + (lines.size() - limit) + " more");
             more.getStyleClass().add("cal-more");
             cell.getChildren().add(more);
         }
@@ -459,7 +461,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         return cell;
     }
 
-    private Node entryRow(Entry entry, LocalDate date, LocalDate today) {
+    private Node entryRow(TaskLine entry, LocalDate date, LocalDate today) {
         boolean week = viewMode == ViewMode.WEEK;
         Label icon = TaskStyleUtils.iconLabel(entryIcon(entry.kind()), week ? 12 : 10);
         icon.setMinWidth(Region.USE_PREF_SIZE);
@@ -489,8 +491,8 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         row.setMinWidth(0);
         row.getStyleClass().add("cal-entry");
         Tooltip.install(row, new Tooltip(entryTooltip(entry, date, today)));
-        if (entry.movable() && !date.isBefore(today)) {
-            PlanningRow.makeDraggable(row, GOAL_DRAG, entry.goal().getId());
+        if (entry.movableGoal() != null && !date.isBefore(today)) {
+            PlanningRow.makeDraggable(row, GOAL_DRAG, entry.movableGoal().getId());
         }
         return row;
     }
@@ -544,12 +546,17 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         };
     }
 
-    private static String entryTooltip(Entry entry, LocalDate date, LocalDate today) {
-        StringBuilder text = new StringBuilder(entryLabel(entry, date, today)).append('\n').append(entry.title());
-        if (entry.detail() != null) {
-            text.append('\n').append(entry.detail());
+    private static String entryTooltip(TaskLine line, LocalDate date, LocalDate today) {
+        StringBuilder text = new StringBuilder(line.title());
+        for (Entry entry : line.entries()) {
+            text.append("\n").append(entryIcon(entry.kind())).append(' ').append(entryLabel(entry, date, today));
+            if (entry.goal() != null) {
+                text.append(": ").append(entry.goal().getDescription().replaceAll("\\s+", " "));
+            } else if (entry.kind() == Kind.OVERDUE) {
+                text.append(" (").append(entry.detail()).append(')');
+            }
         }
-        if (entry.movable() && !date.isBefore(today)) {
+        if (line.movableGoal() != null && !date.isBefore(today)) {
             text.append("\n\nDrag to another day to move it.");
         }
         return text.toString();

@@ -84,7 +84,10 @@ Syncs the whole H2 file. OAuth client credentials live in
   a newer Drive copy, a conflict, or a staged download pending. Reading goals
   also sweeps overdue attempts, so `StudySyncUI` holds that sweep
   (`StudyService.holdOverdueSweep`) before building the panels and releases it
-  in `runStartupMaintenance`.
+  in `runStartupMaintenance`. If startup defers maintenance, the header re-check
+  (also run when Profile closes) resumes it once sync is up to date, local newer
+  or disabled. An unknown re-check does not resolve an earlier conflict. Pending
+  or failed staged downloads still block maintenance, which runs only once.
 - User-facing flow (manual upload/download in the Profile window, upload offer
   on close): README, "Google Drive Sync Setup".
 
@@ -134,7 +137,12 @@ Syncs the whole H2 file. OAuth client credentials live in
 - What a calendar day lists is decided by `CalendarAgenda` alone, never by
   `TaskService.getTasksForDate`: that answers the planner's question, so it
   repeats a late task on every day and judges past days by today's status. The
-  rules are in `CalendarAgenda`'s class doc.
+  rules are in `CalendarAgenda`'s class doc. A day cell folds those lines into
+  one per task with a goal count (`CalendarAgenda.byTask`); the day panel still
+  lists every goal.
+- Task-list urgency and family ordering are decided by `TaskListAgenda`.
+  Its class doc defines family/filter placement and the seven-day window;
+  recurring tasks without a deadline stay in No deadline.
 - The planner's "Needs a plan" list is decided by `PlannerAgenda` alone (rules
   in its class doc: a subtask's goal also covers its parent, and missed goals
   are retry suggestions only while their task is active). The calendar's "To

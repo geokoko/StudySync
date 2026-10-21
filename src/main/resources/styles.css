@@ -111,8 +111,11 @@
     -fx-text-fill: #2c3e50;
 }
 
-.hyperlink {
+/* The inner text node also carries .text, which the rule above turns dark */
+.hyperlink,
+.hyperlink .text {
     -fx-text-fill: #3498db;
+    -fx-fill: #3498db;
 }
 
 .toggle-button {
@@ -475,6 +478,45 @@
     -fx-padding: 15;
 }
 
+/* TASK LIST AND DETAILS */
+.task-list-row {
+    -fx-background-color: -fx-base;
+    -fx-background-radius: 8;
+    -fx-border-color: #dfe4ea;
+    -fx-border-radius: 8;
+    -fx-padding: 10;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+
+.task-list-row:hover {
+    -fx-background-color: derive(-fx-base, -4%);
+}
+
+.task-list-row:selected {
+    -fx-border-color: #3498db;
+    -fx-border-width: 2;
+    -fx-padding: 9;
+}
+
+.task-list-row:focused {
+    -fx-border-color: #245c85;
+    -fx-border-width: 2;
+    -fx-padding: 9;
+    -fx-border-style: dashed;
+}
+
+.task-details {
+    -fx-background-color: white;
+}
+
+.task-goal-card {
+    -fx-background-color: white;
+    -fx-background-radius: 6;
+    -fx-border-color: #dee2e6;
+    -fx-border-radius: 6;
+}
+
 /* BUTTONS */
 .btn-primary {
     -fx-background-color: #3498db;
@@ -716,8 +758,13 @@
 }
 
 .planner-goal-row {
-    -fx-padding: 12;
-    -fx-background-radius: 5;
+    -fx-padding: 8 10 8 10;
+    -fx-background-radius: 6;
+}
+
+/* Planning tiles (Needs a plan): size comes from their TilePane */
+.plan-tile {
+    -fx-padding: 8 10 8 10;
 }
 
 .planner-progress {
