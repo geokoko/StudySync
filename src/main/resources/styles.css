@@ -727,18 +727,43 @@
     -fx-background-radius: 3;
 }
 
-.cal-plan-item {
+.cal-plan-item,
+.planner-task-row {
     -fx-background-color: white;
     -fx-background-radius: 6;
     -fx-border-color: #dfe4ea;
     -fx-border-radius: 6;
     -fx-padding: 8 10 8 10;
+}
+
+.cal-plan-item {
     -fx-cursor: move;
 }
 
 .cal-plan-item:hover {
     -fx-background-color: #faf5fc;
     -fx-border-color: #9b59b6;
+}
+
+.cal-plan-item:focused,
+.planner-goals:drop {
+    -fx-border-color: #9b59b6;
+    -fx-border-radius: 6;
+}
+
+.planner-session-bar {
+    -fx-background-color: white;
+    -fx-padding: 12 20;
+    -fx-border-color: transparent transparent #dfe4ea transparent;
+}
+
+.planner-goal-row {
+    -fx-padding: 12;
+    -fx-background-radius: 5;
+}
+
+.planner-progress {
+    -fx-accent: #27ae60;
 }
 
 .cal-task-line {

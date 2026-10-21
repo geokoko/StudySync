@@ -7,6 +7,7 @@ import com.studysync.domain.valueobject.TaskStatus;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -80,6 +81,19 @@ final class CalendarAgenda {
      */
     static boolean isActive(TaskStatus status) {
         return status == TaskStatus.OPEN || status == TaskStatus.IN_PROGRESS || status == TaskStatus.DELAYED;
+    }
+
+    /**
+     * The tasks that goals on {@code plannedTaskIds} count as work on: each of
+     * those tasks and, for a subtask, its parent (work on a subtask is work on
+     * the family), never its siblings. Shared by the planner and the calendar's
+     * "To plan" list so the two agree on what is planned.
+     */
+    static Set<String> withParents(Set<String> plannedTaskIds, Collection<Task> tasks) {
+        Set<String> covered = new HashSet<>(plannedTaskIds);
+        tasks.stream().filter(task -> task.getParentId() != null && plannedTaskIds.contains(task.getId()))
+                .forEach(task -> covered.add(task.getParentId()));
+        return covered;
     }
 
     /**
