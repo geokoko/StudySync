@@ -399,7 +399,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         TaskStyleUtils.fontBold(reflectionTitle, 18);
 
         reflectionArea = new TextArea();
-        reflectionArea.setPromptText("What helped you focus today?\nWhat distracted you?\nOne thing to improve tomorrow?");
+        reflectionArea.setPromptText("What helped you focus today? What distracted you? One thing to improve tomorrow?");
         reflectionArea.setPrefRowCount(4);
         reflectionArea.setWrapText(true);
 
@@ -832,9 +832,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         String missedOn = goal.getDate() != null
                 ? goal.getDate().format(DateTimeFormatter.ofPattern("MMM d"))
                 : "previous attempt";
-        int nextAttempt = Math.max(goal.getAttemptNumber() + 1, goal.getMissedAttemptCount() + 2);
+        // Retry rows show the goal's latest attempt, so the retry is the one after it.
         return "Missed " + missedOn + " - " + formatAttemptSummary(goal)
-                + " - next attempt " + nextAttempt;
+                + " - next attempt " + (goal.getAttemptNumber() + 1);
     }
 
     private HBox buildGoalRow(StudyGoal goal, Task linkedTask) {

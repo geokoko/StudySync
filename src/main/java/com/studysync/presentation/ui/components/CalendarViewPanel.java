@@ -21,6 +21,7 @@ import javafx.scene.input.DataFormat;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.*;
+import javafx.scene.text.Text;
 import javafx.event.ActionEvent;
 import javafx.scene.Node;
 
@@ -81,7 +82,6 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
     // Calendar layout constants
     private static final int MONTH_ENTRY_LIMIT = 4;
     private static final double MONTH_CELL_MIN_HEIGHT = 112;
-    private static final double WEEK_CELL_MIN_HEIGHT = 360;
     private static final double SIDEBAR_WIDTH = 360;
 
     // Off day (holiday) styling
@@ -252,6 +252,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
 
         sidebar.getTabs().addAll(dayTab, toPlanTab);
         sidebar.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        sidebar.getStyleClass().add("cal-sidebar");
         sidebar.setMinWidth(280);
         sidebar.setPrefWidth(SIDEBAR_WIDTH);
         return sidebar;
@@ -371,7 +372,9 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         for (int row = 0; row < weeks; row++) {
             RowConstraints constraints = new RowConstraints();
             constraints.setVgrow(Priority.ALWAYS);
-            constraints.setMinHeight(viewMode == ViewMode.MONTH ? MONTH_CELL_MIN_HEIGHT : WEEK_CELL_MIN_HEIGHT);
+            // A week lists every entry, so its row is never shorter than its fullest day
+            // (the card scrolls instead); a month shows a few per day and an overflow count.
+            constraints.setMinHeight(viewMode == ViewMode.MONTH ? MONTH_CELL_MIN_HEIGHT : Region.USE_PREF_SIZE);
             calendarGrid.getRowConstraints().add(constraints);
         }
 
@@ -399,9 +402,10 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         cell.pseudoClassStateChanged(OFF, day.offDayLabel() != null);
         cell.pseudoClassStateChanged(SELECTED, date.equals(selectedDate));
 
-        Label number = new Label(week ? date.format(DateTimeFormatter.ofPattern("EEE d"))
-                : String.valueOf(date.getDayOfMonth()));
+        // The weekday row above already names the day, and a narrow week column has no room for it twice.
+        Label number = new Label(String.valueOf(date.getDayOfMonth()));
         number.getStyleClass().add("cal-day-number");
+        number.setMinWidth(Region.USE_PREF_SIZE);
         Region headerSpacer = new Region();
         HBox.setHgrow(headerSpacer, Priority.ALWAYS);
         HBox header = new HBox(4, number, headerSpacer);
@@ -409,6 +413,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         if (day.score().minutes() > 0) {
             Label minutes = new Label(formatStudyTime(day.score().minutes()));
             minutes.getStyleClass().add("cal-minutes");
+            minutes.setMinWidth(Region.USE_PREF_SIZE);
             header.getChildren().add(minutes);
         }
         cell.getChildren().add(header);
@@ -468,7 +473,13 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
                     TaskStyleUtils.textColor(text, TaskStyleUtils.COLOR_MUTED);
             default -> { }
         }
-        text.setWrapText(week);
+        if (week) {
+            // Wrap between words only: a word wider than a narrow column would be split
+            // mid-word, so such an entry gets one line with an ellipsis (the tooltip has it all).
+            text.setWrapText(true);
+            text.widthProperty().addListener((obs, old, width) ->
+                    text.setWrapText(wordsFit(text, width.doubleValue())));
+        }
         text.setMinWidth(0);
         text.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(text, Priority.ALWAYS);
@@ -482,6 +493,18 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             PlanningRow.makeDraggable(row, GOAL_DRAG, entry.goal().getId());
         }
         return row;
+    }
+
+    private static boolean wordsFit(Label label, double width) {
+        Text probe = new Text();
+        probe.setFont(label.getFont());
+        for (String word : label.getText().split("\\s+")) {
+            probe.setText(word);
+            if (probe.getLayoutBounds().getWidth() > width) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String entryIcon(Kind kind) {
