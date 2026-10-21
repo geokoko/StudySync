@@ -56,10 +56,12 @@
  * Modena's ladder() functions compute from the OS theme.
  * ============================================================
  */
-.label,
-.text {
+/* Labels only, not their inner `.text` node: a label's text is drawn by a
+   child Text whose -fx-fill, when a rule sets it, overwrites the label's
+   -fx-text-fill. A global `.text` rule would therefore make every label
+   colour rule below (muted, selected row, tooltip, calendar) dead. */
+.label {
     -fx-text-fill: #2c3e50;
-    -fx-fill: #2c3e50;
 }
 
 /* An icon label used as another label's graphic takes that label's colour */
@@ -79,7 +81,6 @@
 
 .button .text {
     -fx-text-alignment: center;
-    -fx-fill: inherit;
 }
 
 .button:hover {
@@ -286,6 +287,12 @@
 .tab-pane {
     -fx-tab-min-width: 150px;
     -fx-tab-max-width: 150px;
+}
+
+/* The calendar's side panel is narrower than two of the main window's tabs */
+.tab-pane.cal-sidebar {
+    -fx-tab-min-width: 0;
+    -fx-tab-max-width: 200px;
 }
 
 .tab {
@@ -569,9 +576,12 @@
 }
 
 /* TRANSPARENT CONTAINERS */
-.transparent-bg {
+/* Clears the backgrounds only. Redefining -fx-background instead would also turn
+   every Modena colour derived from it (tab headers, separators, borders) black in
+   everything below, such as the calendar's side panel. */
+.transparent-bg,
+.transparent-bg > .viewport {
     -fx-background-color: transparent;
-    -fx-background: transparent;
 }
 
 /* CALENDAR
