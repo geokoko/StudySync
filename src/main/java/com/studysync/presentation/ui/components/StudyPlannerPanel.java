@@ -74,6 +74,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
     private FlowPane attemptOverviewContainer;
     private VBox goalsContainer;
     private VBox needsPlanContainer;
+    private Label needsPlanHint;
     private VBox unlinkedRetriesContainer;
     private Label goalsTitle;
     private Label sessionsTitle;
@@ -84,6 +85,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
     private final List<Button> goalSessionButtons = new ArrayList<>();
     private static final DataFormat PLAN_DRAG = new DataFormat("application/x-studysync-planner-entry");
     private static final PseudoClass DROP = PseudoClass.getPseudoClass("drop");
+    private static final double PLAN_TILE_WIDTH = 132;
+    private static final double PLAN_TILE_HEIGHT = 92;
     private List<StudyGoal> displayDateAttempts = List.of();
     private Map<String, List<StudyGoal>> displayDateAttemptsByTaskId = Map.of();
     private Set<String> taskIdsWithAttemptsOnDisplayDate = Set.of();
@@ -141,9 +144,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         GridPane columns = new GridPane();
         columns.setHgap(20);
         ColumnConstraints main = new ColumnConstraints();
-        main.setPercentWidth(62);
+        main.setPercentWidth(56);
         ColumnConstraints side = new ColumnConstraints();
-        side.setPercentWidth(38);
+        side.setPercentWidth(44);
         columns.getColumnConstraints().addAll(main, side);
 
         VBox goals = new VBox(12);
@@ -152,12 +155,16 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         goals.setPadding(new Insets(20));
         goalsTitle = new Label();
         TaskStyleUtils.fontBold(goalsTitle, 18);
-        goalsContainer = new VBox(10);
-        unlinkedRetriesContainer = new VBox(8);
         Button addGoal = new Button("+ Add goal");
-        addGoal.getStyleClass().add("btn-purple");
+        addGoal.getStyleClass().addAll("btn-purple", "btn-small");
         addGoal.setOnAction(event -> showAddGoalDialog(null));
-        goals.getChildren().addAll(goalsTitle, goalsContainer, unlinkedRetriesContainer, addGoal);
+        Region goalsHeaderSpacer = new Region();
+        HBox.setHgrow(goalsHeaderSpacer, Priority.ALWAYS);
+        HBox goalsHeader = new HBox(10, goalsTitle, goalsHeaderSpacer, addGoal);
+        goalsHeader.setAlignment(Pos.CENTER_LEFT);
+        goalsContainer = new VBox(8);
+        unlinkedRetriesContainer = new VBox(8);
+        goals.getChildren().addAll(goalsHeader, goalsContainer, unlinkedRetriesContainer);
         installPlanningDropTarget(goals);
 
         VBox sidebar = new VBox(20);
@@ -167,14 +174,16 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         needsPlan.getStyleClass().add("section-card");
         Label title = new Label("Needs a plan");
         TaskStyleUtils.fontBold(title, 18);
-        Label hint = mutedLabel("Drag to Goals, double-click, or press Enter to plan.");
+        needsPlanHint = mutedLabel("");
+        needsPlanHint.setMinHeight(Region.USE_PREF_SIZE);
         needsPlanContainer = new VBox(8);
-        needsPlan.getChildren().addAll(title, hint, needsPlanContainer);
+        needsPlan.getChildren().addAll(title, needsPlanHint, needsPlanContainer);
         sidebar.getChildren().add(needsPlan);
         createSessionSection(sidebar);
         columns.add(goals, 0, 0);
         columns.add(sidebar, 1, 0);
         GridPane.setValignment(goals, javafx.geometry.VPos.TOP);
+        GridPane.setFillHeight(goals, false); // as tall as its goals, not as the other column
         mainContent.getChildren().add(columns);
         createTasksSection(mainContent);
         createReflectionSection(mainContent);
@@ -440,21 +449,30 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         planningEntries = new LinkedHashMap<>();
         needsPlanContainer.getChildren().clear();
         unlinkedRetriesContainer.getChildren().clear();
-        boolean comingUp = false;
+        String taskHint = "Drag a task into " + goalsTitle.getText() + ", or double-click it, to plan it.";
+        needsPlanHint.setText(taskHint);
+        TilePane retries = planTiles();
+        TilePane needed = planTiles();
+        TilePane comingUp = planTiles();
         for (PlannerAgenda.Entry entry : entries) {
             planningEntries.put(entry.key(), entry);
             if (entry.task() == null) {
-                if (unlinkedRetriesContainer.getChildren().isEmpty()) {
-                    unlinkedRetriesContainer.getChildren().add(mutedLabel("Missed goals without a task · ready to retry"));
-                }
-                unlinkedRetriesContainer.getChildren().add(buildPlanningRow(entry));
+                // Already in the goals column, so there is nowhere to drag it.
+                retries.getChildren().add(buildPlanningTile(entry, "Double-click or press Enter to plan a retry.", null));
             } else {
-                if (entry.kind() == PlannerAgenda.Kind.REMINDER && !comingUp) {
-                    needsPlanContainer.getChildren().add(mutedLabel("Coming up"));
-                    comingUp = true;
-                }
-                needsPlanContainer.getChildren().add(buildPlanningRow(entry));
+                (entry.kind() == PlannerAgenda.Kind.REMINDER ? comingUp : needed).getChildren()
+                        .add(buildPlanningTile(entry, taskHint, PLAN_DRAG));
             }
+        }
+        if (!retries.getChildren().isEmpty()) {
+            unlinkedRetriesContainer.getChildren().addAll(
+                    mutedLabel("Missed goals without a task · ready to retry"), retries);
+        }
+        if (!needed.getChildren().isEmpty()) {
+            needsPlanContainer.getChildren().add(needed);
+        }
+        if (!comingUp.getChildren().isEmpty()) {
+            needsPlanContainer.getChildren().addAll(mutedLabel("Coming up"), comingUp);
         }
         if (needsPlanContainer.getChildren().isEmpty()) {
             needsPlanContainer.getChildren().add(mutedLabel("No unplanned work for this day."));
@@ -463,7 +481,17 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         syncSessionControls();
     }
 
-    private Node buildPlanningRow(PlannerAgenda.Entry entry) {
+    /** A grid of same-size planning tiles; it wraps to the column's width. */
+    private static TilePane planTiles() {
+        TilePane tiles = new TilePane(8, 8);
+        tiles.setPrefTileWidth(PLAN_TILE_WIDTH);
+        tiles.setPrefTileHeight(PLAN_TILE_HEIGHT);
+        tiles.setTileAlignment(Pos.TOP_LEFT);
+        tiles.setPrefColumns(2);
+        return tiles;
+    }
+
+    private Node buildPlanningTile(PlannerAgenda.Entry entry, String hint, DataFormat dragFormat) {
         String color = switch (entry.kind()) {
             case OVERDUE, MISSED -> TaskStyleUtils.OVERDUE_COLOR;
             case DUE -> TaskStyleUtils.DUE_TODAY_COLOR;
@@ -471,8 +499,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             case REMINDER -> TaskStyleUtils.REMINDER_COLOR;
             default -> TaskStyleUtils.COLOR_MUTED;
         };
-        return PlanningRow.create(entry.title(), entry.reason(), color,
-                "Drag to Goals, double-click, or press Enter to plan.", PLAN_DRAG, entry.key(),
+        return PlanningRow.tile(entry.title(), entry.reason(), color, hint, dragFormat, entry.key(),
                 () -> planEntry(entry));
     }
 
@@ -866,22 +893,38 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             updateTasksDisplay();
         });
 
-        VBox textBox = new VBox(6);
-        textBox.setMinWidth(0);
+        // Title and actions share the first line; the goal, checklist and attempt sit under the title.
         Label title = new Label(linkedTask != null ? taskTitle(linkedTask) : goal.getDescription());
         title.setWrapText(true);
-        TaskStyleUtils.fontBold(title, 14);
+        title.setMinWidth(0);
+        title.setMaxWidth(Double.MAX_VALUE);
+        TaskStyleUtils.fontBold(title, 13);
         if (missed || goal.isAchieved()) {
             TaskStyleUtils.textColor(title, TaskStyleUtils.COLOR_MUTED);
         }
-        textBox.getChildren().add(title);
-        Label goalLabel = new Label(goal.getDescription());
-        goalLabel.setWrapText(true);
-        if (goal.isAchieved() || missed) {
-            TaskStyleUtils.textColor(goalLabel, TaskStyleUtils.COLOR_MUTED);
+        HBox.setHgrow(title, Priority.ALWAYS);
+        HBox actions = new HBox(6, editGoalButton(goal));
+        actions.setMinWidth(Region.USE_PREF_SIZE);
+        if (!missed && !goal.isAchieved() && displayDate.equals(dateTimeService.getCurrentDate())) {
+            Button start = new Button("Start session");
+            start.getStyleClass().addAll("btn-success", "btn-small");
+            start.setOnAction(event -> startSession(goal));
+            start.setDisable(hasActiveSession());
+            goalSessionButtons.add(start);
+            actions.getChildren().add(start);
         }
-        TaskStyleUtils.fontNormal(goalLabel, 13);
+        HBox titleLine = new HBox(10, title, actions);
+        titleLine.setAlignment(Pos.TOP_LEFT);
+
+        VBox textBox = new VBox(4, titleLine);
+        textBox.setMinWidth(0);
         if (linkedTask != null) {
+            Label goalLabel = new Label(goal.getDescription());
+            goalLabel.setWrapText(true);
+            if (goal.isAchieved() || missed) {
+                TaskStyleUtils.textColor(goalLabel, TaskStyleUtils.COLOR_MUTED);
+            }
+            TaskStyleUtils.fontNormal(goalLabel, 12);
             textBox.getChildren().add(goalLabel);
         }
         if (!goal.getCriteria().isEmpty()) {
@@ -896,18 +939,6 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(attemptLabel, 11);
         textBox.getChildren().add(attemptLabel);
         HBox.setHgrow(textBox, Priority.ALWAYS);
-
-        FlowPane actions = new FlowPane(8, 6);
-        actions.getChildren().add(editGoalButton(goal));
-        if (!missed && !goal.isAchieved() && displayDate.equals(dateTimeService.getCurrentDate())) {
-            Button start = new Button("Start session");
-            start.getStyleClass().addAll("btn-success", "btn-small");
-            start.setOnAction(event -> startSession(goal));
-            start.setDisable(hasActiveSession());
-            goalSessionButtons.add(start);
-            actions.getChildren().add(start);
-        }
-        textBox.getChildren().add(actions);
         row.getChildren().addAll(check, textBox);
         return row;
     }

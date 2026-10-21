@@ -134,7 +134,9 @@ Syncs the whole H2 file. OAuth client credentials live in
 - What a calendar day lists is decided by `CalendarAgenda` alone, never by
   `TaskService.getTasksForDate`: that answers the planner's question, so it
   repeats a late task on every day and judges past days by today's status. The
-  rules are in `CalendarAgenda`'s class doc.
+  rules are in `CalendarAgenda`'s class doc. A day cell folds those lines into
+  one per task with a goal count (`CalendarAgenda.byTask`); the day panel still
+  lists every goal.
 - The planner's "Needs a plan" list is decided by `PlannerAgenda` alone (rules
   in its class doc: a subtask's goal also covers its parent, and missed goals
   are retry suggestions only while their task is active). The calendar's "To
