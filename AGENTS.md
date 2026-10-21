@@ -107,6 +107,9 @@ Syncs the whole H2 file. OAuth client credentials live in
   colour (`.label .label`, repeated for dialogs), so only the outer label needs
   it. Inside a list cell use the `cell-muted` class instead: an inline colour
   would also beat the rule that turns a selected row's text white.
+- Colour a Labeled control through `-fx-text-fill`, never `-fx-fill` on its
+  inner `.text` node: a fill set there overwrites the control's text fill, so a
+  broad `.text` rule silently disables every class-based text colour.
 - Fonts go through the `TaskStyleUtils` font helpers (`fontBold`, `fontEmoji`,
   `iconLabel`, ...), which use inline styles so CSS re-application cannot reset
   them. Task status colors, emoji and badges also come from `TaskStyleUtils`,

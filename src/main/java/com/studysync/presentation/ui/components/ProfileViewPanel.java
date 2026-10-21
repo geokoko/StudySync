@@ -765,7 +765,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             VBox efficiencyCard = createStatCard("Efficiency",
                     String.format("%.1f", score.pointsPerHour()),
                     "Points per hour", "#8e44ad");
-            VBox streakCard = createStatCard("Study Streak", scoringService.getStudyStreak() + " days",
+            int streak = scoringService.getStudyStreak();
+            VBox streakCard = createStatCard("Study Streak", streak + (streak == 1 ? " day" : " days"),
                     "Consecutive days (off days skipped)", "#e67e22");
 
             row2.getChildren().addAll(goalsCard, tasksCard, efficiencyCard, streakCard);
@@ -912,9 +913,9 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             TaskStyleUtils.textColor(productivityLabel, color);
 
             String summary = String.format(
-                "Over the last " + SCORE_WINDOW_DAYS + " days, you've logged %d sessions totaling %d hours. " +
+                "Over the last " + SCORE_WINDOW_DAYS + " days, you've logged %d session%s totaling %.1f hours. " +
                 "Your average focus level is %.1f/5. Keep up the great work and continue building your study habits!",
-                score.sessions(), score.minutes() / 60, score.avgFocus()
+                score.sessions(), score.sessions() == 1 ? "" : "s", score.minutes() / 60.0, score.avgFocus()
             );
 
             int offDays = SCORE_WINDOW_DAYS - score.scoringDays();
