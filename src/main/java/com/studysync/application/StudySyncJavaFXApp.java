@@ -77,7 +77,7 @@ public class StudySyncJavaFXApp extends Application {
             Platform.runLater(() -> {
                 try {
                     studySyncUI = springContext.getBean(StudySyncUI.class);
-                    studySyncUI.start(primaryStage);
+                    studySyncUI.start(primaryStage, getHostServices());
                     logger.info("StudySync application started successfully");
                 } catch (final Exception e) {
                     logger.error("Failed to initialize StudySync UI", e);

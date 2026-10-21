@@ -1,6 +1,11 @@
 package com.studysync.domain.service;
 
 import com.studysync.domain.entity.Task;
+import com.studysync.domain.entity.TaskLink;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.interceptor.TransactionProxyFactoryBean;
+import org.springframework.transaction.support.TransactionTemplate;
+import java.util.Properties;
 import com.studysync.domain.entity.TaskReschedule;
 import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.valueobject.TaskPriority;
@@ -24,6 +29,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 
 class TaskServicePersistenceTest {
 
@@ -32,6 +40,7 @@ class TaskServicePersistenceTest {
     private HikariDataSource dataSource;
     private JdbcTemplate jdbcTemplate;
     private TaskService taskService;
+    private GoogleDriveService googleDriveService;
 
     @BeforeEach
     void setUp() {
@@ -61,6 +70,9 @@ class TaskServicePersistenceTest {
                     completed_at DATE,
                     remind_days_before INTEGER,
                     done_criteria TEXT,
+                    parent_id VARCHAR(50) REFERENCES tasks(id),
+                    estimated_hours INTEGER,
+                    notes TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
@@ -75,10 +87,18 @@ class TaskServicePersistenceTest {
                 )
                 """);
 
+        jdbcTemplate.execute("""
+                CREATE TABLE task_links (
+                    id VARCHAR(50) PRIMARY KEY,
+                    task_id VARCHAR(50) NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    title TEXT, url TEXT NOT NULL, position INTEGER NOT NULL
+                )
+                """);
+        TaskLink.setJdbcTemplate(jdbcTemplate);
         Task.setJdbcTemplate(jdbcTemplate);
         TaskReschedule.setJdbcTemplate(jdbcTemplate);
 
-        GoogleDriveService googleDriveService = mock(GoogleDriveService.class);
+        googleDriveService = mock(GoogleDriveService.class);
         when(googleDriveService.saveLocally()).thenReturn(true);
 
         DateTimeService dateTimeService = mock(DateTimeService.class);
@@ -86,16 +106,383 @@ class TaskServicePersistenceTest {
 
         CategoryService categoryService = mock(CategoryService.class);
         when(categoryService.categoryExists(org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
-        taskService = new TaskService(categoryService, googleDriveService, dateTimeService);
+        TransactionProxyFactoryBean proxy = new TransactionProxyFactoryBean();
+        proxy.setTarget(new TaskService(categoryService, googleDriveService, dateTimeService));
+        proxy.setTransactionManager(new DataSourceTransactionManager(dataSource));
+        Properties attributes = new Properties();
+        attributes.setProperty("*", "PROPAGATION_REQUIRED");
+        proxy.setTransactionAttributes(attributes);
+        proxy.afterPropertiesSet();
+        taskService = (TaskService) proxy.getObject();
     }
 
     @AfterEach
     void tearDown() {
         Task.setJdbcTemplate(null);
+        TaskLink.setJdbcTemplate(null);
         TaskReschedule.setJdbcTemplate(null);
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
         }
+    }
+
+    @Test
+    void hierarchyRejectsSelfGrandchildrenAndMovingAParent() {
+        Task root = savedTask("root", null, TaskStatus.OPEN);
+        Task child = subtask("child", root);
+        assertThrows(ValidationException.class, () -> subtask("grandchild", child));
+        assertThrows(ValidationException.class, () -> taskService.updateTask(root, details(root.getId(), null, null, null, null)));
+        Task other = savedTask("other", null, TaskStatus.OPEN);
+        assertThrows(ValidationException.class, () -> taskService.updateTask(root, details(other.getId(), null, null, null, null)));
+        assertThrows(ValidationException.class, () -> taskService.updateTask(child, details("missing", null, null, null, null)));
+        assertEquals(root.getId(), Task.findById(child.getId()).orElseThrow().getParentId());
+    }
+
+    @Test
+    void recurringTasksCanBeParentsAndChildrenAndBecomeRecurringInAFamily() {
+        Task root = savedTask("root", null, TaskStatus.OPEN);
+        Task child = subtask("child", root);
+        taskService.updateTask(root, new TaskUpdate(null, null, null, null, null, "1:1", TODAY.minusWeeks(2), null));
+        assertFalse(Task.findById(child.getId()).orElseThrow().isRecurring());
+        taskService.updateTask(child, new TaskUpdate(null, null, null, null, null, "2:3"));
+        Task other = savedTask("other", null, TaskStatus.OPEN);
+        taskService.updateTask(other, new TaskUpdate(null, null, null, null, null, "1:4", TODAY.minusWeeks(2), null));
+        taskService.updateTask(other, details(root.getId(), null, null, null, null));
+        assertEquals(root.getId(), Task.findById(other.getId()).orElseThrow().getParentId());
+        assertEquals("1:4", Task.findById(other.getId()).orElseThrow().getRecurringPattern());
+        assertEquals("2:3", Task.findById(child.getId()).orElseThrow().getRecurringPattern());
+        assertEquals("1:1", Task.findById(root.getId()).orElseThrow().getRecurringPattern());
+        assertThrows(ValidationException.class, () -> subtask("grandchild", child));
+        taskService.updateTaskStatus(child, TaskStatus.COMPLETED);
+        taskService.updateTaskStatus(other, TaskStatus.COMPLETED);
+        assertEquals(TaskStatus.OPEN, Task.findById(root.getId()).orElseThrow().getStatus());
+        assertNull(Task.findById(root.getId()).orElseThrow().getCompletedAt());
+        assertEquals(100, Task.progress(Task.findSubtasks(root.getId())).percentage());
+        taskService.updateTaskStatus(other, TaskStatus.OPEN);
+        assertTrue(taskService.taskSurfacesOn(Task.findById(root.getId()).orElseThrow(), TODAY.plusDays(2)));
+        assertTrue(taskService.taskSurfacesOn(Task.findById(other.getId()).orElseThrow(), TODAY.plusDays(5)));
+        taskService.updateTaskStatus(root, TaskStatus.COMPLETED);
+        assertEquals(TODAY, Task.findById(other.getId()).orElseThrow().getCompletedAt());
+        assertFalse(taskService.taskSurfacesOn(Task.findById(root.getId()).orElseThrow(), TODAY.plusDays(2)));
+        assertFalse(taskService.taskSurfacesOn(Task.findById(other.getId()).orElseThrow(), TODAY.plusDays(5)));
+    }
+
+    @Test
+    void creatingAndMovingMixedFamiliesDoesNotInheritRecurrence() {
+        Task recurringParent = new Task("recurring-parent", "Weekly", "", "Study", new TaskPriority(1),
+                null, TaskStatus.OPEN, 0, "1:1", TODAY.minusWeeks(2), TODAY.plusMonths(1));
+        taskService.addTask(recurringParent);
+        Task oneOffChild = subtask("one-off-child", recurringParent);
+        assertFalse(oneOffChild.isRecurring());
+        assertNull(oneOffChild.getStartDate());
+        assertNull(oneOffChild.getRecurrenceEndDate());
+
+        Task oneOffParent = savedTask("one-off-parent", null, TaskStatus.OPEN);
+        Task recurringChild = new Task("recurring-child", "Fortnightly", "", "Study", new TaskPriority(1),
+                null, TaskStatus.OPEN, 0, "2:4", TODAY, TODAY.plusMonths(2));
+        recurringChild.setParentId(oneOffParent.getId());
+        taskService.addTask(recurringChild);
+        assertFalse(Task.findById(oneOffParent.getId()).orElseThrow().isRecurring());
+        taskService.updateTask(recurringChild, details(recurringParent.getId(), null, null, null, null));
+        Task moved = Task.findById(recurringChild.getId()).orElseThrow();
+        assertEquals("2:4", moved.getRecurringPattern());
+        assertEquals(TODAY, moved.getStartDate());
+        assertEquals(TODAY.plusMonths(2), moved.getRecurrenceEndDate());
+        assertEquals("1:1", Task.findById(recurringParent.getId()).orElseThrow().getRecurringPattern());
+    }
+
+    @Test
+    void bothManualCompletionPathsCompleteEveryUnfinishedStatusAndPreserveResolvedChildren() {
+        for (boolean throughForm : List.of(false, true)) {
+            String prefix = throughForm ? "form-" : "card-";
+            Task root = savedTask(prefix + "parent", null, TaskStatus.OPEN);
+            List<TaskStatus> unfinished = List.of(TaskStatus.OPEN, TaskStatus.IN_PROGRESS, TaskStatus.DELAYED, TaskStatus.POSTPONED);
+            for (TaskStatus status : unfinished) {
+                Task child = subtask(prefix + status.name(), root);
+                taskService.updateTaskStatus(child, status);
+                if (status == TaskStatus.POSTPONED) {
+                    taskService.updateTask(child, new TaskUpdate(null, null, null, null, null, "1:1", TODAY, null));
+                }
+            }
+            Task done = subtask(prefix + "done", root);
+            done.setRecurringPattern("1:1");
+            done.updateStatus(TaskStatus.COMPLETED);
+            done.setCompletedAt(TODAY.minusDays(2));
+            done.save();
+            Task cancelled = subtask(prefix + "cancelled", root);
+            cancelled.setRecurringPattern("1:1");
+            cancelled.save();
+            taskService.updateTaskStatus(cancelled, TaskStatus.CANCELLED);
+            assertEquals(new TaskService.CompletionPreview(4, 1), taskService.previewTaskCompletion(root));
+            if (throughForm) {
+                taskService.updateTask(root, details(null, null, "Saved with completion", null, TaskStatus.COMPLETED));
+            } else {
+                taskService.updateTaskStatus(root, TaskStatus.COMPLETED);
+            }
+            assertEquals(TODAY, Task.findById(root.getId()).orElseThrow().getCompletedAt());
+            for (TaskStatus status : unfinished) {
+                Task child = Task.findById(prefix + status.name()).orElseThrow();
+                assertEquals(TaskStatus.COMPLETED, child.getStatus());
+                assertEquals(TODAY, child.getCompletedAt());
+                assertFalse(taskService.taskSurfacesOn(child, TODAY.plusDays(2)));
+            }
+            assertEquals("1:1", Task.findById(prefix + TaskStatus.POSTPONED.name()).orElseThrow().getRecurringPattern());
+            assertEquals(TODAY.minusDays(2), Task.findById(done.getId()).orElseThrow().getCompletedAt());
+            assertEquals(TaskStatus.CANCELLED, Task.findById(cancelled.getId()).orElseThrow().getStatus());
+            assertNull(Task.findById(cancelled.getId()).orElseThrow().getCompletedAt());
+            assertEquals(new TaskService.CompletionPreview(0, 0), taskService.previewTaskCompletion(root));
+        }
+    }
+
+    @Test
+    void lastCompletionCompletesParentOnSameDateAndReopeningClearsIt() {
+        Task root = savedTask("root", null, TaskStatus.OPEN);
+        Task first = subtask("first", root);
+        Task last = subtask("last", root);
+        Task cancelled = subtask("cancelled", root);
+        taskService.updateTaskStatus(cancelled, TaskStatus.CANCELLED);
+        taskService.updateTaskStatus(first, TaskStatus.COMPLETED);
+        assertEquals(TaskStatus.OPEN, Task.findById(root.getId()).orElseThrow().getStatus());
+        assertEquals(new Task.Progress(1, 2), Task.progress(Task.findSubtasks(root.getId())));
+        assertEquals(50, Task.progress(Task.findSubtasks(root.getId())).percentage());
+        taskService.updateTaskStatus(last, TaskStatus.COMPLETED);
+        assertEquals(TODAY, Task.findById(root.getId()).orElseThrow().getCompletedAt());
+        assertEquals(TODAY, Task.findById(last.getId()).orElseThrow().getCompletedAt());
+        assertEquals(100, Task.progress(Task.findSubtasks(root.getId())).percentage());
+        taskService.updateTaskStatus(root, TaskStatus.POSTPONED);
+        taskService.updateTask(first, details(null, null, "An annotation is not a completion event", null, null));
+        assertEquals(TaskStatus.POSTPONED, Task.findById(root.getId()).orElseThrow().getStatus());
+        taskService.updateTaskStatus(root, TaskStatus.COMPLETED);
+        taskService.updateTaskStatus(first, TaskStatus.OPEN);
+        assertEquals(TaskStatus.OPEN, Task.findById(root.getId()).orElseThrow().getStatus());
+        assertNull(Task.findById(root.getId()).orElseThrow().getCompletedAt());
+    }
+
+    @Test
+    void addingWorkReopensCompletedParentAndCancellationDoesNotCreateEmptyProgress() {
+        Task root = savedTask("root", null, TaskStatus.OPEN);
+        taskService.updateTaskStatus(root, TaskStatus.COMPLETED);
+        Task child = subtask("child", root);
+        assertEquals(TaskStatus.OPEN, Task.findById(root.getId()).orElseThrow().getStatus());
+        taskService.updateTaskStatus(child, TaskStatus.CANCELLED);
+        assertEquals(new Task.Progress(0, 0), Task.progress(Task.findSubtasks(root.getId())));
+        assertEquals(0, Task.progress(Task.findSubtasks(root.getId())).percentage());
+        taskService.updateTaskStatus(root, TaskStatus.COMPLETED);
+        assertEquals(TaskStatus.CANCELLED, Task.findById(child.getId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void completionAndDirtyTrackingWaitForTheSameCommit() {
+        Task root = savedTask("root", null, TaskStatus.OPEN);
+        Task child = subtask("child", root);
+        clearInvocations(googleDriveService);
+        TransactionTemplate transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        transaction.executeWithoutResult(status -> {
+            taskService.updateTaskStatus(root, TaskStatus.COMPLETED);
+            assertEquals(TaskStatus.COMPLETED, Task.findById(root.getId()).orElseThrow().getStatus());
+            verify(googleDriveService, never()).markLocalDbDirty();
+            status.setRollbackOnly();
+        });
+        assertEquals(TaskStatus.OPEN, Task.findById(root.getId()).orElseThrow().getStatus());
+        assertEquals(TaskStatus.OPEN, Task.findById(child.getId()).orElseThrow().getStatus());
+        verify(googleDriveService, never()).markLocalDbDirty();
+        taskService.updateTaskStatus(root, TaskStatus.COMPLETED);
+        verify(googleDriveService).markLocalDbDirty();
+    }
+
+    @Test
+    void parentDeletionChecksCountThenDeletesChildrenWithNormalDependentRowSemantics() {
+        Task root = savedTask("root", null, TaskStatus.OPEN);
+        Task child = subtask("child", root);
+        Task cancelled = subtask("cancelled", root);
+        taskService.updateTaskStatus(cancelled, TaskStatus.CANCELLED);
+        createDeletionDependencies(List.of(root, child, cancelled));
+        assertEquals(new TaskService.DeletionPreview(3, 2), taskService.previewTaskDeletion(List.of(root.getId())));
+        assertThrows(ValidationException.class, () -> taskService.removeTask(root, 1));
+        assertEquals(3, Task.findAll().size());
+        taskService.removeTask(root, 2);
+        assertTrue(Task.findAll().isEmpty());
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM task_links", Integer.class));
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM task_reschedules", Integer.class));
+        assertEquals(3, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM study_goals WHERE task_id IS NULL", Integer.class));
+        assertEquals(3, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM study_goal_attempts", Integer.class));
+        assertEquals(3, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM study_sessions WHERE task_id IS NULL AND goal_id IS NOT NULL", Integer.class));
+    }
+
+    @Test
+    void bulkDeletionDeduplicatesParentsAndChildrenAndChecksConfirmedCount() {
+        Task root = savedTask("root", null, TaskStatus.OPEN);
+        Task child = subtask("child", root);
+        subtask("other-child", root);
+        Task separate = savedTask("separate", null, TaskStatus.OPEN);
+        List<String> ids = List.of(child.getId(), root.getId(), root.getId(), separate.getId());
+        assertEquals(new TaskService.DeletionPreview(4, 2), taskService.previewTaskDeletion(ids));
+        assertThrows(ValidationException.class, () -> taskService.batchDeleteTasks(ids, 1));
+        assertEquals(4, Task.findAll().size());
+        clearInvocations(googleDriveService);
+        assertEquals(4, taskService.batchDeleteTasks(ids, 2));
+        verify(googleDriveService).markLocalDbDirty();
+        assertTrue(Task.findAll().isEmpty());
+        Task next = savedTask("next", null, TaskStatus.OPEN);
+        subtask("next-child", next);
+        assertEquals(2, taskService.batchDeleteTasks(List.of(next.getId())));
+    }
+
+    @Test
+    void failedParentDeletionRollsBackChildrenLinksAndGoalUnlinking() {
+        Task root = savedTask("root", null, TaskStatus.OPEN);
+        Task child = subtask("child", root);
+        createDeletionDependencies(List.of(root, child));
+        jdbcTemplate.execute("CREATE TABLE deletion_guard (task_id VARCHAR(50) REFERENCES tasks(id))");
+        jdbcTemplate.update("INSERT INTO deletion_guard VALUES (?)", root.getId());
+        clearInvocations(googleDriveService);
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> taskService.removeTask(root, 1));
+        assertEquals(2, Task.findAll().size());
+        assertEquals(2, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM task_links", Integer.class));
+        assertEquals(2, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM task_reschedules", Integer.class));
+        assertEquals(2, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM study_goals WHERE task_id IS NOT NULL", Integer.class));
+        assertEquals(2, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM study_goal_attempts", Integer.class));
+        assertEquals(2, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM study_sessions WHERE task_id IS NOT NULL AND goal_id IS NOT NULL", Integer.class));
+        verify(googleDriveService, never()).markLocalDbDirty();
+    }
+
+    private void createDeletionDependencies(List<Task> tasks) {
+        // Mirror schema.sql: goals/sessions survive, their task references become NULL,
+        // while bookmarks and reschedule history belong to the deleted task.
+        jdbcTemplate.execute("CREATE TABLE study_goals (id VARCHAR(50) PRIMARY KEY, task_id VARCHAR(50) REFERENCES tasks(id) ON DELETE SET NULL)");
+        jdbcTemplate.execute("CREATE TABLE study_goal_attempts (id VARCHAR(50) PRIMARY KEY, goal_id VARCHAR(50) REFERENCES study_goals(id) ON DELETE CASCADE)");
+        jdbcTemplate.execute("CREATE TABLE study_sessions (id VARCHAR(50) PRIMARY KEY, task_id VARCHAR(50) REFERENCES tasks(id) ON DELETE SET NULL, goal_id VARCHAR(50) REFERENCES study_goals(id) ON DELETE SET NULL)");
+        for (Task task : tasks) {
+            taskService.updateTask(task, details(null, null, "Notes", List.of(new TaskLink("Doc", "https://example.com")), null));
+            new TaskReschedule(task.getId(), TODAY, TODAY.plusDays(1)).save();
+            jdbcTemplate.update("INSERT INTO study_goals VALUES (?, ?)", task.getId(), task.getId());
+            jdbcTemplate.update("INSERT INTO study_goal_attempts VALUES (?, ?)", task.getId(), task.getId());
+            jdbcTemplate.update("INSERT INTO study_sessions VALUES (?, ?, ?)", task.getId(), task.getId(), task.getId());
+        }
+    }
+
+    @Test
+    void estimatesSumNonCancelledChildrenWithoutReplacingTheParentsBudget() {
+        Task parent = savedTask("parent", null, TaskStatus.OPEN);
+        taskService.updateTask(parent, details(null, 40, null, null, null));
+        Task first = subtask("first", parent);
+        Task second = subtask("second", parent);
+        Task cancelled = subtask("cancelled", parent);
+        assertEquals(new TaskService.TaskEstimates(40, null), taskService.getTaskEstimates(parent));
+        taskService.updateTask(first, details(null, 5, null, null, null));
+        taskService.updateTask(second, details(null, 7, null, null, TaskStatus.COMPLETED));
+        taskService.updateTask(cancelled, details(null, 100, null, null, TaskStatus.CANCELLED));
+        assertEquals(new TaskService.TaskEstimates(40, 12L), taskService.getTaskEstimates(parent));
+        assertEquals(40, Task.findById(parent.getId()).orElseThrow().getEstimatedHours());
+        taskService.updateTask(parent, details(null, TaskUpdate.CLEAR_ESTIMATE, null, null, null));
+        assertEquals(new TaskService.TaskEstimates(null, 12L), taskService.getTaskEstimates(parent));
+        taskService.updateTask(first, details(null, TaskUpdate.CLEAR_ESTIMATE, null, null, null));
+        taskService.updateTask(second, details(null, 0, null, null, null));
+        assertEquals(new TaskService.TaskEstimates(null, 0L), taskService.getTaskEstimates(parent));
+        taskService.updateTask(second, details(null, TaskUpdate.CLEAR_ESTIMATE, null, null, null));
+        assertEquals(new TaskService.TaskEstimates(null, null), taskService.getTaskEstimates(parent));
+        taskService.updateTask(first, details(null, Integer.MAX_VALUE, null, null, null));
+        taskService.updateTask(second, details(null, Integer.MAX_VALUE, null, null, null));
+        assertEquals(2L * Integer.MAX_VALUE, taskService.getTaskEstimates(parent).subtaskHours());
+        Task other = savedTask("other", null, TaskStatus.OPEN);
+        taskService.updateTask(first, details(other.getId(), null, null, null, null));
+        assertEquals((long) Integer.MAX_VALUE, taskService.getTaskEstimates(parent).subtaskHours());
+        assertEquals((long) Integer.MAX_VALUE, taskService.getTaskEstimates(other).subtaskHours());
+    }
+
+    @Test
+    void notesEstimatesAndOrderedLinksCreateReadUpdateClearAndCascadeDelete() {
+        Task task = new Task("notes", "Task", "", "Study", new TaskPriority(1), null, TaskStatus.OPEN, 0);
+        String markdown = "# Notes\n\n  Indented  \n**Greek: ελληνικά**\n";
+        task.setNotes(markdown);
+        task.setEstimatedHours(12);
+        List<TaskLink> links = List.of(new TaskLink(null, "https://example.com/doc"), new TaskLink("Sheet", "http://example.org"));
+        taskService.addTask(task, links);
+        assertEquals(markdown, Task.findById(task.getId()).orElseThrow().getNotes());
+        assertEquals(12, Task.findById(task.getId()).orElseThrow().getEstimatedHours());
+        assertEquals(links, taskService.getTaskLinks(task));
+        taskService.updateTask(task, details(null, 0, "Changed", List.of(links.get(1), links.get(0)), null));
+        assertEquals(List.of(links.get(1), links.get(0)), taskService.getTaskLinks(task));
+        assertEquals(0, Task.findById(task.getId()).orElseThrow().getEstimatedHours());
+        taskService.updateTask(task, new TaskUpdate("Renamed using stale object", null, null, null, null));
+        assertEquals("Changed", Task.findById(task.getId()).orElseThrow().getNotes());
+        taskService.updateTask(task, details(null, TaskUpdate.CLEAR_ESTIMATE, "", List.of(), null));
+        assertNull(Task.findById(task.getId()).orElseThrow().getEstimatedHours());
+        assertEquals("", Task.findById(task.getId()).orElseThrow().getNotes());
+        assertTrue(taskService.getTaskLinks(task).isEmpty());
+        taskService.updateTask(task, details(null, null, null, links, null));
+        taskService.removeTask(task);
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM task_links", Integer.class));
+    }
+
+    @Test
+    void emptyLinkRowsAreIgnoredButATitleStillNeedsAUrl() {
+        Task task = savedTask("task", null, TaskStatus.OPEN);
+        TaskLink doc = new TaskLink("Doc", "https://example.com/doc");
+        taskService.updateTask(task, details(null, null, null,
+                List.of(new TaskLink(null, ""), doc, new TaskLink(" ", " ")), null));
+        assertEquals(List.of(doc), taskService.getTaskLinks(task));
+        assertThrows(ValidationException.class, () -> taskService.updateTask(task,
+                details(null, null, null, List.of(new TaskLink("Sheet", "")), null)));
+        assertEquals(List.of(doc), taskService.getTaskLinks(task));
+    }
+
+    @Test
+    void invalidUrlsAndEstimatesLeaveTheWholeFormUnchanged() {
+        Task task = savedTask("task", null, TaskStatus.OPEN);
+        List<TaskLink> original = List.of(new TaskLink("Valid", "https://example.com"));
+        taskService.updateTask(task, details(null, 5, "Original", original, null));
+        for (String url : List.of("", "file:///tmp/x", "javascript:alert(1)", "mailto:a@b.com", "ftp://example.com", "//example.com", "https:", "https://", "https://exa mple.com")) {
+            assertThrows(ValidationException.class, () -> taskService.updateTask(task,
+                    details(null, 20, "Do not save", List.of(new TaskLink("Doc", url)), TaskStatus.COMPLETED)), url);
+        }
+        assertThrows(ValidationException.class, () -> taskService.updateTask(task, details(null, -2, null, null, null)));
+        assertEquals("Original", Task.findById(task.getId()).orElseThrow().getNotes());
+        assertEquals(TaskStatus.OPEN, Task.findById(task.getId()).orElseThrow().getStatus());
+        assertEquals(original, taskService.getTaskLinks(task));
+        assertEquals("HTTPS://example.com", TaskService.validateLinkUrl(" HTTPS://example.com "));
+    }
+
+    @Test
+    void movingUnfinishedWorkReconcilesBothParentsAndKeepsTheChild() {
+        Task oldParent = savedTask("old", null, TaskStatus.OPEN);
+        Task done = subtask("done", oldParent);
+        Task moving = subtask("moving", oldParent);
+        taskService.updateTaskStatus(done, TaskStatus.COMPLETED);
+        Task newParent = savedTask("new", TODAY.minusDays(2), TaskStatus.COMPLETED);
+        taskService.updateTask(moving, details(newParent.getId(), null, null, null, null));
+        assertEquals(TaskStatus.COMPLETED, Task.findById(oldParent.getId()).orElseThrow().getStatus());
+        assertEquals(TODAY, Task.findById(oldParent.getId()).orElseThrow().getCompletedAt());
+        assertEquals(TaskStatus.DELAYED, Task.findById(newParent.getId()).orElseThrow().getStatus());
+        assertNull(Task.findById(newParent.getId()).orElseThrow().getCompletedAt());
+        assertEquals(newParent.getId(), Task.findById(moving.getId()).orElseThrow().getParentId());
+    }
+
+    @Test
+    void linkWriteFailureRollsBackNewChildParentReopeningAndDirtyFlag() {
+        Task root = savedTask("root", null, TaskStatus.OPEN);
+        taskService.updateTaskStatus(root, TaskStatus.COMPLETED);
+        clearInvocations(googleDriveService);
+        jdbcTemplate.execute("ALTER TABLE task_links ADD CONSTRAINT reject_probe CHECK (url <> 'https://reject.example')");
+        Task child = new Task("child", "Child", "", "Study", new TaskPriority(1), null, TaskStatus.OPEN, 0);
+        child.setParentId(root.getId());
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> taskService.addTask(child,
+                List.of(new TaskLink(null, "https://example.com"), new TaskLink(null, "https://reject.example"))));
+        assertFalse(Task.existsById(child.getId()));
+        assertEquals(TaskStatus.COMPLETED, Task.findById(root.getId()).orElseThrow().getStatus());
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM task_links", Integer.class));
+        verify(googleDriveService, never()).markLocalDbDirty();
+    }
+
+    private Task subtask(String id, Task parent) {
+        Task child = new Task(id, id, "", "Study", new TaskPriority(1), null, TaskStatus.OPEN, 0);
+        child.setParentId(parent.getId());
+        return taskService.addTask(child);
+    }
+
+    private TaskUpdate details(String parent, Integer hours, String notes, List<TaskLink> links, TaskStatus status) {
+        return new TaskUpdate(null, null, null, null, null, null, null, null, null, null,
+                parent, hours, notes, links, status);
     }
 
     @Test

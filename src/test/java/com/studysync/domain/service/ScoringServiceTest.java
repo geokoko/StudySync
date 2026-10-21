@@ -1,7 +1,6 @@
 package com.studysync.domain.service;
 
 import com.studysync.domain.entity.OffDay;
-import com.studysync.domain.entity.ProjectSession;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.Task;
@@ -51,7 +50,6 @@ class ScoringServiceTest {
         createTables();
 
         StudySession.setJdbcTemplate(jdbcTemplate);
-        ProjectSession.setJdbcTemplate(jdbcTemplate);
         Task.setJdbcTemplate(jdbcTemplate);
         TaskReschedule.setJdbcTemplate(jdbcTemplate);
         StudyGoal.setJdbcTemplate(jdbcTemplate);
@@ -73,7 +71,6 @@ class ScoringServiceTest {
     @AfterEach
     void tearDown() {
         StudySession.setJdbcTemplate(null);
-        ProjectSession.setJdbcTemplate(null);
         Task.setJdbcTemplate(null);
         TaskReschedule.setJdbcTemplate(null);
         StudyGoal.setJdbcTemplate(null);
@@ -178,16 +175,50 @@ class ScoringServiceTest {
     }
 
     @Test
-    void projectOnlyWorkStillCountsTowardsConsistency() {
-        projectSession(today, 120);
+    void onlyLeafTasksEarnTimelinessEvenWhenChildrenAreCancelled() {
+        Task parent = completedTask("parent", today, today);
+        Task child = completedTask("child", today, today);
+        child.setParentId(parent.getId());
+        child.save();
+        assertEquals(0, ScoringService.taskPoints(parent, 0));
+        assertEquals(20, scoringService.scoreForDate(today).taskPoints());
+        assertEquals(1, scoringService.scoreForWindow(30).tasksCompleted());
+        child.updateStatus(TaskStatus.CANCELLED);
+        child.save();
+        assertEquals(0, scoringService.scoreForDate(today).taskPoints());
+    }
 
-        ScoreBreakdown score = scoringService.scoreForWindow(30);
+    @Test
+    void recurringParentsNeverScoreTimelinessButRecurringLeafChildrenDo() {
+        Task parent = completedTask("recurring-parent", today, today);
+        parent.setRecurringPattern("1:1");
+        parent.save();
+        Task child = completedTask("recurring-child", today, today);
+        child.setRecurringPattern("2:3");
+        child.setParentId(parent.getId());
+        child.save();
+        assertEquals(0, ScoringService.taskPoints(parent, 0));
+        assertEquals(20, ScoringService.taskPoints(child, 0));
+        assertEquals(20, scoringService.scoreForDate(today).taskPoints());
+        assertEquals(1, scoringService.scoreForWindow(30).tasksCompleted());
+    }
 
-        // Points, minutes and the session count all include project work, so
-        // the consistency term must too - otherwise a month of project-only
-        // work scores as near-idle.
-        assertEquals(1, score.sessions());
-        assertTrue(score.productivity() > 0, "productivity was " + score.productivity());
+    @Test
+    void onlyLeavesScoreInBothMixedRecurrenceFamilies() {
+        for (boolean recurringParent : List.of(false, true)) {
+            String prefix = recurringParent ? "recurring-parent-" : "one-off-parent-";
+            Task parent = completedTask(prefix + "parent", today, today);
+            parent.setRecurringPattern(recurringParent ? "1:1" : null);
+            parent.save();
+            Task child = completedTask(prefix + "child", today, today);
+            child.setRecurringPattern(recurringParent ? null : "2:3");
+            child.setParentId(parent.getId());
+            child.save();
+            assertEquals(0, ScoringService.taskPoints(parent, 0));
+            assertEquals(20, ScoringService.taskPoints(child, 0));
+        }
+        assertEquals(40, scoringService.scoreForDate(today).taskPoints());
+        assertEquals(2, scoringService.scoreForWindow(30).tasksCompleted());
     }
 
     @Test
@@ -213,7 +244,6 @@ class ScoringServiceTest {
     @Test
     void windowScoreAddsSessionsGoalsAndTaskTimeliness() {
         session(today, 60, 3);                       // 30 + 10 completed = 40
-        projectSession(today, 60);                   // 30 + 10 completed = 40
         achievedGoal("Finished the chapter", today); // 15
 
         Task rescheduled = completedTask("shipped-late", today.minusDays(1), today);
@@ -222,11 +252,11 @@ class ScoringServiceTest {
 
         ScoreBreakdown score = scoringService.scoreForWindow(30);
 
-        assertEquals(80, score.sessionPoints());
+        assertEquals(40, score.sessionPoints());
         assertEquals(15, score.goalPoints());
         assertEquals(-15, score.taskPoints());
-        assertEquals(80, score.points());
-        assertEquals(2, score.sessions());
+        assertEquals(40, score.points());
+        assertEquals(1, score.sessions());
         assertEquals(1, score.tasksCompleted());
         assertEquals(1, score.goalsAchieved());
 
@@ -243,17 +273,6 @@ class ScoringServiceTest {
         session.setFocusLevel(focus);
         session.setCompleted(true);
         session.calculateAndSetPoints();
-        session.save();
-    }
-
-    private void projectSession(LocalDate date, int minutes) {
-        jdbcTemplate.update("INSERT INTO projects (id, title, status) VALUES (?, ?, 'ACTIVE')",
-                "project-1", "Thesis");
-        ProjectSession session = new ProjectSession("project-1");
-        session.setDate(date);
-        session.setDurationMinutes(minutes);
-        session.setCompleted(true);
-        session.calculatePoints();
         session.save();
     }
 
@@ -298,6 +317,9 @@ class ScoringServiceTest {
                     completed_at DATE,
                     remind_days_before INTEGER,
                     done_criteria TEXT,
+                    parent_id VARCHAR(50) REFERENCES tasks(id),
+                    estimated_hours INTEGER,
+                    notes TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
@@ -370,33 +392,6 @@ class ScoringServiceTest {
                     is_active BOOLEAN DEFAULT FALSE,
                     last_update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     current_elapsed_minutes INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """);
-        jdbcTemplate.execute("""
-                CREATE TABLE projects (
-                    id VARCHAR(50) PRIMARY KEY,
-                    title VARCHAR(255) NOT NULL,
-                    status VARCHAR(20) DEFAULT 'ACTIVE'
-                )
-                """);
-        jdbcTemplate.execute("""
-                CREATE TABLE project_sessions (
-                    id VARCHAR(50) PRIMARY KEY,
-                    project_id VARCHAR(50) NOT NULL,
-                    date DATE NOT NULL,
-                    start_time TIMESTAMP,
-                    end_time TIMESTAMP,
-                    duration_minutes INTEGER DEFAULT 0,
-                    completed BOOLEAN DEFAULT FALSE,
-                    session_title VARCHAR(255),
-                    objectives TEXT,
-                    progress TEXT,
-                    next_steps TEXT,
-                    challenges TEXT,
-                    notes TEXT,
-                    points_earned INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )

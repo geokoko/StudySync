@@ -2,6 +2,7 @@ package com.studysync.presentation.ui.components;
 
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.Task;
+import com.studysync.domain.service.TaskService;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.presentation.ui.components.CalendarAgenda.Entry;
@@ -27,6 +28,86 @@ class CalendarAgendaTest {
 
     private static final BiPredicate<Task, LocalDate> MONDAYS_AND_THURSDAYS = (task, date) ->
             date.getDayOfWeek() == DayOfWeek.MONDAY || date.getDayOfWeek() == DayOfWeek.THURSDAY;
+
+    @Test
+    void parentAndChildKeepTheirOwnDatesAndChildGoalsShowParentContext() {
+        Task parent = task("parent", "Thesis", TODAY.plusDays(3), TaskStatus.OPEN);
+        Task child = task("child", "Introduction", TODAY, TaskStatus.OPEN);
+        child.setParentId(parent.getId());
+        StudyGoal goal = goal("Write a draft", child.getId(), TODAY.plusDays(1), false, false);
+        Map<LocalDate, List<Entry>> days = build(List.of(parent, child), List.of(goal));
+        assertEquals("Thesis / Introduction", days.get(TODAY).getFirst().title());
+        assertEquals("Thesis / Introduction · Write a draft", days.get(TODAY.plusDays(1)).getFirst().text());
+        assertEquals("Thesis", days.get(TODAY.plusDays(3)).getFirst().title());
+        assertEquals(1, days.get(TODAY).size());
+    }
+
+    @Test
+    void taskTitlesNeedNoLookupForATaskWithoutAParent() {
+        Task parent = task("parent", "Thesis", null, TaskStatus.OPEN);
+        Task child = task("child", "Introduction", null, TaskStatus.OPEN);
+        child.setParentId(parent.getId());
+        // Map.of() rejects a null key, as an empty map before the first load may be.
+        assertEquals("Thesis", CalendarAgenda.taskTitle(parent, Map.of()));
+        assertEquals("Introduction", CalendarAgenda.taskTitle(child, Map.of()));
+        assertEquals("Thesis / Introduction", CalendarAgenda.taskTitle(child, Map.of("parent", parent)));
+    }
+
+    @Test
+    void recurringParentKeepsCalendarOccurrencesWhenItsChildCompletes() {
+        Task parent = task("parent", "Weekly work", null, TaskStatus.OPEN);
+        Task child = task("child", "Practice", null, TaskStatus.OPEN);
+        parent.setRecurringPattern("1:1,4");
+        child.setRecurringPattern("1:1,4");
+        child.setParentId(parent.getId());
+        LocalDate thursday = TODAY.plusDays(2);
+        assertEquals(2, build(List.of(parent, child), List.of()).get(thursday).size());
+        child.updateStatus(TaskStatus.COMPLETED);
+        child.setCompletedAt(TODAY);
+        List<Entry> future = build(List.of(parent, child), List.of()).get(thursday);
+        assertEquals(1, future.size());
+        assertEquals(parent, future.getFirst().task());
+        assertEquals(Kind.RECURRING, future.getFirst().kind());
+        parent.updateStatus(TaskStatus.COMPLETED);
+        parent.setCompletedAt(TODAY);
+        assertTrue(build(List.of(parent, child), List.of()).get(thursday).isEmpty());
+    }
+
+    @Test
+    void mixedRecurrenceFamiliesKeepIndependentCalendarDatesAndHandledOccurrences() {
+        TaskService taskService = new TaskService(null, null, null);
+        for (boolean recurringParent : List.of(false, true)) {
+            Task parent = task("parent", "Parent", recurringParent ? null : TODAY.plusDays(3), TaskStatus.OPEN);
+            Task child = task("child", "Child", recurringParent ? TODAY.plusDays(3) : null, TaskStatus.OPEN);
+            child.setParentId(parent.getId());
+            Task recurring = recurringParent ? parent : child;
+            Task oneOff = recurringParent ? child : parent;
+            recurring.setRecurringPattern("1:4");
+            recurring.setStartDate(FROM);
+            recurring.setRecurrenceEndDate(TO);
+            Map<LocalDate, List<Entry>> days = CalendarAgenda.build(FROM, TO, TODAY,
+                    List.of(parent, child), List.of(), taskService::isRecurringOccurrence);
+            assertEquals(recurring, days.get(TODAY.plusDays(2)).getFirst().task());
+            assertEquals(List.of(Kind.RECURRING), kinds(days, TODAY.plusDays(2)));
+            assertEquals(oneOff, days.get(TODAY.plusDays(3)).getFirst().task());
+            assertEquals(List.of(Kind.DUE), kinds(days, TODAY.plusDays(3)));
+            assertTrue(days.get(TODAY).isEmpty());
+            LocalDate lastThursday = TODAY.minusDays(5);
+            assertEquals(List.of(Kind.RECURRING_MISSED), kinds(days, lastThursday));
+
+            StudyGoal handled = goal("This occurrence only", recurring.getId(), lastThursday, true, false);
+            days = CalendarAgenda.build(FROM, TO, TODAY, List.of(parent, child),
+                    List.of(handled), taskService::isRecurringOccurrence);
+            assertEquals(List.of(Kind.GOAL_ACHIEVED), kinds(days, lastThursday));
+            assertEquals(List.of(Kind.RECURRING), kinds(days, TODAY.plusDays(2)));
+
+            child.updateStatus(TaskStatus.COMPLETED);
+            child.setCompletedAt(TODAY);
+            days = CalendarAgenda.build(FROM, TO, TODAY, List.of(parent, child),
+                    List.of(handled), taskService::isRecurringOccurrence);
+            assertEquals(recurringParent ? List.of(Kind.RECURRING) : List.of(), kinds(days, TODAY.plusDays(2)));
+        }
+    }
 
     @Test
     void lateTaskIsListedOnItsDeadlineAndOnTodayOnly() {

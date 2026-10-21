@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS task_reschedules (
 );
 
 -- ===================================
--- Projects Table
+-- Legacy Projects Table (retained for migration and older builds)
 -- ===================================
 CREATE TABLE IF NOT EXISTS projects (
     id VARCHAR(50) PRIMARY KEY,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS study_sessions (
 );
 
 -- ===================================
--- Project Sessions Table
+-- Legacy Project Sessions Table (retained, never read by this app)
 -- ===================================
 CREATE TABLE IF NOT EXISTS project_sessions (
     id VARCHAR(50) PRIMARY KEY,
@@ -397,11 +397,6 @@ SET points_earned =
         + 50) / 100
     + CASE WHEN completed THEN 10 ELSE 0 END;
 
--- Same shape for project sessions, which carry no focus rating.
-UPDATE project_sessions
-SET points_earned = LEAST(GREATEST(COALESCE(duration_minutes, 0), 0), 240) / 2
-    + CASE WHEN completed THEN 10 ELSE 0 END;
-
 CREATE INDEX IF NOT EXISTS idx_tasks_completed_at ON tasks(completed_at);
 
 -- Recurring tasks used to overload `deadline` as the end-of-recurrence date,
@@ -425,33 +420,6 @@ WHERE recurring_pattern IS NOT NULL
 
 MERGE INTO schema_migrations (id) VALUES ('split-recurrence-end-from-deadline');
 
--- Project work was stored only as whole hours (actual_hours), so every save
--- truncated the minutes and every reload multiplied the loss. Session counts
--- and last-worked-on were never stored at all.
-ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_minutes_worked INTEGER;
-ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_sessions_count INTEGER;
-ALTER TABLE projects ADD COLUMN IF NOT EXISTS last_worked_on TIMESTAMP;
-
--- Recover the exact figures once, from the sessions themselves - they were
--- never lossy - falling back to the truncated actual_hours for work that has no
--- surviving session rows. GREATEST because deleting a session used to leave the
--- project total untouched, so actual_hours can legitimately exceed the sum.
---
--- One-shot and marker-guarded. `total_sessions_count` cannot guard it: the row
--- mapper reads a NULL count as 0 and Project.save() writes that 0 straight back,
--- so a NULL-based guard would let this destructive statement fire again on a
--- later startup and overwrite figures the app had since maintained itself.
-UPDATE projects p
-SET total_sessions_count = (
-        SELECT COUNT(*) FROM project_sessions s WHERE s.project_id = p.id AND s.completed = TRUE),
-    total_minutes_worked = GREATEST(
-        COALESCE(p.actual_hours, 0) * 60,
-        (SELECT COALESCE(SUM(s.duration_minutes), 0) FROM project_sessions s
-         WHERE s.project_id = p.id AND s.completed = TRUE))
-WHERE NOT EXISTS (SELECT 1 FROM schema_migrations WHERE id = 'recover-project-work-totals');
-
-MERGE INTO schema_migrations (id) VALUES ('recover-project-work-totals');
-
 -- How many days before its deadline a task should start reminding, or NULL for
 -- no reminder. The reminder date is derived rather than stored: the deadline is
 -- already here, and a stored date would silently go stale the moment the
@@ -471,3 +439,55 @@ ALTER TABLE tasks DROP COLUMN IF EXISTS updated_at;
 -- nothing was written down, which behaves exactly as before.
 ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS done_criteria TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS done_criteria TEXT;
+
+-- One level of subtasks. RESTRICT prevents accidental orphaning; TaskService
+-- explicitly deletes children first, after the UI confirms the affected count.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_id VARCHAR(50);
+ALTER TABLE tasks ADD CONSTRAINT IF NOT EXISTS fk_tasks_parent
+    FOREIGN KEY (parent_id) REFERENCES tasks(id);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS estimated_hours INTEGER;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes TEXT;
+
+CREATE TABLE IF NOT EXISTS task_links (
+    id VARCHAR(50) PRIMARY KEY,
+    task_id VARCHAR(50) NOT NULL,
+    title TEXT,
+    url TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_task_links_order ON task_links(task_id, position);
+
+-- Preserve provenance as well as the one-shot marker: if startup is interrupted
+-- between the INSERT and marker, retrying cannot duplicate an imported project.
+-- New task UUIDs also avoid collisions with pre-existing task IDs.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS legacy_project_id VARCHAR(50);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_legacy_project ON tasks(legacy_project_id);
+INSERT INTO tasks (id, title, description, category, priority, deadline, status,
+                   completed_at, estimated_hours, notes, created_at, legacy_project_id)
+-- Status and priority fall back as the old project reader did (no status was
+-- ACTIVE, a non-positive priority was 1): the task reader refuses values outside
+-- its enum and 1-5, and one unreadable task would stop the app from starting.
+SELECT RANDOM_UUID(), p.title, p.description, COALESCE(p.category, 'Uncategorized'),
+       LEAST(GREATEST(COALESCE(p.priority, 1), 1), 5), p.deadline,
+       CASE p.status WHEN 'ON_HOLD' THEN 'POSTPONED' WHEN 'COMPLETED' THEN 'COMPLETED'
+            WHEN 'CANCELLED' THEN 'CANCELLED' ELSE 'OPEN' END,
+       CASE WHEN p.status = 'COMPLETED'
+            THEN COALESCE(p.completion_date, CAST(p.updated_at AS DATE)) ELSE NULL END,
+       p.estimated_hours, p.notes, p.created_at, p.id
+FROM projects p
+WHERE NOT EXISTS (SELECT 1 FROM schema_migrations WHERE id = 'projects-to-tasks')
+  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.legacy_project_id = p.id);
+
+-- Imported categories must remain selectable even if the legacy category list
+-- no longer contains them. The values themselves are preserved as text.
+INSERT INTO task_categories (id, name)
+SELECT RANDOM_UUID(), imported.category
+FROM (SELECT DISTINCT category FROM tasks WHERE legacy_project_id IS NOT NULL) imported
+WHERE NOT EXISTS (SELECT 1 FROM schema_migrations WHERE id = 'projects-to-tasks')
+  AND NOT EXISTS (SELECT 1 FROM task_categories c WHERE c.name = imported.category);
+
+MERGE INTO schema_migrations (id) VALUES ('projects-to-tasks');
+-- Legacy project/session rows are deliberately neither updated nor deleted.
+-- Sessions are not imported, and no longer contribute time or points.

@@ -17,7 +17,8 @@ import java.util.function.BiPredicate;
 
 /**
  * What a calendar day lists, by name: the plan for today and later, and what
- * actually happened on past days.
+ * actually happened on past days. Parents and children use their own dates;
+ * child titles include their parent for context.
  *
  * <p>Deliberately not {@code TaskService.getTasksForDate}. That answers "what
  * should the planner list on this day", so it keeps a late task on every day
@@ -107,21 +108,21 @@ final class CalendarAgenda {
             if (attempt.getTaskId() != null) {
                 taskDaysWithGoal.add(attempt.getTaskId() + "|" + attempt.getDate());
             }
-            day.add(goalEntry(attempt, tasksById.get(attempt.getTaskId())));
+            day.add(goalEntry(attempt, tasksById.get(attempt.getTaskId()), tasksById));
         }
 
         for (Task task : tasks) {
             boolean active = isActive(task.getStatus());
             LocalDate deadline = task.getDeadline();
             if (active && deadline != null) {
-                add(days, deadline, new Entry(Kind.DUE, task.getTitle(), null, task, null));
+                add(days, deadline, new Entry(Kind.DUE, taskTitle(task, tasksById), null, task, null));
                 if (deadline.isBefore(today)) {
                     long daysLate = ChronoUnit.DAYS.between(deadline, today);
-                    add(days, today, new Entry(Kind.OVERDUE, task.getTitle(), daysLate + "d late", task, null));
+                    add(days, today, new Entry(Kind.OVERDUE, taskTitle(task, tasksById), daysLate + "d late", task, null));
                 }
             }
             if (task.getStatus() == TaskStatus.COMPLETED && task.getCompletedAt() != null) {
-                add(days, task.getCompletedAt(), new Entry(Kind.COMPLETED, task.getTitle(), null, task, null));
+                add(days, task.getCompletedAt(), new Entry(Kind.COMPLETED, taskTitle(task, tasksById), null, task, null));
             }
             if (active && task.isRecurring()) {
                 for (LocalDate date : days.keySet()) {
@@ -131,7 +132,7 @@ final class CalendarAgenda {
                         continue;
                     }
                     Kind kind = date.isBefore(today) ? Kind.RECURRING_MISSED : Kind.RECURRING;
-                    days.get(date).add(new Entry(kind, task.getTitle(), null, task, null));
+                    days.get(date).add(new Entry(kind, taskTitle(task, tasksById), null, task, null));
                 }
             }
         }
@@ -140,13 +141,19 @@ final class CalendarAgenda {
         return days;
     }
 
-    private static Entry goalEntry(StudyGoal attempt, Task task) {
+    private static Entry goalEntry(StudyGoal attempt, Task task, Map<String, Task> tasksById) {
         Kind kind = attempt.getAttemptOutcome() == StudyGoal.AttemptOutcome.ACHIEVED ? Kind.GOAL_ACHIEVED
                 : attempt.isFailed() ? Kind.GOAL_MISSED
                 : Kind.GOAL_PENDING;
         return task != null
-                ? new Entry(kind, task.getTitle(), attempt.getDescription(), task, attempt)
+                ? new Entry(kind, taskTitle(task, tasksById), attempt.getDescription(), task, attempt)
                 : new Entry(kind, attempt.getDescription(), null, null, attempt);
+    }
+
+    /** "Parent / Subtask", or the task's own title when it has no parent in {@code tasksById}. */
+    static String taskTitle(Task task, Map<String, Task> tasksById) {
+        Task parent = task.getParentId() == null ? null : tasksById.get(task.getParentId());
+        return parent == null ? task.getTitle() : parent.getTitle() + " / " + task.getTitle();
     }
 
     private static void add(Map<LocalDate, List<Entry>> days, LocalDate date, Entry entry) {

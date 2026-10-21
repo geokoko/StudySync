@@ -15,7 +15,7 @@
 
 ## Overview
 
-StudySync is a comprehensive Study Management System built with modern Java technologies. It combines Spring Boot's robust backend capabilities with JavaFX's rich desktop UI and H2 embedded database for reliable data persistence. The application helps students organize their academic life effectively with integrated task management, study tracking, and project management capabilities.
+StudySync is a comprehensive Study Management System built with modern Java technologies. It combines Spring Boot's robust backend capabilities with JavaFX's rich desktop UI and H2 embedded database for reliable data persistence. The application helps students organize their academic life effectively with integrated tasks and subtasks, study tracking, and task notes.
 
 Perfect for students who want to integrate their academic calendar with task management and study tracking! 📚✨
 
@@ -35,15 +35,37 @@ StudySync provides comprehensive academic management with three main modules:
 * **Progress Tracking**: Visual progress indicators and session statistics
 * **Study Analytics**: Monitor completed sessions and goal achievements
 * **Off Days / Holidays**: Mark any calendar day as an off day — it shows as a holiday in the calendar and never counts towards your global scores or breaks your study streak
-* **Scoring**: Points reward time studied scaled by focus, achieved goals, and finishing tasks on time; the same formula drives both the per-day calendar score and your 30-day profile score
+* **Scoring**: Points reward time studied scaled by focus, achieved goals, and finishing leaf tasks (those without subtasks) on time; the same formula drives both the per-day calendar score and your 30-day profile score
 
-## 📋 Task & Project Management Features  
+## 📋 Task Management Features
 * **Task Management**: Create, edit, and delete tasks with rich attributes (title, description, category, priority, deadline, status, recurring schedule)
-* **Recurring Tasks**: Mark any task as recurring with a weekly/bi-weekly/monthly pattern and specific day-of-week selection, with a separate "repeat until" date so a recurring task can still have a real deadline
-* **Project Management**: Comprehensive project lifecycle management with session logging and progress tracking
+* **Recurring Tasks**: Give any task its own repeating schedule and optional "repeat until" date, separate from its deadline. Parents and subtasks can each be one-off or recurring; schedules are never inherited. Completing a recurring task permanently ends its future occurrences; handling one occurrence through a goal does not.
+* **Subtasks**: Use **Add subtask** on a task, or choose a parent in the edit form. One level of nesting is supported. Progress counts completed subtasks, ignoring cancelled ones. Parents and subtasks follow their own dates in the planner and calendar.
+* **Estimates**: Enter optional estimated hours per task. A parent shows its subtasks' total (ignoring cancelled ones) alongside its own budget, for example **Estimate: 12 h from subtasks · 40 h planned**. The two figures stay independent.
+* **Completion**: Finishing the last unfinished subtask completes a one-off parent on the same date. Recurring parents show progress but never auto-complete. Marking any parent done also completes its unfinished subtasks after confirming their count and how many recurring subtasks will stop repeating. Cancelled subtasks stay cancelled. Adding or reopening unfinished work reopens a completed parent.
+* **Safe deletion**: Deleting a parent also deletes all its subtasks after confirming their count. Notes, links and reschedule history are deleted; goals and study sessions remain with their task links cleared. **Delete matching tasks** applies the current filters and confirms the total and the subtasks deleted with their parents, including children outside those filters.
+* **Notes and links**: Edit Markdown notes in the task form and expand **Read notes** for the rendered view. Add URLs with optional titles, reorder them with the arrows, and use **Open** for your system browser. Only `http://` and `https://` links are accepted.
 * **Category Management**: Create and manage custom categories for better organization
 * **Task Reminders**: Choose how many days before a deadline a task starts reminding you; it shows a countdown badge and appears under "Coming up" in the planner
 * **Data Persistence**: All data stored reliably in embedded H2 database
+
+### Upgrading from projects
+
+Existing projects become top-level, one-off tasks on the first launch of the upgraded app.
+Their text, category, priority, deadline, creation date, estimated hours and notes
+are preserved. Active projects become Open tasks, On Hold becomes Postponed, and
+Completed/Cancelled retain their status. Completion dates use the project's
+completion date, falling back to its last update date. The old entered progress
+percentage is replaced by progress derived from subtasks.
+
+Project sessions are no longer shown or counted in scores, session counts or time.
+The old project and session tables remain in the database for recovery; the app
+never empties them. The import runs once and does not duplicate tasks on restart.
+Before upgrading, keep a backup of the database with the app closed. Afterwards,
+check the imported tasks and their notes in **Tasks**. Upgrade every machine that
+uses the synced database: an older build still edits its own legacy project rows,
+and those edits are not merged into the imported tasks. To recover the original
+state, restore the pre-upgrade backup with all copies of the app closed.
 
 ## Google Calendar Integration (planned and **not** implemented as of now)
 * **OAuth 2.0 Authentication**: Secure Google account login

@@ -382,7 +382,7 @@
     -fx-background-color: transparent;
 }
 
-/* Fix for nested TabPane in Projects page */
+/* Fix for nested TabPane in task views */
 .tab-content-area {
     -fx-background-color: transparent;
 }

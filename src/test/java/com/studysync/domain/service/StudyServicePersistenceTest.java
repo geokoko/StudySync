@@ -86,6 +86,21 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void goalsCanLinkToBothParentAndSubtaskAndPlannerUsesTheirOwnDates() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        Task parent = new Task("parent", "Parent", "", "Study", new TaskPriority(1), today.plusDays(5), TaskStatus.OPEN, 0).save();
+        Task child = new Task("child", "Child", "", "Study", new TaskPriority(1), today, TaskStatus.OPEN, 0);
+        child.setParentId(parent.getId());
+        child.save();
+        assertEquals(List.of(child), taskService.getTasksForDate(today));
+        studyService.addStudyGoal("Plan the parent", today, parent.getId());
+        studyService.addStudyGoal("Do the child", today, child.getId());
+        assertEquals(Set.of(parent.getId(), child.getId()), studyService.getGoalsForDate(today).stream()
+                .map(StudyGoal::getTaskId).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(2, taskService.getTasksForDate(today).size());
+    }
+
+    @Test
     void startStudySessionPersistsActiveSessionAndFlushesLocally() {
         StudySession session = studyService.startStudySession();
 
@@ -448,6 +463,95 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void recurringFamiliesKeepIndependentOccurrencesAndOnlyManualParentCompletionEndsThem() {
+        LocalDate occurrence = LocalDate.of(2026, 3, 30);
+        Task parent = recurringMondayTask("parent", occurrence.minusWeeks(1));
+        Task child = recurringMondayTask("child", occurrence.minusWeeks(1));
+        child.setParentId(parent.getId());
+        child.save();
+        assertEquals(Set.of("parent", "child"), Set.copyOf(missedTaskIdsFor(occurrence.plusDays(1))));
+        assertEquals(Set.of("parent", "child"), taskService.getTasksForDate(occurrence).stream()
+                .map(Task::getId).collect(java.util.stream.Collectors.toSet()));
+        StudyGoal goal = new StudyGoal("Child occurrence", child.getId());
+        goal.setDate(occurrence);
+        goal.save();
+        StudyGoal.markCurrentAttemptAchieved(goal.getId(), null);
+        assertEquals(List.of("parent"), missedTaskIdsFor(occurrence.plusDays(1)));
+        taskService.updateTaskStatus(child, TaskStatus.COMPLETED);
+        assertEquals(TaskStatus.OPEN, Task.findById(parent.getId()).orElseThrow().getStatus());
+        assertEquals(List.of("parent"), taskService.getTasksForDate(occurrence.plusWeeks(1)).stream().map(Task::getId).toList());
+        assertEquals(List.of("parent"), missedTaskIdsFor(occurrence.plusWeeks(1).plusDays(1)));
+        taskService.updateTaskStatus(parent, TaskStatus.COMPLETED);
+        assertTrue(taskService.getTasksForDate(occurrence.plusWeeks(1)).isEmpty());
+        assertTrue(missedTaskIdsFor(occurrence.plusWeeks(1).plusDays(1)).isEmpty());
+    }
+
+    @Test
+    void oneOffParentWaitsForPermanentCompletionOfItsRecurringChild() {
+        LocalDate occurrence = LocalDate.of(2026, 3, 30);
+        when(dateTimeService.getCurrentDate()).thenReturn(occurrence);
+        Task parent = new Task("parent", "One-off parent", "", "Study", new TaskPriority(1),
+                occurrence.plusDays(2), TaskStatus.OPEN, 0).save();
+        Task child = recurringMondayTask("child", occurrence.minusWeeks(1));
+        child.setParentId(parent.getId());
+        child.save();
+        assertEquals(List.of(child), taskService.getTasksForDate(occurrence));
+        assertTrue(taskService.getTasksForDate(occurrence.plusDays(1)).isEmpty());
+        assertEquals(List.of("child"), missedTaskIdsFor(occurrence.plusDays(1)));
+
+        StudyGoal goal = new StudyGoal("Handle this Monday only", child.getId());
+        goal.setDate(occurrence);
+        goal.save();
+        studyService.updateStudyGoalAchievement(goal.getId(), true, null);
+        assertTrue(missedTaskIdsFor(occurrence.plusDays(1)).isEmpty());
+        assertEquals(TaskStatus.OPEN, Task.findById(child.getId()).orElseThrow().getStatus());
+        assertEquals(TaskStatus.OPEN, Task.findById(parent.getId()).orElseThrow().getStatus());
+        assertTrue(taskService.getTasksForDate(occurrence.plusWeeks(1)).contains(child));
+        assertEquals(List.of("child"), missedTaskIdsFor(occurrence.plusWeeks(1).plusDays(1)));
+
+        when(dateTimeService.getCurrentDate()).thenReturn(occurrence.plusWeeks(1));
+        taskService.updateTaskStatus(child, TaskStatus.COMPLETED);
+        Task completedParent = Task.findById(parent.getId()).orElseThrow();
+        assertEquals(TaskStatus.COMPLETED, completedParent.getStatus());
+        assertEquals(occurrence.plusWeeks(1), completedParent.getCompletedAt());
+        assertEquals(completedParent.getCompletedAt(), Task.findById(child.getId()).orElseThrow().getCompletedAt());
+        assertFalse(completedParent.isRecurring());
+        assertTrue(taskService.getTasksForDate(occurrence.plusWeeks(2)).isEmpty());
+        assertTrue(missedTaskIdsFor(occurrence.plusWeeks(2).plusDays(1)).isEmpty());
+    }
+
+    @Test
+    void recurringParentWithOneOffChildrenKeepsItsScheduleUntilManuallyCompleted() {
+        LocalDate occurrence = LocalDate.of(2026, 3, 30);
+        when(dateTimeService.getCurrentDate()).thenReturn(occurrence);
+        Task parent = recurringMondayTask("parent", occurrence.minusWeeks(1));
+        Task child = new Task("child", "One-off child", "", "Study", new TaskPriority(1),
+                occurrence.plusDays(2), TaskStatus.OPEN, 0);
+        child.setParentId(parent.getId());
+        child.save();
+        assertEquals(List.of(parent), taskService.getTasksForDate(occurrence));
+        assertTrue(taskService.getTasksForDate(occurrence.plusDays(1)).isEmpty());
+        assertEquals(List.of(child), taskService.getTasksForDate(occurrence.plusDays(2)));
+        assertEquals(List.of("parent"), missedTaskIdsFor(occurrence.plusDays(1)));
+        taskService.updateTaskStatus(child, TaskStatus.COMPLETED);
+        assertEquals(TaskStatus.OPEN, Task.findById(parent.getId()).orElseThrow().getStatus());
+        assertNull(Task.findById(parent.getId()).orElseThrow().getCompletedAt());
+        assertEquals(100, Task.progress(Task.findSubtasks(parent.getId())).percentage());
+        assertEquals(List.of(parent), taskService.getTasksForDate(occurrence.plusWeeks(1)));
+        assertEquals(List.of("parent"), missedTaskIdsFor(occurrence.plusWeeks(1).plusDays(1)));
+
+        taskService.updateTaskStatus(child, TaskStatus.OPEN);
+        taskService.updateTaskStatus(parent, TaskStatus.COMPLETED);
+        Task completedChild = Task.findById(child.getId()).orElseThrow();
+        assertEquals(TaskStatus.COMPLETED, completedChild.getStatus());
+        assertEquals(occurrence, completedChild.getCompletedAt());
+        assertEquals(completedChild.getCompletedAt(), Task.findById(parent.getId()).orElseThrow().getCompletedAt());
+        assertFalse(completedChild.isRecurring());
+        assertTrue(taskService.getTasksForDate(occurrence.plusWeeks(1)).isEmpty());
+        assertTrue(missedTaskIdsFor(occurrence.plusWeeks(1).plusDays(1)).isEmpty());
+    }
+
+    @Test
     void directAchievedGoalHandlesRecurringTaskOccurrence() {
         LocalDate occurrenceDate = LocalDate.of(2026, 3, 30);
         LocalDate nextDate = LocalDate.of(2026, 3, 31);
@@ -792,6 +896,9 @@ class StudyServicePersistenceTest {
                     completed_at DATE,
                     remind_days_before INTEGER,
                     done_criteria TEXT,
+                    parent_id VARCHAR(50) REFERENCES tasks(id),
+                    estimated_hours INTEGER,
+                    notes TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
