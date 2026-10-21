@@ -63,16 +63,16 @@ check_java() {
     
     if ! command -v java &> /dev/null; then
         print_error "Java is not installed!"
-        echo "Please install Java 21 or later:"
-        echo "  Ubuntu/Debian: sudo apt install openjdk-21-jdk"
-        echo "  Fedora: sudo dnf install java-21-openjdk"
-        echo "  Arch: sudo pacman -S jdk21-openjdk"
+        echo "Please install Java 25 or later:"
+        echo "  Ubuntu/Debian: sudo apt install openjdk-25-jdk"
+        echo "  Fedora: sudo dnf install java-25-openjdk"
+        echo "  Arch: sudo pacman -S jdk-openjdk"
         exit 1
     fi
     
     JAVA_VERSION=$(java -version 2>&1 | head -n 1 | cut -d'"' -f2 | cut -d'.' -f1)
-    if [[ "$JAVA_VERSION" -lt 21 ]]; then
-        print_error "Java 21 or later is required (found Java $JAVA_VERSION)"
+    if [[ "$JAVA_VERSION" -lt 25 ]]; then
+        print_error "Java 25 or later is required (found Java $JAVA_VERSION)"
         exit 1
     fi
     

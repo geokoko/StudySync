@@ -3,7 +3,7 @@
 # StudySync Fast Startup Script
 # Optimizes JVM settings for faster desktop application startup
 
-# JVM optimization flags for faster startup (Java 21 compatible)
+# JVM optimization flags for faster startup (Java 25 compatible)
 export JAVA_OPTS="
 -XX:+UseG1GC
 -XX:+TieredCompilation

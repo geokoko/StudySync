@@ -6,9 +6,9 @@
   **A comprehensive Study Management System for academic productivity**
 </div>
 
-[![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://www.oracle.com/java/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![JavaFX](https://img.shields.io/badge/JavaFX-21-blue.svg)](https://openjfx.io/)
+[![Java](https://img.shields.io/badge/Java-25-orange.svg)](https://www.oracle.com/java/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![JavaFX](https://img.shields.io/badge/JavaFX-25-blue.svg)](https://openjfx.io/)
 [![H2 Database](https://img.shields.io/badge/Database-H2-blue.svg)](https://www.h2database.com/)
 [![Version](https://img.shields.io/badge/Version-0.1.8-red.svg)](https://github.com/geokoko/StudySync/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -86,7 +86,7 @@ state, restore the pre-upgrade backup with all copies of the app closed.
 
 Both options run the same installer — the difference is whether you start from a pre-built release or compile from source.
 
-**Pre-built release** (no Gradle required, just Java 21):
+**Pre-built release** (no Gradle required, just Java 25):
 ```bash
 curl -LO https://github.com/geokoko/StudySync/releases/latest/download/studysync-linux.tar.gz
 curl -LO https://github.com/geokoko/StudySync/releases/latest/download/studysync-linux.tar.gz.sha256
@@ -96,23 +96,16 @@ cd studysync-*-linux
 ./install.sh
 ```
 
-**Build from source** (requires JDK 21; the Gradle wrapper is included):
-
-Install JDK 21 and select it in your terminal before building. Replace `/path/to/jdk-21` below with your JDK 21 installation directory (the directory containing `bin/java` and `bin/javac`).
+**Build from source** (requires Java 25; the Gradle wrapper is included):
 
 ```bash
 git clone https://github.com/geokoko/StudySync.git
 cd StudySync
-export JAVA_HOME="/path/to/jdk-21"
-export PATH="$JAVA_HOME/bin:$PATH"
-java -version   # Should report Java 21
-javac -version  # Should report javac 21
+java -version   # Should report Java 25 or later
 ./scripts/install.sh --build
 ```
 
-No separate Gradle installation is needed. These Java settings apply to the current terminal session.
-
-> **Build fails with `Unsupported class file major version 69`?** Class file major version 69 corresponds to Java 25, which cannot run the bundled Gradle 8.12.1. Select JDK 21 using both `JAVA_HOME` and `PATH` above, then rerun the installer. The installer's “Java 21 or later” check also accepts Java versions that cannot run this Gradle version. The project's Java 21 toolchain controls compilation; it does not select the Java version that starts Gradle. See the [Gradle Java compatibility matrix](https://docs.gradle.org/current/userguide/compatibility.html).
+No separate Gradle installation is needed. The build compiles with a JDK 25 toolchain: Gradle uses an installed JDK 25 if it finds one and downloads one otherwise, so a Java 25 runtime is enough to start it.
 
 After installation:
 - **Launch from app menu**: Search "StudySync" in your application launcher (KDE, GNOME, etc.)
@@ -130,9 +123,20 @@ To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
 
 ---
 
+### Upgrading an existing install to Java 25
+
+Releases after 0.1.8 need **Java 25**; 0.1.8 and earlier ran on Java 21. Java 25 comes with JavaFX 25, which fixes a Linux bug where opening a dialog shrank a maximized window back to its normal size (seen on KDE Wayland).
+
+1. Install Java 25 (Fedora: `sudo dnf install java-25-openjdk`, Ubuntu/Debian: `sudo apt install openjdk-25-jdk`, Arch: `sudo pacman -S jdk-openjdk`) and check that `java -version` reports 25 in a new terminal.
+2. Reinstall with the new release's `./install.sh` (or `./scripts/install.sh --build` from source). The launcher records the `java` found on your `PATH` at install time, so an install made with JDK 21 selected keeps starting Java 21 and fails until you reinstall.
+
+The move to Java 25 doesn't touch your data: the database engine stays the same, so existing database files open as before. (Other upgrade notes, such as [Upgrading from projects](#upgrading-from-projects), still apply.)
+
+---
+
 ### Running with Gradle (Development)
 
-Use JDK 21 and set `JAVA_HOME` and `PATH` as shown in the source installation instructions above.
+Use Java 25, as in the source installation instructions above.
 
 1. Clone the Repository
     ``` bash
@@ -154,7 +158,7 @@ Use JDK 21 and set `JAVA_HOME` and `PATH` as shown in the source installation in
         ```
 
     * Use Gradle if you have it installed:
-        Use Gradle 8.12.1 with JDK 21 to match the wrapper, then run:
+        Use Gradle 9.8.2 on Java 25 to match the wrapper, then run:
         ``` bash
         gradle build
         gradle run
@@ -166,6 +170,8 @@ Use JDK 21 and set `JAVA_HOME` and `PATH` as shown in the source installation in
     * Set up the module path correctly for JavaFX
     * Initialize the H2 embedded database
     * Launch the application (com.studysync.StudySyncApplication)
+
+> **Compiler warning:** the build reports `JSObject in netscape.javascript has been deprecated and marked for removal` from `ReflectionDiaryPanel`. The diary's rendered view uses that class so a date link can open the day in the editor. It still works on Java 25; it needs replacing before a Java release that removes it.
 
 ### Additional Run Options
 

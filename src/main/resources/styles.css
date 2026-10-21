@@ -17,7 +17,7 @@
 /*
  * ============================================================
  * FORCE LIGHT THEME
- * JavaFX 21 auto-detects OS dark mode and adjusts Modena's
+ * JavaFX auto-detects OS dark mode and adjusts Modena's
  * looked-up colors (e.g. white label text). We override the
  * key looked-up colors here so that even if Modena resolves
  * dark-mode values, our author-stylesheet rules win.

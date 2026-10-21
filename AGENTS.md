@@ -1,6 +1,6 @@
 # StudySync
 
-JavaFX 21 + Spring Boot 3.2 desktop app on an H2 file database, with optional
+JavaFX 25 + Spring Boot 3.5 desktop app on an H2 file database, with optional
 Google Drive sync. There is no FXML: all UI is built in Java code.
 
 ## Rules
@@ -18,10 +18,10 @@ Google Drive sync. There is no FXML: all UI is built in Java code.
 
 ## Build
 
-Use the Gradle 8.12.1 wrapper, started with JDK 21 via `JAVA_HOME`. The Java 21
-toolchain only controls compilation, not the JVM that runs Gradle, and Gradle
-8.12.1 cannot run on Java 24 or later (Java 25 fails with `Unsupported class
-file major version 69`). See README, "Build from source".
+Use the Gradle 9.8.2 wrapper on Java 25; no `JAVA_HOME` is needed when the
+default `java` is 25. Compilation uses a JDK 25 toolchain (found locally or
+downloaded by the foojay resolver). H2 is pinned in `build.gradle` so database
+files keep their format; do not let a Spring Boot upgrade move it.
 
 | Command | Purpose |
 |---|---|

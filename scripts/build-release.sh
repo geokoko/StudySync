@@ -149,7 +149,7 @@ INSTALLATION
 
 REQUIREMENTS
 ------------
-• Java 21 or later
+• Java 25 or later
 • Linux with a desktop environment (KDE, GNOME, XFCE, etc.)
 
 UNINSTALLATION
