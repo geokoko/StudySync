@@ -216,16 +216,10 @@ public class ReflectionDiaryPanel extends BorderPane implements RefreshablePanel
         HBox toolbar = new HBox(10, writeToggle, readToggle, toolbarSpacer, tableButton, exportButton);
         toolbar.setAlignment(Pos.CENTER_LEFT);
 
-        editor.setPromptText("""
-                How did today go?
-
-                - What went well?
-                - What got in the way?
-                - What did you learn?
-                - What would you do differently tomorrow?
-
-                Markdown works here: **bold**, # headings, lists, and tables
-                (the Table button drops one in). Read shows it rendered.""");
+        // One paragraph: a TextInputControl strips line breaks from its prompt text.
+        editor.setPromptText("How did today go? What went well, what got in the way, what did you learn, "
+                + "and what would you do differently tomorrow? Markdown works here: **bold**, # headings, "
+                + "lists, and tables (the Table button drops one in). Read shows it rendered.");
         editor.setWrapText(true);
         editor.setStyle("-fx-font-family: 'Georgia', 'Times New Roman', serif; "
                 + "-fx-font-size: 14px; -fx-line-spacing: 0.35em;");

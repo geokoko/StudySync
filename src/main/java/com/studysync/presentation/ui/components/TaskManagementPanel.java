@@ -415,8 +415,8 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
 
     private Label progressLabel(List<Task> children) {
         Task.Progress progress = Task.progress(children);
-        Label label = detailLabel(progress.completed() + "/" + progress.total()
-                + " subtasks · " + progress.percentage() + "%");
+        Label label = detailLabel(progress.completed() + "/" + count(progress.total(), "subtask")
+                + " · " + progress.percentage() + "%");
         label.setTooltip(new Tooltip("Cancelled subtasks are excluded."));
         return label;
     }
@@ -824,10 +824,15 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
     // TASK FORM (modal overlay)
     // ──────────────────────────────────────────────
 
+    /** "1 subtask", "3 subtasks". */
+    private static String count(int n, String noun) {
+        return n + " " + noun + (n == 1 ? "" : "s");
+    }
+
     private boolean confirmSubtaskCompletion(Task task) {
         TaskService.CompletionPreview preview = taskService.previewTaskCompletion(task);
         if (preview.unfinishedSubtasks() == 0) return true;
-        String message = "This also completes " + preview.unfinishedSubtasks() + " unfinished subtasks";
+        String message = "This also completes " + count(preview.unfinishedSubtasks(), "unfinished subtask");
         if (preview.recurringSubtasks() > 0) {
             message += "; " + preview.recurringSubtasks() + " of them "
                     + (preview.recurringSubtasks() == 1 ? "is" : "are") + " recurring and will stop repeating";
@@ -844,7 +849,8 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         try {
             int childCount = Task.findSubtasks(task.getId()).size();
             String message = "Delete \"" + taskTitle(task) + "\"?";
-            if (childCount > 0) message += "\nThis also deletes all " + childCount + " subtasks, including cancelled ones.";
+            if (childCount == 1) message += "\nThis also deletes its subtask, even if it is cancelled.";
+            if (childCount > 1) message += "\nThis also deletes all " + childCount + " subtasks, including cancelled ones.";
             message += "\nNotes, links and reschedules are deleted. Goals and study sessions are kept without their task links.";
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, message, ButtonType.OK, ButtonType.CANCEL);
             confirm.setTitle("Delete Task");
@@ -865,8 +871,9 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
             TaskService.DeletionPreview preview = taskService.previewTaskDeletion(ids);
             if (preview.totalTasks() == 0) return;
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                    "Delete " + preview.totalTasks() + " tasks in total?\nThis deletes " + preview.subtasks()
-                            + " subtasks with their parents, including children that are not selected."
+                    "Delete " + count(preview.totalTasks(), "task") + " in total?"
+                            + (preview.subtasks() == 0 ? "" : "\nThis deletes " + count(preview.subtasks(), "subtask")
+                                    + " with their parents, including children that are not selected.")
                             + "\nNotes, links and reschedules are deleted. Goals and study sessions are kept without their task links.",
                     ButtonType.OK, ButtonType.CANCEL);
             confirm.setTitle("Delete Selected Tasks");
@@ -1231,6 +1238,7 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         showModal.accept(wrapper);
     }
 
+    /** Shows the error just above the form's buttons (always its last row) and scrolls them into view. */
     private void showInlineError(VBox form, String message) {
         // Remove existing error label if any
         form.getChildren().removeIf(n -> "error-label".equals(n.getUserData()));
@@ -1240,7 +1248,13 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         TaskStyleUtils.fontNormal(err, 12);
         TaskStyleUtils.textColor(err, "#e74c3c");
         err.setWrapText(true);
-        form.getChildren().add(err);
+        form.getChildren().add(Math.max(0, form.getChildren().size() - 1), err);
+        for (Node node = form.getParent(); node != null; node = node.getParent()) {
+            if (node instanceof ScrollPane scroll) {
+                scroll.setVvalue(scroll.getVmax());
+                break;
+            }
+        }
     }
 
     /**
