@@ -79,18 +79,25 @@ Syncs the whole H2 file. OAuth client credentials live in
   sweep saves through `StudyService.saveLocallyWithoutDirtyFlag` (its javadoc
   says why the wrapper alone is not enough). It runs only once the startup
   Drive check reports up to date, local newer, unknown or disabled; never with
-  a newer Drive copy, a conflict, or a staged download pending.
+  a newer Drive copy, a conflict, or a staged download pending. Reading goals
+  also sweeps overdue attempts, so `StudySyncUI` holds that sweep
+  (`StudyService.holdOverdueSweep`) before building the panels and releases it
+  in `runStartupMaintenance`. If startup defers maintenance, the header re-check
+  (also run when Profile closes) resumes it once sync is up to date, local newer
+  or disabled. An unknown re-check does not resolve an earlier conflict. Pending
+  or failed staged downloads still block maintenance, which runs only once.
 - User-facing flow (manual upload/download in the Profile window, upload offer
   on close): README, "Google Drive Sync Setup".
 
 ## UI styling
 
-- `styles.css` is a scene stylesheet on the main and Profile windows. Its first
-  part forces dark text (`#2c3e50`) on every control, so text stays readable on
-  our light backgrounds under a dark desktop theme; `StudySyncUI.start()` also
-  forces `STYLESHEET_MODENA`. Reusable classes
-  (`.btn-*`, `.section-card*`, `.panel-bg*`, `.modal-content*`, `.cal-*`, ...) follow
-  under "APPLICATION CSS CLASSES".
+- `styles.css` is a scene stylesheet on the main and Profile windows, including
+  their modal overlays and owned dialogs (JavaFX binds the owner's
+  stylesheets). Its first part forces dark text (`#2c3e50`) on every control,
+  so text stays readable on our light backgrounds under a dark desktop theme;
+  `StudySyncUI.start()` also forces `STYLESHEET_MODENA`. Reusable classes
+  (`.btn-*`, `.section-card*`, `.panel-bg*`, `.modal-content*`, `.cal-*`, ...)
+  follow under "APPLICATION CSS CLASSES".
 - Static, reusable styles go in a CSS class (`getStyleClass().add(...)`);
   `setStyle()` is for styles that vary with data (status colors, date-dependent
   cell colors, progress widths).
@@ -99,7 +106,13 @@ Syncs the whole H2 file. OAuth client credentials live in
 - `setTextFill()` has no effect on a Label in those windows: the stylesheet's
   `.label` rule outranks it. Semantic colors (muted `#7f8c8d`, error red,
   status colors) go through `TaskStyleUtils.textColor(label, hex)`, which sets
-  an inline `-fx-text-fill`.
+  an inline `-fx-text-fill`. An icon label set as the graphic inherits that
+  colour (`.label .label`, repeated for dialogs), so only the outer label needs
+  it. Inside a list cell use the `cell-muted` class instead: an inline colour
+  would also beat the rule that turns a selected row's text white.
+- Colour a Labeled control through `-fx-text-fill`, never `-fx-fill` on its
+  inner `.text` node: a fill set there overwrites the control's text fill, so a
+  broad `.text` rule silently disables every class-based text colour.
 - Fonts go through the `TaskStyleUtils` font helpers (`fontBold`, `fontEmoji`,
   `iconLabel`, ...), which use inline styles so CSS re-application cannot reset
   them. Task status colors, emoji and badges also come from `TaskStyleUtils`,
@@ -112,7 +125,8 @@ Syncs the whole H2 file. OAuth client credentials live in
   `ScoreBreakdown`s. The rules are in its class doc and constants.
 - Session `points_earned` is derived: `schema.sql` recomputes it on every
   startup in integer SQL that must match `StudySession.calculatePoints()`
-  exactly, guarded by `ScoringServiceTest.sessionPointsMatchTheSqlMigrationExactly`.
+  exactly, guarded by `ScoringServiceTest.sessionPointsMatchTheSqlMigrationExactly`
+  (which runs the statement from `schema.sql`).
 - Off days (`off_days`) are excluded only from aggregates: window scores drop
   them from the denominators and the streak skips them rather than breaking.
   Per-day figures and the profile charts still show what happened.

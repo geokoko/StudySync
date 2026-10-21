@@ -7,7 +7,6 @@ import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
 import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
 
 import java.time.LocalDate;
 import java.util.stream.Collectors;
@@ -60,11 +59,11 @@ final class GoalEditFields {
                 ? "Choose when this attempt should appear in the planner."
                 : "Only pending attempts can be rescheduled. Use Plan to create a new dated attempt.");
         TaskStyleUtils.fontNormal(dateHint, 11);
-        dateHint.setTextFill(Color.web(TaskStyleUtils.COLOR_MUTED));
+        TaskStyleUtils.textColor(dateHint, TaskStyleUtils.COLOR_MUTED);
         dateHint.setWrapText(true);
 
         error.setGraphic(TaskStyleUtils.iconLabel("⚠", 12));
-        error.setTextFill(Color.web(TaskStyleUtils.COLOR_DANGER));
+        TaskStyleUtils.textColor(error, TaskStyleUtils.COLOR_DANGER);
         error.setWrapText(true);
         error.setVisible(false);
         error.setManaged(false);

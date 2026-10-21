@@ -11,7 +11,6 @@ import javafx.scene.control.Labeled;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
 
 import java.time.LocalDate;
 import java.time.format.TextStyle;
@@ -90,10 +89,18 @@ public final class TaskStyleUtils {
      * Applies a semantic text colour via inline style. {@code setTextFill}
      * loses to the global {@code .label} rule in styles.css (a scene
      * stylesheet outranks values set from code), so a colour that has to show
-     * on a Label in the main window must be inline.
+     * on a Label in the main or Profile window must be inline.
+     * Replaces any previous inline colour; {@code null} restores the stylesheet
+     * colour without removing other inline styles.
      */
     public static void textColor(Labeled node, String hex) {
-        appendStyle(node, "-fx-text-fill: " + hex + ";");
+        String existing = node.getStyle();
+        String style = existing == null ? ""
+                : existing.replaceAll("(?i)(?<![\\w-])-fx-text-fill\\s*:[^;]*(;|$)\\s*", "").trim();
+        if (hex != null) {
+            style += (style.isEmpty() ? "" : " ") + "-fx-text-fill: " + hex + ";";
+        }
+        node.setStyle(style);
     }
 
     /**
@@ -142,7 +149,7 @@ public final class TaskStyleUtils {
         Label link = new Label(truncated ? text.substring(0, text.offsetByCodePoints(0, 37)) + "\u2026" : text);
         link.setGraphic(iconLabel("\u29BF", 10));
         fontNormal(link, 11);
-        link.setTextFill(Color.web(COLOR_MUTED));
+        textColor(link, COLOR_MUTED);
         if (truncated) {
             link.setTooltip(new Tooltip(text));
         }
@@ -199,14 +206,14 @@ public final class TaskStyleUtils {
     // ── Badge text colour (dark enough for contrast on pastels) ─
 
     /** Text colour for status badges — dark shades for readability. */
-    public static Color statusTextColor(TaskStatus s) {
+    public static String statusTextColor(TaskStatus s) {
         return switch (s) {
-            case COMPLETED   -> Color.web(COLOR_SUCCESS);
-            case DELAYED     -> Color.web(COLOR_DANGER);
-            case IN_PROGRESS -> Color.web("#8a4b00");
-            case CANCELLED   -> Color.web("#37474f");
-            case POSTPONED   -> Color.web("#5e35b1");
-            default          -> Color.web(COLOR_PRIMARY);
+            case COMPLETED   -> COLOR_SUCCESS;
+            case DELAYED     -> COLOR_DANGER;
+            case IN_PROGRESS -> "#8a4b00";
+            case CANCELLED   -> "#37474f";
+            case POSTPONED   -> "#5e35b1";
+            default          -> COLOR_PRIMARY;
         };
     }
 
@@ -281,7 +288,7 @@ public final class TaskStyleUtils {
         badge.setPadding(new Insets(2, 6, 2, 6));
         badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 10;");
         fontBold(badge, 10);
-        badge.setTextFill(Color.web(OVERDUE_COLOR));
+        textColor(badge, OVERDUE_COLOR);
         return badge;
     }
 
@@ -295,7 +302,7 @@ public final class TaskStyleUtils {
         badge.setPadding(new Insets(2, 6, 2, 6));
         badge.setStyle("-fx-background-color: #fff3e0; -fx-background-radius: 10;");
         fontBold(badge, 10);
-        badge.setTextFill(Color.web(DUE_TODAY_COLOR));
+        textColor(badge, DUE_TODAY_COLOR);
         return badge;
     }
 
@@ -314,7 +321,7 @@ public final class TaskStyleUtils {
         badge.setPadding(new Insets(2, 6, 2, 6));
         badge.setStyle("-fx-background-color: #e3f2fd; -fx-background-radius: 10;");
         fontBold(badge, 10);
-        badge.setTextFill(Color.web(REMINDER_COLOR));
+        textColor(badge, REMINDER_COLOR);
         return badge;
     }
 
@@ -355,10 +362,10 @@ public final class TaskStyleUtils {
 
     public static Label createAttemptBadge(String text, String textColor, String backgroundColor) {
         Label badge = new Label(text);
-        fontBold(badge, 10);
-        badge.setTextFill(Color.web(textColor));
         badge.setPadding(new Insets(2, 7, 2, 7));
         badge.setStyle("-fx-background-color: " + backgroundColor + "; -fx-background-radius: 10;");
+        fontBold(badge, 10);
+        textColor(badge, textColor);
         return badge;
     }
 
@@ -372,7 +379,7 @@ public final class TaskStyleUtils {
         badge.setPadding(new Insets(2, 6, 2, 6));
         badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 10;");
         fontBold(badge, 10);
-        badge.setTextFill(Color.web(MISSED_COLOR));
+        textColor(badge, MISSED_COLOR);
         return badge;
     }
 
@@ -390,7 +397,7 @@ public final class TaskStyleUtils {
         badge.setPadding(new Insets(2, 6, 2, 6));
         badge.setStyle("-fx-background-color: #ffebee; -fx-background-radius: 10;");
         fontBold(badge, 10);
-        badge.setTextFill(Color.web(MISSED_COLOR));
+        textColor(badge, MISSED_COLOR);
         return badge;
     }
 
@@ -408,7 +415,7 @@ public final class TaskStyleUtils {
             check.setWrapText(true);
             fontNormal(check, 11);
             if (c.done()) {
-                check.setTextFill(Color.web(COLOR_MUTED));
+                textColor(check, COLOR_MUTED);
             }
             if (onToggle != null) {
                 int index = i;

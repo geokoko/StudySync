@@ -12,7 +12,6 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
 import javafx.scene.Node;
 
 import java.time.LocalDate;
@@ -299,7 +298,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         
         currentProjectLabel = new Label("No project selected");
         TaskStyleUtils.fontBold(currentProjectLabel, 14);
-        currentProjectLabel.setTextFill(Color.web("#34495e"));
+        TaskStyleUtils.textColor(currentProjectLabel, "#34495e");
         
         projectSection.getChildren().addAll(projectLabel, projectSelector, currentProjectLabel);
         
@@ -317,7 +316,6 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
         
         sessionTimerLabel = new Label("Ready to start session");
         TaskStyleUtils.fontBold(sessionTimerLabel, 16);
-        sessionTimerLabel.setTextFill(Color.web("#2c3e50"));
         
         HBox buttonBox = new HBox(15);
         buttonBox.setAlignment(Pos.CENTER);
@@ -785,7 +783,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                     project.getPriority().toString(),
                     project.getTotalSessionsCount(),
                     project.getFormattedTotalTime()));
-                details.setTextFill(Color.GRAY);
+                details.getStyleClass().add("cell-muted"); // stays readable when the row is selected
                 TaskStyleUtils.fontNormal(details, 11);
                 
                 content.getChildren().addAll(title, details);
@@ -816,12 +814,11 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                 Label projectLabel = new Label(projectTitle);
                 projectLabel.setGraphic(TaskStyleUtils.iconLabel("\u2261", 13));
                 TaskStyleUtils.fontBold(projectLabel, 13);
-                projectLabel.setTextFill(Color.web("#2c3e50"));
                 
                 if (session.getSessionTitle() != null && !session.getSessionTitle().trim().isEmpty()) {
                     Label sessionLabel = new Label("• " + session.getSessionTitle());
                     TaskStyleUtils.fontNormal(sessionLabel, 12);
-                    sessionLabel.setTextFill(Color.web("#34495e"));
+                    TaskStyleUtils.textColor(sessionLabel, "#34495e");
                     headerBox.getChildren().addAll(projectLabel, sessionLabel);
                 } else {
                     headerBox.getChildren().add(projectLabel);
@@ -833,17 +830,17 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                 
                 Label dateLabel = new Label("» " + session.getDate().format(DateTimeFormatter.ofPattern("MMM dd, yyyy")));
                 TaskStyleUtils.fontNormal(dateLabel, 11);
-                dateLabel.setTextFill(Color.web("#7f8c8d"));
+                TaskStyleUtils.textColor(dateLabel, "#7f8c8d");
                 
                 Label durationLabel = new Label(session.getDurationMinutes() + " min");
                 durationLabel.setGraphic(TaskStyleUtils.iconLabel("\u231A", 11));
                 TaskStyleUtils.fontNormal(durationLabel, 11);
-                durationLabel.setTextFill(Color.web("#3498db"));
+                TaskStyleUtils.textColor(durationLabel, "#3498db");
                 
                 Label pointsLabel = new Label(session.getPointsEarned() + " pts");
                 pointsLabel.setGraphic(TaskStyleUtils.iconLabel("\u2666", 11));
                 TaskStyleUtils.fontSemiBold(pointsLabel, 11);
-                pointsLabel.setTextFill(Color.web("#27ae60"));
+                TaskStyleUtils.textColor(pointsLabel, "#27ae60");
                 
                 metricsBox.getChildren().addAll(dateLabel, durationLabel, pointsLabel);
                 
@@ -857,7 +854,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                     Label progressLabel = new Label(progressPreview);
                     progressLabel.setGraphic(TaskStyleUtils.iconLabel("\u2713", 10));
                     TaskStyleUtils.fontNormal(progressLabel, 10);
-                    progressLabel.setTextFill(Color.web("#6c757d"));
+                    TaskStyleUtils.textColor(progressLabel, "#6c757d");
                     progressLabel.setWrapText(true);
                     content.getChildren().add(progressLabel);
                 }
@@ -869,7 +866,7 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
                                             session.getNextSteps();
                     Label nextStepsLabel = new Label("» Next: " + nextStepsPreview);
                     TaskStyleUtils.fontNormal(nextStepsLabel, 10);
-                    nextStepsLabel.setTextFill(Color.web("#8e44ad"));
+                    TaskStyleUtils.textColor(nextStepsLabel, "#8e44ad");
                     nextStepsLabel.setWrapText(true);
                     content.getChildren().add(nextStepsLabel);
                 }
@@ -911,10 +908,10 @@ public class ProjectManagementPanel extends ScrollPane implements RefreshablePan
             }
             
             sessionTimerLabel.setText(timeDisplay);
-            sessionTimerLabel.setTextFill(Color.web("#27ae60"));
+            TaskStyleUtils.textColor(sessionTimerLabel, "#27ae60");
         } else {
             sessionTimerLabel.setText("Ready to start session");
-            sessionTimerLabel.setTextFill(Color.web("#2c3e50"));
+            TaskStyleUtils.textColor(sessionTimerLabel, null);
         }
     }
     

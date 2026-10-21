@@ -56,10 +56,17 @@
  * Modena's ladder() functions compute from the OS theme.
  * ============================================================
  */
-.label,
-.text {
+/* Labels only, not their inner `.text` node: a label's text is drawn by a
+   child Text whose -fx-fill, when a rule sets it, overwrites the label's
+   -fx-text-fill. A global `.text` rule would therefore make every label
+   colour rule below (muted, selected row, tooltip, calendar) dead. */
+.label {
     -fx-text-fill: #2c3e50;
-    -fx-fill: #2c3e50;
+}
+
+/* An icon label used as another label's graphic takes that label's colour */
+.label .label {
+    -fx-text-fill: inherit;
 }
 
 .button {
@@ -74,7 +81,6 @@
 
 .button .text {
     -fx-text-alignment: center;
-    -fx-fill: inherit;
 }
 
 .button:hover {
@@ -239,6 +245,12 @@
     -fx-text-fill: white;
 }
 
+/* Muted text in a list cell. A class, not an inline colour, so that the
+   selected-row rule below can still turn it white. */
+.list-cell .cell-muted {
+    -fx-text-fill: #7f8c8d;
+}
+
 .list-view .list-cell:filled:selected .label {
     -fx-text-fill: white;
 }
@@ -325,6 +337,13 @@
 
 .alert .label {
     -fx-text-fill: #2c3e50;
+}
+
+/* The dialog rules above are at least as specific as `.label .label`, so an icon
+   label used as a graphic inside a dialog needs its own inherit rule. */
+.dialog-pane .label .label,
+.alert .label .label {
+    -fx-text-fill: inherit;
 }
 
 /*
@@ -471,6 +490,12 @@
 
 .btn-danger {
     -fx-background-color: #e74c3c;
+    -fx-text-fill: white;
+    -fx-background-radius: 5;
+}
+
+.btn-warning {
+    -fx-background-color: #f39c12;
     -fx-text-fill: white;
     -fx-background-radius: 5;
 }

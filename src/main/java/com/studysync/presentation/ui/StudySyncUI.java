@@ -35,7 +35,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
-import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,6 +69,8 @@ public class StudySyncUI {
     private Button syncStatusBadge;
     /** Bumped on every badge update; stale async checks compare against it. FX thread only. */
     private int syncBadgeGeneration;
+    /** Deferred startup maintenance runs once, even if sync is checked repeatedly. FX thread only. */
+    private boolean startupMaintenanceComplete;
 
     @Autowired
     public StudySyncUI(TaskService taskService,
@@ -87,6 +88,8 @@ public class StudySyncUI {
         this.scoringService = Objects.requireNonNull(scoringService, "scoringService");
         this.googleDriveService = Objects.requireNonNull(googleDriveService, "googleDriveService");
 
+        // Building the panels reads goals; runStartupMaintenance releases the sweep.
+        studyService.holdOverdueSweep();
         Map<Tab, RefreshablePanel> panels = new LinkedHashMap<>();
         Tab calendarTab = new Tab("Calendar View");
         calendarTab.setGraphic(TaskStyleUtils.iconLabel("\u25A6", 14));
@@ -123,6 +126,8 @@ public class StudySyncUI {
                 panelMap.get(newTab).updateDisplay();
             }
         });
+        // Panels date what they show (today, overdue); redraw the open one when the day changes.
+        dateTimeService.addDateChangeListener(date -> refreshSelectedPanel());
 
         BorderPane mainLayout = new BorderPane();
         HBox header = createHeader();
@@ -162,7 +167,10 @@ public class StudySyncUI {
         primaryStage.show();
 
         resolveDriveSyncOnStartup();
+        refreshSelectedPanel();
+    }
 
+    private void refreshSelectedPanel() {
         Tab selectedTab = tabPane.getSelectionModel().getSelectedItem();
         if (selectedTab != null && panelMap.containsKey(selectedTab)) {
             panelMap.get(selectedTab).updateDisplay();
@@ -205,7 +213,7 @@ public class StudySyncUI {
                 + "-fx-border-color: #2980b9; -fx-border-width: 0 0 2 0;");
 
         Label appTitle = new Label("StudySync");
-        appTitle.setTextFill(Color.WHITE);
+        TaskStyleUtils.textColor(appTitle, "#ffffff");
         TaskStyleUtils.fontBold(appTitle, 20);
 
         Region spacer = new Region();
@@ -242,7 +250,7 @@ public class StudySyncUI {
                 + "-fx-text-fill: " + textColor + ";";
     }
 
-    /** Re-checks Drive sync state off the FX thread and updates the header badge. */
+    /** Re-checks Drive sync state and resumes maintenance after a startup conflict is resolved. */
     private void refreshSyncStatusBadge() {
         // Stale-result fence: only the newest in-flight check may update the
         // badge, so a check started before sign-out can't resurface it.
@@ -255,8 +263,14 @@ public class StudySyncUI {
                     if (generation != syncBadgeGeneration) {
                         return;
                     }
-                    applySyncStatusBadge(error != null
-                            ? GoogleDriveService.SyncStatus.UNKNOWN : status);
+                    GoogleDriveService.SyncStatus resolvedStatus = error != null
+                            ? GoogleDriveService.SyncStatus.UNKNOWN : status;
+                    applySyncStatusBadge(resolvedStatus);
+                    switch (resolvedStatus) {
+                        case UP_TO_DATE, LOCAL_NEWER, DISABLED -> runStartupMaintenance();
+                        // An unknown result cannot establish that an earlier conflict was resolved.
+                        default -> { }
+                    }
                 }));
     }
 
@@ -280,7 +294,7 @@ public class StudySyncUI {
             default -> { icon = "?"; text = "Sync unknown"; color = "white"; }
         }
         Label iconLabel = TaskStyleUtils.iconLabel(icon, 12);
-        iconLabel.setTextFill(Color.web(color.equals("white") ? "#ffffff" : color));
+        TaskStyleUtils.textColor(iconLabel, color.equals("white") ? "#ffffff" : color);
         syncStatusBadge.setGraphic(iconLabel);
         syncStatusBadge.setText(text);
         syncStatusBadge.setStyle(syncBadgeStyle(color));
@@ -307,8 +321,12 @@ public class StudySyncUI {
             return;
         }
 
+        int generation = ++syncBadgeGeneration;
         CompletableFuture.supplyAsync(googleDriveService::checkSyncStatus)
                 .whenComplete((status, error) -> Platform.runLater(() -> {
+                    if (generation != syncBadgeGeneration) {
+                        return;
+                    }
                     if (error != null) {
                         logger.warn("Failed to resolve startup Drive sync state", error);
                         handleStartupSyncStatus(GoogleDriveService.SyncStatus.UNKNOWN);
@@ -332,9 +350,16 @@ public class StudySyncUI {
     }
 
     private void runStartupMaintenance() {
+        // Check at the point of mutation: a download may have been staged while a check was in flight.
+        if (startupMaintenanceComplete || googleDriveService.hasPendingDownload()
+                || googleDriveService.hasFailedPendingDownload()) {
+            return;
+        }
         googleDriveService.runStartupMaintenanceWithoutDirtyTracking(() -> {
+            studyService.releaseOverdueSweep();
             markDelayedTasksOnStartup();
             processDelayedGoalsOnStartup();
+            startupMaintenanceComplete = true;
             refreshAllPanels();
         });
     }
@@ -408,7 +433,7 @@ public class StudySyncUI {
 
         profileStage.setScene(profileScene);
         // Drive actions (upload/download/sign-in) happen in the Profile window,
-        // so the header badge re-checks once it closes.
+        // so re-check once it closes and resume any deferred maintenance when safe.
         profileStage.setOnHidden(e -> refreshSyncStatusBadge());
         profileStage.setMinWidth(900);
         profileStage.setMinHeight(600);

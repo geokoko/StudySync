@@ -60,20 +60,6 @@ public class TaskService {
         this.dateTimeService = dateTimeService;
     }
 
-    /**
-     * Clears cached processing guards so that delay-marking and other
-     * once-per-day operations re-run against the newly loaded database.
-     * Must be called after a live database reload (e.g. Google Drive download).
-     */
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
-    public void resetAfterReload() {
-        synchronized (this) {
-            lastDelayedTasksProcessedDate = null;
-        }
-        logger.info("TaskService caches reset after DB reload");
-    }
-
-
     private void markDirtyAndSaveLocally(final String operation) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

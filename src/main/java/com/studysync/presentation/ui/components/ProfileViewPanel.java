@@ -13,7 +13,6 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
 import javafx.scene.Node;
 import javafx.scene.chart.*;
 import org.slf4j.Logger;
@@ -120,12 +119,12 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         driveHintLabel = new Label();
         driveHintLabel.setWrapText(true);
         TaskStyleUtils.fontItalic(driveHintLabel, 12);
-        driveHintLabel.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(driveHintLabel, "#7f8c8d");
         
         driveActionStatusLabel = new Label();
         driveActionStatusLabel.setWrapText(true);
         TaskStyleUtils.fontNormal(driveActionStatusLabel, 12);
-        driveActionStatusLabel.setTextFill(Color.web("#16a085"));
+        TaskStyleUtils.textColor(driveActionStatusLabel, "#16a085");
         
         driveSignInButton = new Button("Sign in with Google");
         driveSignInButton.setGraphic(TaskStyleUtils.iconLabel("\u2192", 14));
@@ -375,7 +374,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         // Profile summary with dynamic content
         profileSummaryLabel = new Label();
         TaskStyleUtils.fontNormal(profileSummaryLabel, 14);
-        profileSummaryLabel.setTextFill(Color.web("#34495e"));
+        TaskStyleUtils.textColor(profileSummaryLabel, "#34495e");
         profileSummaryLabel.setWrapText(true);
         
         // Productivity rating bar
@@ -390,7 +389,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         
         productivityLabel = new Label("Good (75%)");
         TaskStyleUtils.fontBold(productivityLabel, 12);
-        productivityLabel.setTextFill(Color.web("#3498db"));
+        TaskStyleUtils.textColor(productivityLabel, "#3498db");
         
         productivityBox.getChildren().addAll(productivityTitle, productivityRating, productivityLabel);
         
@@ -430,7 +429,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         Label countLabel = new Label("(" + achievedCount + " achieved, "
                 + failedCount + " missed/failed, " + activeCount + " active)");
         TaskStyleUtils.fontNormal(countLabel, 14);
-        countLabel.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(countLabel, "#7f8c8d");
         
         Button viewAllBtn = new Button("» View All Goals");
         viewAllBtn.getStyleClass().add("btn-success");
@@ -450,13 +449,12 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         if (recentGoals.isEmpty()) {
             Label noGoalsLabel = new Label("No goals recorded yet.");
             TaskStyleUtils.fontNormal(noGoalsLabel, 12);
-            noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(noGoalsLabel, "#7f8c8d");
             noGoalsLabel.setPadding(new Insets(10, 0, 0, 0));
             recentGoalsContainer.getChildren().add(noGoalsLabel);
         } else {
             Label recentLabel = new Label("Recent Goal Activity:");
             TaskStyleUtils.fontSemiBold(recentLabel, 12);
-            recentLabel.setTextFill(Color.web("#2c3e50"));
             recentGoalsContainer.getChildren().add(recentLabel);
             
             for (StudyGoal goal : recentGoals) {
@@ -468,7 +466,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
                 Label moreLabel = new Label("... and " + (allGoals.size() - 5)
                         + " more. Click 'View All Goals' to filter and sort them.");
                 TaskStyleUtils.fontItalic(moreLabel, 11);
-                moreLabel.setTextFill(Color.web("#95a5a6"));
+                TaskStyleUtils.textColor(moreLabel, "#95a5a6");
                 recentGoalsContainer.getChildren().add(moreLabel);
             }
         }
@@ -489,7 +487,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
 
         Label statusIcon = new Label(goalHistoryIcon(goal));
         TaskStyleUtils.fontEmoji(statusIcon, detailed ? 16 : 14);
-        statusIcon.setTextFill(Color.web(goalHistoryColor(goal)));
+        TaskStyleUtils.textColor(statusIcon, goalHistoryColor(goal));
 
         VBox textContainer = new VBox(detailed ? 4 : 2);
         HBox.setHgrow(textContainer, Priority.ALWAYS);
@@ -503,11 +501,11 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
 
         Label dateLabel = new Label(goalHistoryDateText(goal, detailed));
         TaskStyleUtils.fontNormal(dateLabel, detailed ? 11 : 10);
-        dateLabel.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(dateLabel, "#7f8c8d");
 
         Label attemptLabel = new Label("Attempt " + goal.getAttemptNumber());
         TaskStyleUtils.fontNormal(attemptLabel, detailed ? 11 : 10);
-        attemptLabel.setTextFill(Color.web(goalHistoryColor(goal)));
+        TaskStyleUtils.textColor(attemptLabel, goalHistoryColor(goal));
         
         detailsBox.getChildren().addAll(dateLabel, attemptLabel);
         textContainer.getChildren().addAll(descLabel, detailsBox);
@@ -532,7 +530,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         if (allGoals.isEmpty()) {
             Label noGoalsLabel = new Label("No goals recorded yet.");
             TaskStyleUtils.fontNormal(noGoalsLabel, 14);
-            noGoalsLabel.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(noGoalsLabel, "#7f8c8d");
             noGoalsLabel.setWrapText(true);
             noGoalsLabel.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
             noGoalsLabel.setPadding(new Insets(50, 20, 50, 20));
@@ -551,7 +549,6 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
 
             Label totalLabel = new Label();
             TaskStyleUtils.fontBold(totalLabel, 14);
-            totalLabel.setTextFill(Color.web("#2c3e50"));
 
             controls.getChildren().addAll(new Label("Show:"), filterCombo, new Label("Sort:"), sortCombo, totalLabel);
             
@@ -598,7 +595,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         if (visibleGoals.isEmpty()) {
             Label emptyLabel = new Label("No goals match this filter.");
             TaskStyleUtils.fontNormal(emptyLabel, 13);
-            emptyLabel.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(emptyLabel, "#7f8c8d");
             emptyLabel.setPadding(new Insets(30));
             goalsContainer.getChildren().add(emptyLabel);
             return;
@@ -724,15 +721,15 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         
         Label titleLabel = new Label(title);
         TaskStyleUtils.fontBold(titleLabel, 12);
-        titleLabel.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(titleLabel, "#7f8c8d");
         
         Label valueLabel = new Label(value);
         TaskStyleUtils.fontBold(valueLabel, 24);
-        valueLabel.setTextFill(Color.web(color));
+        TaskStyleUtils.textColor(valueLabel, color);
         
         Label subtitleLabel = new Label(subtitle);
         TaskStyleUtils.fontNormal(subtitleLabel, 10);
-        subtitleLabel.setTextFill(Color.web("#95a5a6"));
+        TaskStyleUtils.textColor(subtitleLabel, "#95a5a6");
         subtitleLabel.setWrapText(true);
         subtitleLabel.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
         
@@ -768,7 +765,8 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             VBox efficiencyCard = createStatCard("Efficiency",
                     String.format("%.1f", score.pointsPerHour()),
                     "Points per hour", "#8e44ad");
-            VBox streakCard = createStatCard("Study Streak", scoringService.getStudyStreak() + " days",
+            int streak = scoringService.getStudyStreak();
+            VBox streakCard = createStatCard("Study Streak", streak + (streak == 1 ? " day" : " days"),
                     "Consecutive days (off days skipped)", "#e67e22");
 
             row2.getChildren().addAll(goalsCard, tasksCard, efficiencyCard, streakCard);
@@ -780,7 +778,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             System.err.println("Error updating stats cards: " + e.getMessage());
             statsContainer.getChildren().clear();
             Label errorLabel = new Label("Unable to load statistics");
-            errorLabel.setTextFill(Color.web("#e74c3c"));
+            TaskStyleUtils.textColor(errorLabel, "#e74c3c");
             statsContainer.getChildren().add(errorLabel);
         }
     }
@@ -816,7 +814,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         } catch (Exception e) {
             System.err.println("Error creating charts: " + e.getMessage());
             Label errorLabel = new Label("Unable to load charts");
-            errorLabel.setTextFill(Color.web("#e74c3c"));
+            TaskStyleUtils.textColor(errorLabel, "#e74c3c");
             chartsContainer.getChildren().add(errorLabel);
         }
     }
@@ -912,12 +910,12 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
 
             productivityRating.setStyle("-fx-accent: " + color + ";");
             productivityLabel.setText(rating + " (" + Math.round(productivityScore) + "%)");
-            productivityLabel.setTextFill(Color.web(color));
+            TaskStyleUtils.textColor(productivityLabel, color);
 
             String summary = String.format(
-                "Over the last " + SCORE_WINDOW_DAYS + " days, you've logged %d sessions totaling %d hours. " +
+                "Over the last " + SCORE_WINDOW_DAYS + " days, you've logged %d session%s totaling %.1f hours. " +
                 "Your average focus level is %.1f/5. Keep up the great work and continue building your study habits!",
-                score.sessions(), score.minutes() / 60, score.avgFocus()
+                score.sessions(), score.sessions() == 1 ? "" : "s", score.minutes() / 60.0, score.avgFocus()
             );
 
             int offDays = SCORE_WINDOW_DAYS - score.scoringDays();

@@ -16,7 +16,6 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -183,7 +182,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         if (tasks.isEmpty()) {
             Label empty = new Label("No tasks in this category.");
             TaskStyleUtils.fontNormal(empty, 14);
-            empty.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(empty, "#7f8c8d");
             empty.setPadding(new Insets(30));
             listBox.getChildren().add(empty);
         } else {
@@ -249,15 +248,15 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         // Priority stars
         Label priorityLabel = new Label(task.getPriority() != null ? task.getPriority().toString() : "");
         TaskStyleUtils.fontNormal(priorityLabel, 13);
-        priorityLabel.setTextFill(Color.web("#f39c12"));
+        TaskStyleUtils.textColor(priorityLabel, "#f39c12");
 
         // Status badge
         Label statusBadge = new Label(task.getStatus().name());
         statusBadge.setGraphic(TaskStyleUtils.iconLabel(TaskStyleUtils.statusEmoji(task.getStatus()), 11));
-        statusBadge.setTextFill(TaskStyleUtils.statusTextColor(task.getStatus()));
         statusBadge.setPadding(new Insets(2, 7, 2, 7));
         statusBadge.setStyle("-fx-background-color: " + TaskStyleUtils.statusBadgeBg(task.getStatus()) +
                              "; -fx-background-radius: 10;");
+        TaskStyleUtils.textColor(statusBadge, TaskStyleUtils.statusTextColor(task.getStatus()));
         TaskStyleUtils.fontBold(statusBadge, 11);
 
         Region titleSpacer = new Region();
@@ -314,10 +313,10 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         }
         if (task.isRecurring()) {
             Label recurBadge = new Label("Recurring");
-            recurBadge.setTextFill(Color.web("#7c4dff"));
             recurBadge.setPadding(new Insets(2, 7, 2, 7));
             recurBadge.setStyle("-fx-background-color: #ede7f6; -fx-background-radius: 10;");
             TaskStyleUtils.fontBold(recurBadge, 11);
+            TaskStyleUtils.textColor(recurBadge, "#7c4dff");
             titleRow.getChildren().add(recurBadge);
         }
         titleRow.getChildren().addAll(titleSpacer, actions);
@@ -328,7 +327,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
          Label catLabel = new Label("Category: " + safeCategory);
          TaskStyleUtils.fontNormal(catLabel, 12);
-         catLabel.setTextFill(Color.web("#495057"));
+         TaskStyleUtils.textColor(catLabel, "#495057");
 
         metaRow.getChildren().add(catLabel);
 
@@ -341,21 +340,21 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                     : "Due: " + task.getDeadline();
             Label deadlineLabel = new Label(dueText);
             TaskStyleUtils.fontNormal(deadlineLabel, 12);
-            deadlineLabel.setTextFill(overdue ? Color.web("#c0392b") : Color.web("#495057"));
+            TaskStyleUtils.textColor(deadlineLabel, overdue ? "#c0392b" : "#495057");
             metaRow.getChildren().add(deadlineLabel);
         }
 
         if (latestReschedule != null && latestReschedule.getOldDeadline() != null) {
             Label prevDueLabel = new Label("Previously due: " + latestReschedule.getOldDeadline());
             TaskStyleUtils.fontNormal(prevDueLabel, 11);
-            prevDueLabel.setTextFill(Color.web("#9aa0a6"));
+            TaskStyleUtils.textColor(prevDueLabel, "#9aa0a6");
             metaRow.getChildren().add(prevDueLabel);
         }
 
         if (task.isRecurring()) {
             Label recurringDetail = new Label(task.getRecurringSummary());
             TaskStyleUtils.fontNormal(recurringDetail, 11);
-            recurringDetail.setTextFill(Color.web("#6f42c1"));
+            TaskStyleUtils.textColor(recurringDetail, "#6f42c1");
             metaRow.getChildren().add(recurringDetail);
         }
 
@@ -365,19 +364,19 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                     ? task.getDescription().substring(0, 120) + "…"
                     : task.getDescription());
             TaskStyleUtils.fontNormal(desc, 12);
-            desc.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(desc, "#7f8c8d");
             desc.setWrapText(true);
             info.getChildren().addAll(titleRow, metaRow, desc);
         } else {
             Label desc = new Label("No description");
             TaskStyleUtils.fontNormal(desc, 12);
-            desc.setTextFill(Color.web("#9aa0a6"));
+            TaskStyleUtils.textColor(desc, "#9aa0a6");
             info.getChildren().addAll(titleRow, metaRow, desc);
         }
         if (task.getDoneCriteria() != null) {
             Label doneWhen = new Label("Done when: " + task.getDoneCriteria());
             TaskStyleUtils.fontItalic(doneWhen, 12);
-            doneWhen.setTextFill(Color.web(TaskStyleUtils.COLOR_MUTED));
+            TaskStyleUtils.textColor(doneWhen, TaskStyleUtils.COLOR_MUTED);
             doneWhen.setWrapText(true);
             info.getChildren().add(doneWhen);
         }
@@ -427,7 +426,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         Label heading = new Label("Goal history");
         TaskStyleUtils.fontBold(heading, 12);
-        heading.setTextFill(Color.web(TaskStyleUtils.COLOR_PRIMARY));
+        TaskStyleUtils.textColor(heading, TaskStyleUtils.COLOR_PRIMARY);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -443,7 +442,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         if (attempts.isEmpty()) {
             Label empty = new Label("No attempts have been planned for this task yet.");
             TaskStyleUtils.fontNormal(empty, 12);
-            empty.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(empty, "#7f8c8d");
             pane.getChildren().add(empty);
             return;
         }
@@ -498,15 +497,14 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         Label title = new Label(shorten(latest.getDescription(), 90)
                 + TaskStyleUtils.criteriaProgress(latest.getCriteria()));
         TaskStyleUtils.fontSemiBold(title, 12);
-        title.setTextFill(Color.web("#2c3e50"));
         title.setWrapText(true);
         HBox.setHgrow(title, Priority.ALWAYS);
 
         Label parentBadge = new Label(parentStatusLabel(latest));
-        TaskStyleUtils.fontBold(parentBadge, 10);
-        parentBadge.setTextFill(Color.web(parentStatusColor(latest)));
         parentBadge.setStyle("-fx-background-color: " + parentStatusBackground(latest)
                 + "; -fx-background-radius: 8; -fx-padding: 2 8;");
+        TaskStyleUtils.fontBold(parentBadge, 10);
+        TaskStyleUtils.textColor(parentBadge, parentStatusColor(latest));
 
         HBox actions = new HBox(6);
         actions.setAlignment(Pos.CENTER_RIGHT);
@@ -535,7 +533,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         Label summary = new Label("Latest attempt " + latest.getAttemptNumber()
                 + " | " + attempts.size() + " total attempt" + (attempts.size() == 1 ? "" : "s"));
         TaskStyleUtils.fontNormal(summary, 11);
-        summary.setTextFill(Color.web("#6c757d"));
+        TaskStyleUtils.textColor(summary, "#6c757d");
 
         VBox timeline = new VBox(4);
         for (StudyGoal attempt : attempts) {
@@ -581,23 +579,23 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                 + " -fx-border-width: 0 0 0 4; -fx-border-radius: 4;");
 
         Label marker = TaskStyleUtils.iconLabel(attemptIcon(attempt), 11);
-        marker.setTextFill(Color.web(attemptStatusColor(attempt)));
+        TaskStyleUtils.textColor(marker, attemptStatusColor(attempt));
 
         Label attemptLabel = new Label("Attempt " + attempt.getAttemptNumber());
         TaskStyleUtils.fontSemiBold(attemptLabel, 11);
         attemptLabel.setMinWidth(72);
-        attemptLabel.setTextFill(Color.web("#495057"));
+        TaskStyleUtils.textColor(attemptLabel, "#495057");
 
         Label dateLabel = new Label(attempt.getDate().toString());
         TaskStyleUtils.fontNormal(dateLabel, 11);
         dateLabel.setMinWidth(82);
-        dateLabel.setTextFill(Color.web("#6c757d"));
+        TaskStyleUtils.textColor(dateLabel, "#6c757d");
 
         Label status = new Label(attemptStatusLabel(attempt));
-        TaskStyleUtils.fontBold(status, 10);
-        status.setTextFill(Color.web(attemptStatusColor(attempt)));
         status.setStyle("-fx-background-color: " + attemptStatusBackground(attempt)
                 + "; -fx-background-radius: 8; -fx-padding: 1 7;");
+        TaskStyleUtils.fontBold(status, 10);
+        TaskStyleUtils.textColor(status, attemptStatusColor(attempt));
 
         row.getChildren().addAll(marker, attemptLabel, dateLabel, status);
         return row;
@@ -684,7 +682,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         Label taskLabel = new Label(task.getTitle());
         TaskStyleUtils.fontSemiBold(taskLabel, 12);
-        taskLabel.setTextFill(Color.web("#495057"));
+        TaskStyleUtils.textColor(taskLabel, "#495057");
         taskLabel.setWrapText(true);
 
         GoalEditFields fields = new GoalEditFields(existingGoal, LocalDate.now());
@@ -922,7 +920,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         Label recurrenceEndHint = new Label("The last day this task repeats. Separate from the deadline, "
                 + "which is when the task itself is due.");
         TaskStyleUtils.fontNormal(recurrenceEndHint, 10);
-        recurrenceEndHint.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(recurrenceEndHint, "#7f8c8d");
         recurrenceEndHint.setWrapText(true);
 
         recurringOptions.getChildren().addAll(new Label("Repeat every:"), intervalRow,
@@ -932,7 +930,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         Label deadlineHint = new Label("");
         TaskStyleUtils.fontNormal(deadlineHint, 10);
-        deadlineHint.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(deadlineHint, "#7f8c8d");
         deadlineHint.setWrapText(true);
         deadlineHint.setVisible(false);
         deadlineHint.setManaged(false);
@@ -1066,7 +1064,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                             ? " (changed " + r.getRescheduledAt().toLocalDate() + ")" : "";
                     Label row = new Label(from + " -> " + r.getNewDeadline() + when);
                     TaskStyleUtils.fontNormal(row, 11);
-                    row.setTextFill(Color.web("#7f8c8d"));
+                    TaskStyleUtils.textColor(row, "#7f8c8d");
                     historyBox.getChildren().add(row);
                 }
                 form.getChildren().add(historyBox);
@@ -1090,7 +1088,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         err.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
         err.setUserData("error-label");
         TaskStyleUtils.fontNormal(err, 12);
-        err.setTextFill(Color.web("#e74c3c"));
+        TaskStyleUtils.textColor(err, "#e74c3c");
         err.setWrapText(true);
         form.getChildren().add(err);
     }

@@ -18,7 +18,6 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
 import javafx.scene.Node;
 
 import java.time.LocalDate;
@@ -184,7 +183,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         progressLabel = new Label("Daily Progress: 0%");
         TaskStyleUtils.fontSemiBold(progressLabel, 14);
-        progressLabel.setTextFill(Color.web("#34495e"));
+        TaskStyleUtils.textColor(progressLabel, "#34495e");
 
         header.getChildren().addAll(navRow, dailyProgressBar, progressLabel);
         mainContent.getChildren().add(header);
@@ -367,7 +366,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontBold(reflectionTitle, 18);
 
         reflectionArea = new TextArea();
-        reflectionArea.setPromptText("What helped you focus today?\nWhat distracted you?\nOne thing to improve tomorrow?");
+        reflectionArea.setPromptText("What helped you focus today? What distracted you? One thing to improve tomorrow?");
         reflectionArea.setPrefRowCount(4);
         reflectionArea.setWrapText(true);
 
@@ -411,7 +410,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             Label emptyLabel = new Label(dateScopedView
                     ? "No tasks scheduled for this day." : "No active tasks.");
             TaskStyleUtils.fontNormal(emptyLabel, 14);
-            emptyLabel.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(emptyLabel, "#7f8c8d");
 
             Button createTaskBtn = new Button("+ Create Task");
             createTaskBtn.getStyleClass().add("btn-primary");
@@ -438,7 +437,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 for (Map.Entry<String, List<Task>> entry : groups.entrySet()) {
                     Label groupHeader = new Label(entry.getKey());
                     TaskStyleUtils.fontBold(groupHeader, 13);
-                    groupHeader.setTextFill(Color.web("#6c757d"));
+                    TaskStyleUtils.textColor(groupHeader, "#6c757d");
                     groupHeader.setPadding(new Insets(6, 0, 2, 0));
                     tasksContainer.getChildren().add(groupHeader);
                     for (Task task : entry.getValue()) {
@@ -463,7 +462,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 Label missedTitle = new Label("Missed recurring tasks:");
                 missedTitle.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 13));
                 TaskStyleUtils.fontBold(missedTitle, 13);
-                missedTitle.setTextFill(Color.web(TaskStyleUtils.MISSED_COLOR));
+                TaskStyleUtils.textColor(missedTitle, TaskStyleUtils.MISSED_COLOR);
                 missedSection.getChildren().add(missedTitle);
 
                 for (var entry : byTask.entrySet()) {
@@ -492,7 +491,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 Label reminderTitle = new Label("Coming up:");
                 reminderTitle.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 13));
                 TaskStyleUtils.fontBold(reminderTitle, 13);
-                reminderTitle.setTextFill(Color.web(TaskStyleUtils.REMINDER_COLOR));
+                TaskStyleUtils.textColor(reminderTitle, TaskStyleUtils.REMINDER_COLOR);
                 reminderSection.getChildren().add(reminderTitle);
 
                 for (Task task : reminders) {
@@ -526,7 +525,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 unlinkedSection.setPadding(new Insets(10, 0, 0, 0));
                 Label unlinkedTitle = new Label("Goals without a task:");
                 TaskStyleUtils.fontBold(unlinkedTitle, 13);
-                unlinkedTitle.setTextFill(Color.web("#6c757d"));
+                TaskStyleUtils.textColor(unlinkedTitle, "#6c757d");
                 unlinkedSection.getChildren().add(unlinkedTitle);
                 for (StudyGoal goal : unlinkedGoals) {
                     unlinkedSection.getChildren().add(buildGoalRow(goal, null));
@@ -587,11 +586,11 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         Label valueLabel = new Label(value);
         TaskStyleUtils.fontBold(valueLabel, primary ? 18 : 14);
-        valueLabel.setTextFill(Color.web(textColor));
+        TaskStyleUtils.textColor(valueLabel, textColor);
 
         Label titleLabel = new Label(title);
         TaskStyleUtils.fontNormal(titleLabel, 10);
-        titleLabel.setTextFill(Color.web(textColor));
+        TaskStyleUtils.textColor(titleLabel, textColor);
 
         card.getChildren().addAll(valueLabel, titleLabel);
         return card;
@@ -730,7 +729,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         Label arrow = new Label("\u25B6");
         TaskStyleUtils.fontEmoji(arrow, 11);
-        arrow.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(arrow, "#7f8c8d");
 
         Label taskTitle = new Label(task.getTitle());
         TaskStyleUtils.fontBold(taskTitle, 14);
@@ -739,14 +738,14 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         HBox.setHgrow(taskTitle, Priority.ALWAYS);
 
         Label priorityLabel = new Label(task.getPriority() != null ? task.getPriority().toString() : "");
-        priorityLabel.setTextFill(Color.web("#f39c12"));
+        TaskStyleUtils.textColor(priorityLabel, "#f39c12");
 
         Label statusBadge = new Label(task.getStatus().name());
         statusBadge.setPadding(new Insets(2, 6, 2, 6));
         statusBadge.setStyle("-fx-background-color: " + TaskStyleUtils.statusBadgeBg(task.getStatus()) +
                              "; -fx-background-radius: 10;");
         TaskStyleUtils.fontBold(statusBadge, 10);
-        statusBadge.setTextFill(TaskStyleUtils.statusTextColor(task.getStatus()));
+        TaskStyleUtils.textColor(statusBadge, TaskStyleUtils.statusTextColor(task.getStatus()));
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -891,7 +890,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (alsoScheduledToday) {
             Label hint = new Label("(also scheduled today \u2014 see above)");
             TaskStyleUtils.fontItalic(hint, 11);
-            hint.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(hint, "#7f8c8d");
             card.getChildren().add(hint);
         }
 
@@ -912,7 +911,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             } else {
                 Label noGoals = new Label("No goals linked to this task for this date.");
                 TaskStyleUtils.fontNormal(noGoals, 12);
-                noGoals.setTextFill(Color.web("#7f8c8d"));
+                TaskStyleUtils.textColor(noGoals, "#7f8c8d");
                 goalsPanel.getChildren().add(noGoals);
             }
 
@@ -965,7 +964,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         Label header = new Label("Missed goals without a task");
         header.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 12));
         TaskStyleUtils.fontBold(header, 13);
-        header.setTextFill(Color.web(TaskStyleUtils.retryTextColor()));
+        TaskStyleUtils.textColor(header, TaskStyleUtils.retryTextColor());
         section.getChildren().add(header);
 
         for (StudyGoal goal : retryableGoals) {
@@ -989,7 +988,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         Label header = new Label("Missed goals ready to retry");
         header.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 12));
         TaskStyleUtils.fontBold(header, 12);
-        header.setTextFill(Color.web(TaskStyleUtils.retryTextColor()));
+        TaskStyleUtils.textColor(header, TaskStyleUtils.retryTextColor());
         section.getChildren().add(header);
 
         for (StudyGoal goal : retryableGoals) {
@@ -1009,7 +1008,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(goalLabel, 13);
         Label attemptLabel = new Label(formatRetryAttemptSummary(goal));
         TaskStyleUtils.fontNormal(attemptLabel, 11);
-        attemptLabel.setTextFill(Color.web(TaskStyleUtils.retryTextColor()));
+        TaskStyleUtils.textColor(attemptLabel, TaskStyleUtils.retryTextColor());
         textBox.getChildren().addAll(goalLabel, attemptLabel);
 
         Region spacer = new Region();
@@ -1032,9 +1031,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         String missedOn = goal.getDate() != null
                 ? goal.getDate().format(DateTimeFormatter.ofPattern("MMM d"))
                 : "previous attempt";
-        int nextAttempt = Math.max(goal.getAttemptNumber() + 1, goal.getMissedAttemptCount() + 2);
+        // Retry rows show the goal's latest attempt, so the retry is the one after it.
         return "Missed " + missedOn + " - " + formatAttemptSummary(goal)
-                + " - next attempt " + nextAttempt;
+                + " - next attempt " + (goal.getAttemptNumber() + 1);
     }
 
     private HBox buildGoalRow(StudyGoal goal, Task linkedTask) {
@@ -1153,9 +1152,9 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         Label toggle = new Label("Completed Goals (" + completedGoals.size() + ")");
         toggle.setGraphic(TaskStyleUtils.iconLabel("\u25B6", 11));
-        TaskStyleUtils.fontBold(toggle, 11);
-        toggle.setTextFill(Color.web("#27ae60"));
         toggle.setStyle("-fx-cursor: hand;");
+        TaskStyleUtils.fontBold(toggle, 11);
+        TaskStyleUtils.textColor(toggle, "#27ae60");
         toggle.setOnMouseClicked(e -> {
             boolean show = !itemsBox.isVisible();
             itemsBox.setVisible(show);
@@ -1187,7 +1186,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), criterionToggle(goal)));
             }
             Label attempts = new Label(formatAttemptSummary(goal));
-            attempts.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(attempts, "#7f8c8d");
             TaskStyleUtils.fontNormal(attempts, 10);
             textBox.getChildren().add(attempts);
 
@@ -1225,7 +1224,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         if (sessionsFlowPane.getChildren().isEmpty()) {
             Label none = new Label("No sessions for this date.");
             TaskStyleUtils.fontNormal(none, 13);
-            none.setTextFill(Color.web("#7f8c8d"));
+            TaskStyleUtils.textColor(none, "#7f8c8d");
             sessionsFlowPane.getChildren().add(none);
         }
     }
@@ -1250,19 +1249,19 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         Label durationLabel = new Label(session.getDurationMinutes() + " min");
         TaskStyleUtils.fontNormal(durationLabel, 11);
-        durationLabel.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(durationLabel, "#7f8c8d");
 
         // Focus stars (compact)
         StringBuilder stars = new StringBuilder();
         for (int i = 1; i <= 5; i++) stars.append(i <= session.getFocusLevel() ? "\u2605" : "\u2606");
         Label focusLabel = new Label(stars.toString());
         TaskStyleUtils.fontEmoji(focusLabel, 12);
-        focusLabel.setTextFill(Color.web("#f39c12"));
+        TaskStyleUtils.textColor(focusLabel, "#f39c12");
 
         Label pointsLabel = new Label(session.getPointsEarned() + " pts");
         pointsLabel.setGraphic(TaskStyleUtils.iconLabel("\u2666", 11));
         TaskStyleUtils.fontSemiBold(pointsLabel, 11);
-        pointsLabel.setTextFill(Color.web("#27ae60"));
+        TaskStyleUtils.textColor(pointsLabel, "#27ae60");
 
         // Action buttons row
         HBox btnRow = new HBox(5);
@@ -1372,7 +1371,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         Label statusLabel = new Label(session.isActive() ? "Active, not completed" : "Incomplete session");
         statusLabel.setGraphic(TaskStyleUtils.iconLabel(session.isActive() ? "\u23F3" : "\u26A0", 11));
         TaskStyleUtils.fontBold(statusLabel, 11);
-        statusLabel.setTextFill(Color.web("#d35400"));
+        TaskStyleUtils.textColor(statusLabel, "#d35400");
 
         Label timeLabel = new Label(startStr + "\u2013" + endStr);
         timeLabel.setGraphic(TaskStyleUtils.iconLabel("\u23F0", 12));
@@ -1383,7 +1382,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
                 : "Not completed";
         Label durationLabel = new Label(durationText);
         TaskStyleUtils.fontNormal(durationLabel, 11);
-        durationLabel.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(durationLabel, "#7f8c8d");
 
         Button detailsBtn = new Button("Details");
         detailsBtn.getStyleClass().addAll("btn-primary", "btn-small");
@@ -1533,7 +1532,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         Label deadlineHint = new Label("");
         TaskStyleUtils.fontNormal(deadlineHint, 10);
-        deadlineHint.setTextFill(Color.web("#7f8c8d"));
+        TaskStyleUtils.textColor(deadlineHint, "#7f8c8d");
         deadlineHint.setWrapText(true);
         deadlineHint.setVisible(false);
         deadlineHint.setManaged(false);
@@ -1622,7 +1621,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         err.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
         err.setUserData("error-label");
         TaskStyleUtils.fontNormal(err, 12);
-        err.setTextFill(Color.web("#e74c3c"));
+        TaskStyleUtils.textColor(err, "#e74c3c");
         err.setWrapText(true);
         form.getChildren().add(err);
     }
@@ -1732,7 +1731,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             } catch (Exception ex) {
                 Label err = new Label(ex.getMessage());
                 err.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
-                err.setTextFill(Color.web("#e74c3c"));
+                TaskStyleUtils.textColor(err, "#e74c3c");
                 content.getChildren().add(err);
             }
         });
@@ -1764,22 +1763,22 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         Label focusWarning = new Label("Average focus.");
         TaskStyleUtils.fontNormal(focusWarning, 11);
         focusWarning.setWrapText(true);
-        focusWarning.setTextFill(Color.web("#f39c12"));
+        TaskStyleUtils.textColor(focusWarning, "#f39c12");
 
         focusSlider.valueProperty().addListener((obs, o, nv) -> {
             int lv = nv.intValue();
             if (lv <= 2) {
                 focusWarning.setText("Low focus \u2014 this session scores less per minute.");
                 focusWarning.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 11));
-                focusWarning.setTextFill(Color.web("#e74c3c"));
+                TaskStyleUtils.textColor(focusWarning, "#e74c3c");
             } else if (lv == 3) {
                 focusWarning.setText("Average focus.");
                 focusWarning.setGraphic(null);
-                focusWarning.setTextFill(Color.web("#f39c12"));
+                TaskStyleUtils.textColor(focusWarning, "#f39c12");
             } else {
                 focusWarning.setText("Great focus \u2014 this session scores more per minute.");
                 focusWarning.setGraphic(TaskStyleUtils.iconLabel("\u2713", 11));
-                focusWarning.setTextFill(Color.web("#27ae60"));
+                TaskStyleUtils.textColor(focusWarning, "#27ae60");
             }
         });
 
@@ -1789,7 +1788,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         Label errorLabel = new Label();
         errorLabel.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
-        errorLabel.setTextFill(Color.web("#e74c3c"));
+        TaskStyleUtils.textColor(errorLabel, "#e74c3c");
         errorLabel.setWrapText(true);
         errorLabel.setVisible(false);
         errorLabel.setManaged(false);
@@ -1879,17 +1878,17 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
 
         Label sessionTitle = new Label("Study Session");
         Label sessionIcon = TaskStyleUtils.iconLabel("\u270E", 24);
-        sessionIcon.setTextFill(Color.WHITE);
+        TaskStyleUtils.textColor(sessionIcon, "#ffffff");
         sessionTitle.setGraphic(sessionIcon);
         TaskStyleUtils.fontBold(sessionTitle, 24);
-        sessionTitle.setTextFill(Color.WHITE);
+        TaskStyleUtils.textColor(sessionTitle, "#ffffff");
 
         Label dateTime = new Label(
                 session.getDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")) +
                 " • " + (session.getStartTime() != null
                         ? session.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "N/A"));
         TaskStyleUtils.fontNormal(dateTime, 16);
-        dateTime.setTextFill(Color.web("#f8f9fa"));
+        TaskStyleUtils.textColor(dateTime, "#f8f9fa");
 
         HBox metrics = new HBox(30);
         metrics.setAlignment(Pos.CENTER_LEFT);
@@ -1912,10 +1911,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         TaskStyleUtils.fontEmoji(iconL, 20);
         Label valueL = new Label(value);
         TaskStyleUtils.fontBold(valueL, 18);
-        valueL.setTextFill(Color.WHITE);
+        TaskStyleUtils.textColor(valueL, "#ffffff");
         Label descL = new Label(label);
         TaskStyleUtils.fontNormal(descL, 12);
-        descL.setTextFill(Color.web("#f8f9fa"));
+        TaskStyleUtils.textColor(descL, "#f8f9fa");
         box.getChildren().addAll(iconL, valueL, descL);
         return box;
     }
@@ -1961,7 +1960,7 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
         for (int i = 1; i <= 5; i++) {
             Label star = new Label(i <= session.getFocusLevel() ? "\u2605" : "\u2606");
             TaskStyleUtils.fontEmoji(star, 20);
-            star.setTextFill(i <= session.getFocusLevel() ? Color.web("#f39c12") : Color.web("#bdc3c7"));
+            TaskStyleUtils.textColor(star, i <= session.getFocusLevel() ? "#f39c12" : "#bdc3c7");
             starsBox.getChildren().add(star);
         }
 
@@ -2068,10 +2067,10 @@ public class StudyPlannerPanel extends ScrollPane implements RefreshablePanel {
             sessionStatusLabel.setText(h > 0
                     ? String.format("⌚ Session running: %dh %02dm", h, m)
                     : String.format("⌚ Session running: %dm", m));
-            sessionStatusLabel.setTextFill(Color.web("#27ae60"));
+            TaskStyleUtils.textColor(sessionStatusLabel, "#27ae60");
         } else {
             sessionStatusLabel.setText("No active session");
-            sessionStatusLabel.setTextFill(Color.web("#2c3e50"));
+            TaskStyleUtils.textColor(sessionStatusLabel, null);
         }
     }
 

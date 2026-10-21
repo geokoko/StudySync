@@ -25,7 +25,11 @@ class SessionVisibilityTest {
     @BeforeAll
     static void startJavaFx() throws Exception {
         FutureTask<Void> ready = new FutureTask<>(() -> null);
-        Platform.startup(ready);
+        try {
+            Platform.startup(ready);
+        } catch (IllegalStateException alreadyStarted) {
+            Platform.runLater(ready);
+        }
         ready.get(10, TimeUnit.SECONDS);
     }
 
