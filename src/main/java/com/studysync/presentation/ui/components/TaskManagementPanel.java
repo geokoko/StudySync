@@ -1,8 +1,8 @@
-
 package com.studysync.presentation.ui.components;
 
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.Task;
+import com.studysync.domain.entity.TaskLink;
 import com.studysync.domain.entity.TaskReschedule;
 import com.studysync.domain.valueobject.TaskCategory;
 import com.studysync.domain.valueobject.TaskPriority;
@@ -12,6 +12,7 @@ import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.service.StudyService;
 import com.studysync.domain.service.TaskUpdate;
 import javafx.application.HostServices;
+import javafx.css.PseudoClass;
 import javafx.scene.web.WebView;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -26,12 +27,12 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * Full-width Task Management panel.
- * Tasks are grouped by status in a TabPane.
- * Sort/filter toolbar available on every tab.
- * Create/edit form opens in the app modal overlay.
+ * Urgency-grouped task families with a persistent selection and detail sidebar.
+ * Create/edit forms open in the app modal overlay.
  */
-public class TaskManagementPanel extends ScrollPane implements RefreshablePanel {
+public class TaskManagementPanel extends BorderPane implements RefreshablePanel {
+
+    private static final PseudoClass SELECTED = PseudoClass.getPseudoClass("selected");
 
     private final TaskService taskService;
     private final CategoryService categoryService;
@@ -40,14 +41,20 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     private final Runnable closeModal;
     private final HostServices hostServices;
 
-    // Toolbar controls (shared across all tabs)
+    private final VBox taskList = new VBox(12);
+    private final VBox taskDetails = new VBox(12);
+    private final ScrollPane detailScroll;
+    private final Set<TaskListAgenda.Section> expandedSections = EnumSet.noneOf(TaskListAgenda.Section.class);
+    private final Set<String> checkedIds = new LinkedHashSet<>();
+    private final Map<String, VBox> taskRows = new HashMap<>();
+    private final Map<String, CheckBox> taskChecks = new HashMap<>();
+    private List<Task> tasks = List.of();
+    private String selectedTaskId;
     private TextField searchField;
     private ComboBox<String> categoryFilter;
-    private ComboBox<String> priorityFilter;
-    private ComboBox<String> sortCombo;
-
-    // Status tabs
-    private TabPane statusTabPane;
+    private CheckBox selectListed;
+    private Button deleteSelected;
+    private boolean refreshingCategories;
 
     public TaskManagementPanel(TaskService taskService, CategoryService categoryService,
                                StudyService studyService, HostServices hostServices,
@@ -59,17 +66,21 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         this.closeModal = closeModal;
         this.hostServices = hostServices;
 
-        VBox mainContent = new VBox(0);
-        mainContent.getStyleClass().add("panel-bg");
-
-        this.setContent(mainContent);
-        this.setFitToWidth(true);
-        this.setFitToHeight(false);
-        this.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        this.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        this.getStyleClass().add("tab-content-area");
-
-        buildUI(mainContent);
+        getStyleClass().add("panel-bg");
+        setTop(new VBox(buildHeader(), buildToolbar()));
+        taskList.setPadding(new Insets(12, 16, 20, 20));
+        taskDetails.setPadding(new Insets(18));
+        taskDetails.getStyleClass().add("task-details");
+        ScrollPane listScroll = scrollPane(taskList);
+        listScroll.setMinWidth(320);
+        detailScroll = scrollPane(taskDetails);
+        detailScroll.setMinWidth(300);
+        detailScroll.setPrefWidth(440);
+        SplitPane split = new SplitPane(listScroll, detailScroll);
+        split.getStyleClass().add("transparent-bg");
+        split.setDividerPositions(0.58);
+        SplitPane.setResizableWithParent(detailScroll, false);
+        setCenter(split);
         refreshData();
     }
 
@@ -77,391 +88,365 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     // UI CONSTRUCTION
     // ──────────────────────────────────────────────
 
-    private void buildUI(VBox root) {
-        root.getChildren().addAll(buildHeader(), buildToolbar(), buildStatusTabPane());
-    }
-
     private HBox buildHeader() {
         HBox header = new HBox(15);
         header.setPadding(new Insets(20, 20, 10, 20));
         header.setAlignment(Pos.CENTER_LEFT);
-
         Label title = new Label("Task Management");
         TaskStyleUtils.fontBold(title, 24);
-
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        Button newTaskBtn = new Button("+ New Task");
-        newTaskBtn.getStyleClass().add("btn-primary");
-        newTaskBtn.setStyle("-fx-font-size: 13px; -fx-padding: 8 16;");
-        newTaskBtn.setOnAction(e -> showTaskForm(null));
-
-        header.getChildren().addAll(title, spacer, newTaskBtn);
+        Button newTask = new Button("+ New Task");
+        newTask.getStyleClass().add("btn-primary");
+        newTask.setOnAction(e -> showTaskForm(null));
+        header.getChildren().addAll(title, spacer, newTask);
         return header;
     }
 
     private VBox buildToolbar() {
-        VBox toolbar = new VBox(8);
-        toolbar.setPadding(new Insets(0, 20, 10, 20));
-
-        HBox row = new HBox(10);
-        row.setAlignment(Pos.CENTER_LEFT);
-
-        // Search
         searchField = new TextField();
         searchField.setPromptText("Search tasks…");
+        searchField.setAccessibleText("Search tasks");
         searchField.setPrefWidth(220);
-        searchField.textProperty().addListener((obs, o, n) -> rebuildAllTabs());
-
-        // Category filter
+        searchField.textProperty().addListener((obs, before, after) -> rebuildTaskList());
         categoryFilter = new ComboBox<>();
-        categoryFilter.setPromptText("All categories");
-        categoryFilter.setPrefWidth(150);
-        categoryFilter.getItems().add("All");
-        categoryFilter.getItems().addAll(
-            categoryService.getCategories().stream().map(TaskCategory::name).collect(Collectors.toList()));
-        categoryFilter.setValue("All");
-        categoryFilter.setOnAction(e -> rebuildAllTabs());
+        categoryFilter.setAccessibleText("Category filter");
+        categoryFilter.setPrefWidth(160);
+        categoryFilter.setOnAction(e -> {
+            if (!refreshingCategories) rebuildTaskList();
+        });
 
-        // Priority filter
-        priorityFilter = new ComboBox<>();
-        priorityFilter.setPromptText("All priorities");
-        priorityFilter.setPrefWidth(150);
-        priorityFilter.getItems().addAll("All", "★★★★★ (5)", "★★★★ (4)", "★★★ (3)", "★★ (2)", "★ (1)");
-        priorityFilter.setValue("All");
-        priorityFilter.setOnAction(e -> rebuildAllTabs());
-
-        // Sort
-        sortCombo = new ComboBox<>();
-        sortCombo.getItems().addAll("Priority (high→low)", "Priority (low→high)",
-                "Deadline (soonest)", "Deadline (latest)", "Title (A→Z)");
-        sortCombo.setValue("Priority (high→low)");
-        sortCombo.setPrefWidth(180);
-        sortCombo.setOnAction(e -> rebuildAllTabs());
-
-        Label sortLabel = new Label("Sort:");
-        TaskStyleUtils.fontNormal(sortLabel, 12);
-
-        row.getChildren().addAll(searchField, categoryFilter, priorityFilter, sortLabel, sortCombo);
-        Button deleteMatching = new Button("Delete matching tasks");
-        deleteMatching.getStyleClass().addAll("btn-danger", "btn-small");
-        deleteMatching.setOnAction(event -> deleteMatchingTasks());
-        toolbar.getChildren().addAll(row, new HBox(deleteMatching));
+        selectListed = new CheckBox("Select listed tasks");
+        selectListed.setTooltip(new Tooltip("Includes all tasks in matching families, even in collapsed sections."));
+        selectListed.setOnAction(e -> {
+            checkedIds.clear();
+            if (selectListed.isSelected()) checkedIds.addAll(taskChecks.keySet());
+            taskChecks.forEach((id, check) -> check.setSelected(checkedIds.contains(id)));
+            updateBulkSelection();
+        });
+        deleteSelected = new Button("Delete selected (0)");
+        deleteSelected.getStyleClass().addAll("btn-danger", "btn-small");
+        deleteSelected.setOnAction(e -> deleteSelectedTasks());
+        FlowPane filters = new FlowPane(10, 8, searchField, categoryFilter);
+        FlowPane bulk = new FlowPane(12, 8, selectListed, deleteSelected);
+        VBox toolbar = new VBox(8, filters, bulk);
+        toolbar.setPadding(new Insets(0, 20, 10, 20));
         return toolbar;
     }
 
-    private TabPane buildStatusTabPane() {
-        statusTabPane = new TabPane();
-        statusTabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        statusTabPane.getStyleClass().add("transparent-bg");
-        VBox.setVgrow(statusTabPane, Priority.ALWAYS);
+    private ScrollPane scrollPane(Node content) {
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.getStyleClass().add("transparent-bg");
+        return scroll;
+    }
 
-        // One tab per status group + "All" tab
-        String[] tabNames = {"All", "Open", "In Progress", "Delayed", "Postponed", "Completed", "Cancelled"};
-        for (String name : tabNames) {
-            Tab t = new Tab(name);
-            t.setUserData(name);
-            t.setContent(buildTaskList(name));
-            statusTabPane.getTabs().add(t);
+    // ──────────────────────────────────────────────
+    // TASK LIST AND SELECTION
+    // ──────────────────────────────────────────────
+
+    private boolean matchesFilters(Task task) {
+        String search = searchField.getText().trim().toLowerCase(Locale.ROOT);
+        String category = categoryFilter.getValue();
+        return (search.isEmpty() || nvl(task.getTitle()).toLowerCase(Locale.ROOT).contains(search)
+                || nvl(task.getDescription()).toLowerCase(Locale.ROOT).contains(search))
+                && (category == null || "All".equals(category) || category.equalsIgnoreCase(task.getCategory()));
+    }
+
+    private void rebuildTaskList() {
+        taskList.getChildren().clear();
+        taskRows.clear();
+        taskChecks.clear();
+        Map<TaskListAgenda.Section, List<TaskListAgenda.Family>> sections =
+                TaskListAgenda.build(LocalDate.now(), tasks, this::matchesFilters);
+        if (sections.values().stream().allMatch(List::isEmpty)) {
+            taskList.getChildren().add(detailLabel("No tasks match these filters."));
         }
-
-        statusTabPane.getSelectionModel().selectedItemProperty().addListener((obs, o, n) -> {
-            if (n != null) {
-                n.setContent(buildTaskList((String) n.getUserData()));
+        sections.forEach((section, families) -> {
+            int count = families.stream().mapToInt(family -> 1 + family.children().size()).sum();
+            if (count == 0 && !section.collapsed) return;
+            String heading = section.title + " · " + count;
+            VBox rows = new VBox(6);
+            for (TaskListAgenda.Family family : families) {
+                rows.getChildren().add(buildTaskRow(family.parent(), false, family.children()));
+                for (Task child : family.children()) {
+                    rows.getChildren().add(buildTaskRow(child, true, List.of()));
+                }
+            }
+            if (section.collapsed) {
+                TitledPane pane = new TitledPane(heading, rows);
+                pane.setAnimated(false);
+                pane.setExpanded(expandedSections.contains(section));
+                pane.expandedProperty().addListener((obs, before, expanded) -> {
+                    if (expanded) expandedSections.add(section);
+                    else expandedSections.remove(section);
+                });
+                taskList.getChildren().add(pane);
+            } else {
+                Label label = new Label(heading);
+                TaskStyleUtils.fontBold(label, 15);
+                if (section == TaskListAgenda.Section.THIS_WEEK) {
+                    label.setTooltip(new Tooltip("Tomorrow through the next 7 days, inclusive."));
+                }
+                taskList.getChildren().add(new VBox(8, label, rows));
             }
         });
-
-        return statusTabPane;
+        checkedIds.retainAll(taskChecks.keySet());
+        updateBulkSelection();
+        updateSelectionHighlight();
     }
 
-    // ──────────────────────────────────────────────
-    // TASK LIST RENDERING
-    // ──────────────────────────────────────────────
+    private HBox buildTaskRow(Task task, boolean child, List<Task> children) {
+        CheckBox check = new CheckBox();
+        check.setAccessibleText("Select " + taskTitle(task) + " for deletion");
+        check.setSelected(checkedIds.contains(task.getId()));
+        check.setOnAction(e -> {
+            if (check.isSelected()) checkedIds.add(task.getId());
+            else checkedIds.remove(task.getId());
+            updateBulkSelection();
+        });
+        taskChecks.put(task.getId(), check);
 
-    private ScrollPane buildTaskList(String statusGroup) {
-        List<Task> tasks = getFilteredTasks(statusGroup);
-
-        VBox listBox = new VBox(8);
-        listBox.setFillWidth(true);
-        listBox.setPadding(new Insets(15, 20, 20, 20));
-
-        if (tasks.isEmpty()) {
-            Label empty = new Label("No tasks in this category.");
-            TaskStyleUtils.fontNormal(empty, 14);
-            TaskStyleUtils.textColor(empty, "#7f8c8d");
-            empty.setPadding(new Insets(30));
-            listBox.getChildren().add(empty);
-        } else {
-            Map<String, TaskReschedule> latestReschedules = TaskReschedule.findLatestByTaskIds(
-                    tasks.stream().map(Task::getId).collect(Collectors.toList()));
-            for (Task task : tasks) {
-                listBox.getChildren().add(buildTaskCard(task, latestReschedules.get(task.getId())));
+        Label title = new Label(taskTitle(task));
+        title.setWrapText(true);
+        TaskStyleUtils.fontBold(title, 14);
+        Label meta = detailLabel(deadlineText(task)
+                + " · " + (task.getPriority() == null ? "No priority" : task.getPriority())
+                + " · " + categoryName(task));
+        FlowPane badges = new FlowPane(6, 4, statusBadge(task));
+        if (task.isReminderDue(LocalDate.now())) {
+            badges.getChildren().add(TaskStyleUtils.createReminderBadge(
+                    ChronoUnit.DAYS.between(LocalDate.now(), task.getDeadline())));
+        }
+        // A plain VBox rather than a Button: a Button sizes its graphic without
+        // the row's width, so the wrapping labels inflated every row's height.
+        VBox row = new VBox(5, title, meta, badges);
+        if (!children.isEmpty()) row.getChildren().add(progressLabel(children));
+        if (task.isRecurring()) row.getChildren().add(detailLabel(task.getRecurringSummary()));
+        row.setFocusTraversable(true);
+        row.setAccessibleRole(javafx.scene.AccessibleRole.BUTTON);
+        row.setAccessibleText(taskTitle(task) + ", " + task.getStatus().getDisplayName()
+                + ", " + deadlineText(task));
+        row.setMaxWidth(Double.MAX_VALUE);
+        row.setMinWidth(0);
+        row.getStyleClass().add("task-list-row");
+        row.setStyle("-fx-base: " + TaskStyleUtils.statusBackground(task.getStatus()) + ";");
+        row.setOnMouseClicked(e -> {
+            row.requestFocus();
+            selectTask(task.getId());
+        });
+        row.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ENTER || e.getCode() == javafx.scene.input.KeyCode.SPACE) {
+                selectTask(task.getId());
+                e.consume();
             }
-        }
-
-        ScrollPane sp = new ScrollPane(listBox);
-        sp.setFitToWidth(true);
-        sp.getStyleClass().add("transparent-bg");
-        sp.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        return sp;
+        });
+        taskRows.put(task.getId(), row);
+        HBox.setHgrow(row, Priority.ALWAYS);
+        HBox wrapper = new HBox(8, check, row);
+        wrapper.setAlignment(Pos.CENTER_LEFT);
+        if (child) wrapper.setPadding(new Insets(0, 0, 0, 26));
+        return wrapper;
     }
 
-    private VBox buildTaskCard(Task task, TaskReschedule latestReschedule) {
-        VBox wrapper = new VBox(0);
-        wrapper.setMaxWidth(Double.MAX_VALUE);
-        if (task.getParentId() != null) wrapper.setPadding(new Insets(0, 0, 0, 28));
+    private void updateBulkSelection() {
+        int count = checkedIds.size();
+        selectListed.setDisable(taskChecks.isEmpty());
+        selectListed.setSelected(count > 0 && count == taskChecks.size());
+        selectListed.setIndeterminate(count > 0 && count < taskChecks.size());
+        deleteSelected.setText("Delete selected (" + count + ")");
+        deleteSelected.setDisable(count == 0);
+    }
 
-        HBox card = new HBox(15);
-        card.setPadding(new Insets(14));
-        card.setAlignment(Pos.CENTER_LEFT);
-        card.setMaxWidth(Double.MAX_VALUE);
+    private void selectTask(String id) {
+        boolean changed = !Objects.equals(selectedTaskId, id);
+        selectedTaskId = id;
+        updateSelectionHighlight();
+        renderSelectedTask();
+        if (changed) detailScroll.setVvalue(0);
+    }
 
-        String bgColor = TaskStyleUtils.statusBackground(task.getStatus());
-        String borderColor = TaskStyleUtils.taskBorderColor(task.getStatus());
-        card.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 8 8 0 0;" +
-                      " -fx-border-color: " + borderColor + "; -fx-border-radius: 8 8 0 0;" +
-                      " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
+    /** A postponed task's deadline is the day it comes back, not when it is due. */
+    private static String deadlineText(Task task) {
+        if (task.getDeadline() == null) return "No deadline";
+        return (task.getStatus() == TaskStatus.POSTPONED ? "Postponed until " : "Due ") + task.getDeadline();
+    }
 
-        // Left: Status indicator bar
-        VBox colorBar = new VBox();
-        colorBar.setMinWidth(4);
-        colorBar.setPrefWidth(4);
-        colorBar.setStyle("-fx-background-color: " + borderColor + "; -fx-background-radius: 2;");
+    private void updateSelectionHighlight() {
+        taskRows.forEach((id, row) -> row.pseudoClassStateChanged(SELECTED, id.equals(selectedTaskId)));
+    }
 
-        // Center: Task info
-        VBox info = new VBox(5);
-        HBox.setHgrow(info, Priority.ALWAYS);
+    // ──────────────────────────────────────────────
+    // SELECTED TASK DETAILS
+    // ──────────────────────────────────────────────
 
-        String safeTitle = task.getTitle() != null && !task.getTitle().trim().isEmpty()
-                ? task.getTitle().trim()
-                : "(Untitled task)";
-        String safeCategory = task.getCategory() != null && !task.getCategory().trim().isEmpty()
-                ? task.getCategory().trim()
-                : "Uncategorized";
-
-        // Title row
-        HBox titleRow = new HBox(8);
-        titleRow.setAlignment(Pos.CENTER_LEFT);
-
-        Label titleLabel = new Label(safeTitle);
-        titleLabel.setWrapText(true);
-        HBox.setHgrow(titleLabel, Priority.ALWAYS);
-        if (task.getStatus() == TaskStatus.COMPLETED) {
-            titleLabel.setStyle("-fx-strikethrough: true; -fx-text-fill: #7f8c8d;");
+    private void renderSelectedTask() {
+        taskDetails.getChildren().clear();
+        Task task = tasks.stream().filter(t -> t.getId().equals(selectedTaskId)).findFirst().orElse(null);
+        if (task == null) {
+            selectedTaskId = null;
+            taskDetails.getChildren().add(detailLabel("Select a task to see its details."));
+            return;
         }
-        TaskStyleUtils.fontBold(titleLabel, 15);
-
-        // Priority stars
-        Label priorityLabel = new Label(task.getPriority() != null ? task.getPriority().toString() : "");
-        TaskStyleUtils.fontNormal(priorityLabel, 13);
-        TaskStyleUtils.textColor(priorityLabel, "#f39c12");
-
-        // Status badge
-        Label statusBadge = new Label(task.getStatus().name());
-        statusBadge.setGraphic(TaskStyleUtils.iconLabel(TaskStyleUtils.statusEmoji(task.getStatus()), 11));
-        statusBadge.setPadding(new Insets(2, 7, 2, 7));
-        statusBadge.setStyle("-fx-background-color: " + TaskStyleUtils.statusBadgeBg(task.getStatus()) +
-                             "; -fx-background-radius: 10;");
-        TaskStyleUtils.textColor(statusBadge, TaskStyleUtils.statusTextColor(task.getStatus()));
-        TaskStyleUtils.fontBold(statusBadge, 11);
-
-        Region titleSpacer = new Region();
-        HBox.setHgrow(titleSpacer, Priority.ALWAYS);
-
-        // Right: Action buttons
-        HBox actions = new HBox(5);
-        actions.setAlignment(Pos.CENTER_RIGHT);
-
-        Button editBtn = new Button("Edit");
-        editBtn.getStyleClass().addAll("btn-primary", "btn-small");
-        editBtn.setOnAction(e -> showTaskForm(task));
-
-        if (task.getStatus() == TaskStatus.DELAYED || task.getStatus() == TaskStatus.POSTPONED) {
-            Button rescheduleBtn = new Button("Reschedule");
-            rescheduleBtn.getStyleClass().addAll("btn-small");
-            rescheduleBtn.setOnAction(e -> showRescheduleDialog(task));
-            actions.getChildren().add(rescheduleBtn);
+        try {
+            Label title = new Label(taskTitle(task));
+            title.setWrapText(true);
+            TaskStyleUtils.fontBold(title, 20);
+            taskDetails.getChildren().addAll(title, statusBadge(task), buildTaskActions(task));
+            if (task.getParentId() != null) {
+                tasks.stream().filter(t -> t.getId().equals(task.getParentId())).findFirst().ifPresent(parent -> {
+                    Hyperlink link = new Hyperlink("Parent: " + taskTitle(parent));
+                    link.setWrapText(true);
+                    link.setOnAction(e -> selectTask(parent.getId()));
+                    taskDetails.getChildren().add(link);
+                });
+            }
+            taskDetails.getChildren().addAll(
+                    detailLabel((task.getStatus() == TaskStatus.POSTPONED ? "Postponed until: " : "Due date: ")
+                            + (task.getDeadline() == null ? "No deadline" : task.getDeadline())),
+                    detailLabel("Priority: " + (task.getPriority() == null ? "None" : task.getPriority())),
+                    detailLabel("Category: " + categoryName(task)),
+                    detailLabel("Reminder: " + task.reminderDate().map(date -> date + " ("
+                            + task.getRemindDaysBefore() + " days before)").orElse("None")));
+            if (task.isRecurring()) {
+                taskDetails.getChildren().add(detailLabel(task.getRecurringSummary()
+                        + " · From " + task.getRecurrenceAnchor()
+                        + (task.getRecurrenceEndDate() == null ? " · No end date"
+                                : " · Until " + task.getRecurrenceEndDate())));
+            }
+            if (!nvl(task.getDescription()).isBlank()) taskDetails.getChildren().add(detailLabel(task.getDescription()));
+            taskDetails.getChildren().add(detailLabel("Done when: "
+                    + (nvl(task.getDoneCriteria()).isBlank() ? "Not specified" : task.getDoneCriteria())));
+            TaskService.TaskEstimates estimates = taskService.getTaskEstimates(task);
+            taskDetails.getChildren().addAll(
+                    detailLabel("Own estimate: " + (estimates.plannedHours() == null ? "Not set" : estimates.plannedHours() + " h")),
+                    detailLabel("Subtasks' total: " + (estimates.subtaskHours() == null ? "Not set" : estimates.subtaskHours() + " h")));
+            if (task.getParentId() == null) taskDetails.getChildren().add(buildSubtasks(task));
+            VBox goals = new VBox(8);
+            populateGoalHistory(goals, task);
+            taskDetails.getChildren().addAll(new Separator(), goals, new Separator(), detailHeading("Notes"));
+            if (nvl(task.getNotes()).isBlank()) {
+                taskDetails.getChildren().add(detailLabel("No notes yet."));
+            } else {
+                WebView notes = new WebView();
+                notes.setMinWidth(0);
+                notes.setMinHeight(160);
+                notes.setPrefHeight(260);
+                notes.getEngine().loadContent(Markdown.page(Markdown.toHtml(task.getNotes())));
+                taskDetails.getChildren().add(notes);
+            }
+            taskDetails.getChildren().add(detailHeading("Links"));
+            List<TaskLink> links = taskService.getTaskLinks(task);
+            if (links.isEmpty()) taskDetails.getChildren().add(detailLabel("No links yet."));
+            for (TaskLink link : links) {
+                Hyperlink open = new Hyperlink(nvl(link.title()).isBlank() ? link.url() : link.title());
+                open.setWrapText(true);
+                open.setMaxWidth(Double.MAX_VALUE);
+                open.setTooltip(new Tooltip(link.url()));
+                open.setOnAction(e -> {
+                    try {
+                        hostServices.showDocument(TaskService.validateLinkUrl(link.url()));
+                    } catch (Exception ex) {
+                        showTaskError(ex);
+                    }
+                });
+                taskDetails.getChildren().add(open);
+            }
+        } catch (Exception ex) {
+            Label error = detailLabel("Could not load task details: " + ex.getMessage());
+            TaskStyleUtils.textColor(error, TaskStyleUtils.COLOR_DANGER);
+            Button retry = new Button("Retry");
+            retry.setOnAction(e -> refreshData());
+            taskDetails.getChildren().addAll(error, retry);
         }
+    }
 
+    private FlowPane buildTaskActions(Task task) {
+        Button edit = new Button("Edit");
+        edit.getStyleClass().addAll("btn-primary", "btn-small");
+        edit.setOnAction(e -> showTaskForm(task));
+        FlowPane actions = new FlowPane(6, 6, edit);
         if (task.getStatus() != TaskStatus.COMPLETED && task.getStatus() != TaskStatus.CANCELLED) {
-            Button completeBtn = new Button("Done");
-            completeBtn.getStyleClass().addAll("btn-success", "btn-small");
-            completeBtn.setOnAction(e -> {
+            Button done = new Button("Done");
+            done.getStyleClass().addAll("btn-success", "btn-small");
+            done.setOnAction(e -> {
                 try {
                     if (!confirmSubtaskCompletion(task)) return;
                     taskService.updateTaskStatus(task, TaskStatus.COMPLETED);
-                    rebuildAllTabs();
+                    refreshData();
                 } catch (Exception ex) {
                     showTaskError(ex);
                 }
             });
-            actions.getChildren().add(completeBtn);
+            actions.getChildren().add(done);
         }
-
-        Button deleteBtn = new Button("Delete");
-        deleteBtn.getStyleClass().addAll("btn-danger", "btn-small");
-        deleteBtn.setOnAction(e -> {
-            int childCount = Task.findSubtasks(task.getId()).size();
-            String message = "Delete \"" + safeTitle + "\"?";
-            if (childCount == 1) message += "\nThis also deletes its subtask, even if it is cancelled.";
-            if (childCount > 1) message += "\nThis also deletes all " + childCount + " subtasks, including cancelled ones.";
-            message += "\nNotes, links and reschedules are deleted. Goals and study sessions are kept without their task links.";
-            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, message, ButtonType.OK, ButtonType.CANCEL);
-            confirm.setTitle("Delete Task");
-            confirm.setHeaderText(null);
-            confirm.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
-            confirm.showAndWait().ifPresent(bt -> {
-                if (bt == ButtonType.OK) {
-                    try {
-                        taskService.removeTask(task, childCount);
-                        rebuildAllTabs();
-                    } catch (Exception ex) {
-                        showTaskError(ex);
-                    }
-                }
-            });
-        });
-
-        if (task.getParentId() == null) {
-            Button addSubtask = new Button("Add subtask");
-            addSubtask.getStyleClass().add("btn-small");
-            addSubtask.setOnAction(e -> showTaskForm(null, task));
-            actions.getChildren().add(addSubtask);
+        if (task.getStatus() == TaskStatus.DELAYED || task.getStatus() == TaskStatus.POSTPONED) {
+            Button reschedule = new Button("Reschedule");
+            reschedule.getStyleClass().add("btn-small");
+            reschedule.setOnAction(e -> showRescheduleDialog(task));
+            actions.getChildren().add(reschedule);
         }
-        actions.getChildren().addAll(editBtn, deleteBtn);
+        Button delete = new Button("Delete");
+        delete.getStyleClass().addAll("btn-danger", "btn-small");
+        delete.setOnAction(e -> deleteTask(task));
+        actions.getChildren().add(delete);
+        return actions;
+    }
 
-        titleRow.getChildren().addAll(titleLabel, priorityLabel, statusBadge);
-        LocalDate today = LocalDate.now();
-        if (task.isReminderDue(today)) {
-            titleRow.getChildren().add(TaskStyleUtils.createReminderBadge(
-                    ChronoUnit.DAYS.between(today, task.getDeadline())));
+    private VBox buildSubtasks(Task task) {
+        List<Task> children = tasks.stream().filter(t -> task.getId().equals(t.getParentId())).toList();
+        VBox box = new VBox(6, detailHeading("Subtasks"), progressLabel(children));
+        ProgressBar progress = new ProgressBar(Task.progress(children).percentage() / 100.0);
+        progress.setMaxWidth(Double.MAX_VALUE);
+        box.getChildren().add(progress);
+        for (Task child : children) {
+            Hyperlink link = new Hyperlink(taskTitle(child) + " · " + child.getStatus().getDisplayName());
+            link.setWrapText(true);
+            link.setOnAction(e -> selectTask(child.getId()));
+            box.getChildren().add(link);
         }
-        if (task.isRecurring()) {
-            Label recurBadge = new Label("Recurring");
-            recurBadge.setPadding(new Insets(2, 7, 2, 7));
-            recurBadge.setStyle("-fx-background-color: #ede7f6; -fx-background-radius: 10;");
-            TaskStyleUtils.fontBold(recurBadge, 11);
-            TaskStyleUtils.textColor(recurBadge, "#7c4dff");
-            titleRow.getChildren().add(recurBadge);
-        }
-        titleRow.getChildren().addAll(titleSpacer, actions);
+        Button add = new Button("Add subtask");
+        add.getStyleClass().add("btn-small");
+        add.setOnAction(e -> showTaskForm(null, task));
+        box.getChildren().add(add);
+        return box;
+    }
 
-        // Meta row
-        HBox metaRow = new HBox(18);
-        metaRow.setAlignment(Pos.CENTER_LEFT);
+    private Label progressLabel(List<Task> children) {
+        Task.Progress progress = Task.progress(children);
+        Label label = detailLabel(progress.completed() + "/" + count(progress.total(), "subtask")
+                + " · " + progress.percentage() + "%");
+        label.setTooltip(new Tooltip("Cancelled subtasks are excluded."));
+        return label;
+    }
 
-         Label catLabel = new Label("Category: " + safeCategory);
-         TaskStyleUtils.fontNormal(catLabel, 12);
-         TaskStyleUtils.textColor(catLabel, "#495057");
+    private Label statusBadge(Task task) {
+        Label badge = TaskStyleUtils.createAttemptBadge(task.getStatus().getDisplayName(),
+                TaskStyleUtils.statusTextColor(task.getStatus()), TaskStyleUtils.statusBadgeBg(task.getStatus()));
+        badge.setGraphic(TaskStyleUtils.iconLabel(TaskStyleUtils.statusEmoji(task.getStatus()), 11));
+        return badge;
+    }
 
-        metaRow.getChildren().add(catLabel);
-        List<Task> children = Task.findSubtasks(task.getId());
-        if (!children.isEmpty()) {
-            Task.Progress progress = Task.progress(children);
-            Label progressLabel = new Label(progress.completed() + "/" + count(progress.total(), "subtask")
-                    + " · " + progress.percentage() + "%");
-            TaskStyleUtils.fontNormal(progressLabel, 12);
-            progressLabel.setTooltip(new Tooltip("Cancelled subtasks are excluded."));
-            metaRow.getChildren().add(progressLabel);
-        }
-        TaskService.TaskEstimates estimates = taskService.getTaskEstimates(task);
-        String estimateText = estimates.subtaskHours() != null
-                ? "Estimate: " + estimates.subtaskHours() + " h from subtasks"
-                    + (estimates.plannedHours() != null ? " · " + estimates.plannedHours() + " h planned" : "")
-                : estimates.plannedHours() != null ? "Estimate: " + estimates.plannedHours() + " h" : null;
-        if (estimateText != null) {
-            Label estimate = new Label(estimateText);
-            TaskStyleUtils.fontNormal(estimate, 12);
-            metaRow.getChildren().add(estimate);
-        }
+    private Label detailLabel(String text) {
+        Label label = new Label(text);
+        label.setWrapText(true);
+        TaskStyleUtils.fontNormal(label, 12);
+        return label;
+    }
 
-        if (task.getDeadline() != null) {
-            boolean overdue = task.getDeadline().isBefore(LocalDate.now())
-                    && task.getStatus() != TaskStatus.COMPLETED
-                    && task.getStatus() != TaskStatus.CANCELLED;
-            String dueText = task.getStatus() == TaskStatus.POSTPONED
-                    ? "Postponed until: " + task.getDeadline()
-                    : "Due: " + task.getDeadline();
-            Label deadlineLabel = new Label(dueText);
-            TaskStyleUtils.fontNormal(deadlineLabel, 12);
-            TaskStyleUtils.textColor(deadlineLabel, overdue ? "#c0392b" : "#495057");
-            metaRow.getChildren().add(deadlineLabel);
-        }
+    private Label detailHeading(String text) {
+        Label label = new Label(text);
+        TaskStyleUtils.fontBold(label, 14);
+        return label;
+    }
 
-        if (latestReschedule != null && latestReschedule.getOldDeadline() != null) {
-            Label prevDueLabel = new Label("Previously due: " + latestReschedule.getOldDeadline());
-            TaskStyleUtils.fontNormal(prevDueLabel, 11);
-            TaskStyleUtils.textColor(prevDueLabel, "#9aa0a6");
-            metaRow.getChildren().add(prevDueLabel);
-        }
+    private String taskTitle(Task task) {
+        return nvl(task.getTitle()).isBlank() ? "(Untitled task)" : task.getTitle().trim();
+    }
 
-        if (task.isRecurring()) {
-            Label recurringDetail = new Label(task.getRecurringSummary());
-            TaskStyleUtils.fontNormal(recurringDetail, 11);
-            TaskStyleUtils.textColor(recurringDetail, "#6f42c1");
-            metaRow.getChildren().add(recurringDetail);
-        }
-
-        // Description
-        if (task.getDescription() != null && !task.getDescription().isBlank()) {
-            Label desc = new Label(task.getDescription().length() > 120
-                    ? task.getDescription().substring(0, 120) + "…"
-                    : task.getDescription());
-            TaskStyleUtils.fontNormal(desc, 12);
-            TaskStyleUtils.textColor(desc, "#7f8c8d");
-            desc.setWrapText(true);
-            info.getChildren().addAll(titleRow, metaRow, desc);
-        } else {
-            Label desc = new Label("No description");
-            TaskStyleUtils.fontNormal(desc, 12);
-            TaskStyleUtils.textColor(desc, "#9aa0a6");
-            info.getChildren().addAll(titleRow, metaRow, desc);
-        }
-        if (task.getDoneCriteria() != null) {
-            Label doneWhen = new Label("Done when: " + task.getDoneCriteria());
-            TaskStyleUtils.fontItalic(doneWhen, 12);
-            TaskStyleUtils.textColor(doneWhen, TaskStyleUtils.COLOR_MUTED);
-            doneWhen.setWrapText(true);
-            info.getChildren().add(doneWhen);
-        }
-
-        // Goal History toggle button
-        VBox goalHistoryPane = new VBox(6);
-        goalHistoryPane.setPadding(new Insets(10, 14, 14, 14));
-        goalHistoryPane.setStyle("-fx-background-color: #f8f9fa; -fx-border-color: " + borderColor +
-                                 "; -fx-border-width: 0 1 1 1; -fx-background-radius: 0 0 8 8;" +
-                                 " -fx-border-radius: 0 0 8 8;");
-        goalHistoryPane.setVisible(false);
-        goalHistoryPane.setManaged(false);
-
-        Button goalHistoryBtn = new Button("Goal History");
-        goalHistoryBtn.getStyleClass().addAll("btn-small");
-        goalHistoryBtn.setStyle("-fx-font-size: 11px; -fx-padding: 3 10; -fx-background-color: "
-                + TaskStyleUtils.TINT_PRIMARY + "; -fx-background-radius: 4; -fx-text-fill: "
-                + TaskStyleUtils.COLOR_PRIMARY + "; -fx-cursor: hand;");
-        goalHistoryBtn.setOnAction(e -> {
-            boolean showing = goalHistoryPane.isVisible();
-            if (!showing) {
-                populateGoalHistory(goalHistoryPane, task);
-                card.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 8 8 0 0;" +
-                              " -fx-border-color: " + borderColor + "; -fx-border-radius: 8 8 0 0;" +
-                              " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
-            } else {
-                card.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 8;" +
-                              " -fx-border-color: " + borderColor + "; -fx-border-radius: 8;" +
-                              " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 1);");
-            }
-            goalHistoryPane.setVisible(!showing);
-            goalHistoryPane.setManaged(!showing);
-            goalHistoryBtn.setText(showing ? "Goal History" : "Hide Goals");
-        });
-        info.getChildren().add(goalHistoryBtn);
-
-        card.getChildren().addAll(colorBar, info);
-        wrapper.getChildren().addAll(card, goalHistoryPane);
-        return wrapper;
+    private String categoryName(Task task) {
+        return nvl(task.getCategory()).isBlank() ? "Uncategorized" : task.getCategory();
     }
 
     private void populateGoalHistory(VBox pane, Task task) {
@@ -487,6 +472,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         if (attempts.isEmpty()) {
             Label empty = new Label("No attempts have been planned for this task yet.");
+            empty.setWrapText(true);
             TaskStyleUtils.fontNormal(empty, 12);
             TaskStyleUtils.textColor(empty, "#7f8c8d");
             pane.getChildren().add(empty);
@@ -534,17 +520,12 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
 
         VBox card = new VBox(8);
         card.setPadding(new Insets(10));
-        card.setStyle("-fx-background-color: white; -fx-background-radius: 6; -fx-border-color: #dee2e6;"
-                + " -fx-border-radius: 6;");
-
-        HBox header = new HBox(8);
-        header.setAlignment(Pos.CENTER_LEFT);
+        card.getStyleClass().add("task-goal-card");
 
         Label title = new Label(shorten(latest.getDescription(), 90)
                 + TaskStyleUtils.criteriaProgress(latest.getCriteria()));
         TaskStyleUtils.fontSemiBold(title, 12);
         title.setWrapText(true);
-        HBox.setHgrow(title, Priority.ALWAYS);
 
         Label parentBadge = new Label(parentStatusLabel(latest));
         parentBadge.setStyle("-fx-background-color: " + parentStatusBackground(latest)
@@ -552,8 +533,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         TaskStyleUtils.fontBold(parentBadge, 10);
         TaskStyleUtils.textColor(parentBadge, parentStatusColor(latest));
 
-        HBox actions = new HBox(6);
-        actions.setAlignment(Pos.CENTER_RIGHT);
+        FlowPane actions = new FlowPane(6, 6);
 
         Button editBtn = new Button("Edit");
         editBtn.getStyleClass().addAll("btn-primary", "btn-small");
@@ -574,12 +554,13 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             actions.getChildren().add(abandonBtn);
         }
 
-        header.getChildren().addAll(title, parentBadge, actions);
+        VBox header = new VBox(6, title, parentBadge, actions);
 
         Label summary = new Label("Latest attempt " + latest.getAttemptNumber()
                 + " | " + attempts.size() + " total attempt" + (attempts.size() == 1 ? "" : "s"));
         TaskStyleUtils.fontNormal(summary, 11);
         TaskStyleUtils.textColor(summary, "#6c757d");
+        summary.setWrapText(true);
 
         VBox timeline = new VBox(4);
         for (StudyGoal attempt : attempts) {
@@ -597,10 +578,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
             toggleAttemptsBtn.setText(show ? "Hide attempts" : "Show attempts");
         });
 
-        Region summarySpacer = new Region();
-        HBox.setHgrow(summarySpacer, Priority.ALWAYS);
-        HBox summaryRow = new HBox(8, summary, summarySpacer, toggleAttemptsBtn);
-        summaryRow.setAlignment(Pos.CENTER_LEFT);
+        VBox summaryRow = new VBox(6, summary, toggleAttemptsBtn);
 
         card.getChildren().addAll(header, summaryRow, timeline);
         return card;
@@ -616,8 +594,8 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         return goal.getStatus() == StudyGoal.GoalStatus.ACTIVE && !goal.isAchieved();
     }
 
-    private HBox createAttemptTimelineRow(StudyGoal attempt) {
-        HBox row = new HBox(8);
+    private FlowPane createAttemptTimelineRow(StudyGoal attempt) {
+        FlowPane row = new FlowPane(8, 4);
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(4, 6, 4, 6));
         row.setStyle("-fx-background-color: " + TaskStyleUtils.TINT_NEUTRAL + "; -fx-background-radius: 4;"
@@ -747,7 +725,11 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                     fields.save(studyService, existingGoal);
                 }
                 closeModal.run();
-                populateGoalHistory(ownerPane, task);
+                if (isNew) {
+                    refreshData(); // planning a goal moves an open task to In progress
+                } else {
+                    populateGoalHistory(ownerPane, task);
+                }
             } catch (Exception ex) {
                 fields.showError(ex.getMessage());
             }
@@ -819,8 +801,12 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         confirm.setHeaderText(null);
         confirm.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
         confirm.showAndWait().ifPresent(button -> {
-            if (button == ButtonType.OK && studyService.markGoalAsFailed(goal.getId())) {
-                populateGoalHistory(ownerPane, task);
+            if (button == ButtonType.OK) {
+                try {
+                    if (studyService.markGoalAsFailed(goal.getId())) populateGoalHistory(ownerPane, task);
+                } catch (Exception ex) {
+                    showTaskError(ex);
+                }
             }
         });
     }
@@ -859,25 +845,43 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         return confirm.showAndWait().filter(ButtonType.OK::equals).isPresent();
     }
 
-    private void deleteMatchingTasks() {
-        if (statusTabPane == null || statusTabPane.getSelectionModel().getSelectedItem() == null) return;
-        String status = (String) statusTabPane.getSelectionModel().getSelectedItem().getUserData();
+    private void deleteTask(Task task) {
         try {
-            List<String> ids = getMatchingTasks(taskService.getTasks(), status).stream().map(Task::getId).toList();
+            int childCount = Task.findSubtasks(task.getId()).size();
+            String message = "Delete \"" + taskTitle(task) + "\"?";
+            if (childCount == 1) message += "\nThis also deletes its subtask, even if it is cancelled.";
+            if (childCount > 1) message += "\nThis also deletes all " + childCount + " subtasks, including cancelled ones.";
+            message += "\nNotes, links and reschedules are deleted. Goals and study sessions are kept without their task links.";
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, message, ButtonType.OK, ButtonType.CANCEL);
+            confirm.setTitle("Delete Task");
+            confirm.setHeaderText(null);
+            confirm.initOwner(getScene() != null ? getScene().getWindow() : null);
+            if (confirm.showAndWait().filter(ButtonType.OK::equals).isPresent()) {
+                taskService.removeTask(task, childCount);
+                refreshData();
+            }
+        } catch (Exception ex) {
+            showTaskError(ex);
+        }
+    }
+
+    private void deleteSelectedTasks() {
+        try {
+            List<String> ids = List.copyOf(checkedIds);
             TaskService.DeletionPreview preview = taskService.previewTaskDeletion(ids);
             if (preview.totalTasks() == 0) return;
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                     "Delete " + count(preview.totalTasks(), "task") + " in total?"
                             + (preview.subtasks() == 0 ? "" : "\nThis deletes " + count(preview.subtasks(), "subtask")
-                                    + " with their parents, including children outside the current filters.")
+                                    + " with their parents, including children that are not selected.")
                             + "\nNotes, links and reschedules are deleted. Goals and study sessions are kept without their task links.",
                     ButtonType.OK, ButtonType.CANCEL);
-            confirm.setTitle("Delete Matching Tasks");
+            confirm.setTitle("Delete Selected Tasks");
             confirm.setHeaderText(null);
             confirm.initOwner(getScene() != null ? getScene().getWindow() : null);
             if (confirm.showAndWait().filter(ButtonType.OK::equals).isPresent()) {
                 taskService.batchDeleteTasks(ids, preview.subtasks());
-                rebuildAllTabs();
+                refreshData();
             }
         } catch (Exception ex) {
             showTaskError(ex);
@@ -1178,7 +1182,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
                     taskService.updateTask(existingTask, update);
                 }
                 closeModal.run();
-                rebuildAllTabs();
+                refreshData();
             } catch (Exception ex) {
                 showInlineError(form, ex instanceof NumberFormatException
                         ? "Estimated hours must be a whole number, zero or greater." : ex.getMessage());
@@ -1253,88 +1257,6 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         }
     }
 
-    // ──────────────────────────────────────────────
-    // FILTERING / SORTING
-    // ──────────────────────────────────────────────
-
-    private List<Task> getMatchingTasks(List<Task> family, String statusGroup) {
-        List<Task> all = new ArrayList<>(family);
-
-        // Status filter
-        if (!"All".equals(statusGroup)) {
-            TaskStatus target = toStatus(statusGroup);
-            all = all.stream()
-                    .filter(t -> target != null && t.getStatus() == target)
-                    .collect(Collectors.toList());
-        }
-
-        // Search filter
-        String search = searchField != null ? searchField.getText().trim().toLowerCase() : "";
-        if (!search.isEmpty()) {
-            all = all.stream()
-                    .filter(t -> t.getTitle().toLowerCase().contains(search)
-                            || (t.getDescription() != null && t.getDescription().toLowerCase().contains(search)))
-                    .collect(Collectors.toList());
-        }
-
-        // Category filter
-        String cat = categoryFilter != null ? categoryFilter.getValue() : "All";
-        if (cat != null && !"All".equals(cat)) {
-            all = all.stream()
-                    .filter(t -> cat.equalsIgnoreCase(t.getCategory()))
-                    .collect(Collectors.toList());
-        }
-
-        // Priority filter
-        String prio = priorityFilter != null ? priorityFilter.getValue() : "All";
-        if (prio != null && !"All".equals(prio)) {
-            int stars = parsePriorityStars(prio);
-            if (stars > 0) {
-                all = all.stream()
-                        .filter(t -> t.getPriority() != null && t.getPriority().stars() == stars)
-                        .collect(Collectors.toList());
-            }
-        }
-
-        all.sort(taskComparator());
-        return all;
-    }
-
-    private Comparator<Task> taskComparator() {
-        String sort = sortCombo != null ? sortCombo.getValue() : "Priority (high→low)";
-        return switch (sort != null ? sort : "") {
-            case "Priority (low→high)" -> Comparator.comparingInt(t -> (t.getPriority() != null ? t.getPriority().stars() : 0));
-            case "Deadline (soonest)" -> Comparator.comparing(t -> t.getDeadline() != null ? t.getDeadline() : LocalDate.MAX);
-            case "Deadline (latest)" -> Comparator.comparing((Task t) -> t.getDeadline() != null ? t.getDeadline() : LocalDate.MIN).reversed();
-            case "Title (A→Z)" -> Comparator.comparing(Task::getTitle, String.CASE_INSENSITIVE_ORDER);
-            default -> Comparator.comparingInt((Task t) -> t.getPriority() != null ? t.getPriority().stars() : 0).reversed();
-        };
-
-    }
-
-    private List<Task> getFilteredTasks(String statusGroup) {
-        List<Task> family = taskService.getTasks();
-        List<Task> all = getMatchingTasks(family, statusGroup);
-        Set<String> selectedIds = all.stream().map(Task::getId).collect(Collectors.toSet());
-        Set<String> parentIds = all.stream().map(Task::getParentId).filter(Objects::nonNull).collect(Collectors.toSet());
-        List<Task> matching = all;
-        List<Task> ordered = new ArrayList<>();
-        family.stream().filter(t -> t.getParentId() == null)
-                .filter(t -> selectedIds.contains(t.getId()) || parentIds.contains(t.getId()))
-                .sorted(taskComparator()).forEach(parent -> {
-                    ordered.add(parent);
-                    matching.stream().filter(t -> parent.getId().equals(t.getParentId())).forEach(ordered::add);
-                });
-        return ordered;
-    }
-
-    private void rebuildAllTabs() {
-        if (statusTabPane == null) return;
-        for (Tab tab : statusTabPane.getTabs()) {
-            tab.setContent(buildTaskList((String) tab.getUserData()));
-        }
-    }
-
     /**
      * Quick reschedule for delayed/postponed tasks: one date picker, no full edit form.
      */
@@ -1355,7 +1277,7 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
         dialog.showAndWait().ifPresent(newDate -> {
             try {
                 taskService.rescheduleTask(task, newDate);
-                rebuildAllTabs();
+                refreshData();
             } catch (Exception ex) {
                 Alert err = new Alert(Alert.AlertType.ERROR, ex.getMessage(), ButtonType.OK);
                 err.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
@@ -1367,32 +1289,6 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     // ──────────────────────────────────────────────
     // HELPERS
     // ──────────────────────────────────────────────
-
-    private static TaskStatus toStatus(String name) {
-        return switch (name) {
-            case "Open" -> TaskStatus.OPEN;
-            case "In Progress" -> TaskStatus.IN_PROGRESS;
-            case "Completed" -> TaskStatus.COMPLETED;
-            case "Delayed" -> TaskStatus.DELAYED;
-            case "Postponed" -> TaskStatus.POSTPONED;
-            case "Cancelled" -> TaskStatus.CANCELLED;
-            default -> null;
-        };
-    }
-
-    private static int parsePriorityStars(String val) {
-        try {
-            // e.g. "★★★ (3)" → extract the number in parentheses
-            int start = val.lastIndexOf('(');
-            int end = val.lastIndexOf(')');
-            if (start >= 0 && end > start) {
-                return Integer.parseInt(val.substring(start + 1, end).trim());
-            }
-        } catch (Exception ignored) { }
-        return 0;
-    }
-
-
 
     private static String nvl(String s) {
         return s != null ? s : "";
@@ -1460,15 +1356,33 @@ public class TaskManagementPanel extends ScrollPane implements RefreshablePanel 
     // ──────────────────────────────────────────────
 
     public void refreshData() {
-        // Refresh category dropdown
-        if (categoryFilter != null) {
-            String prev = categoryFilter.getValue();
-            categoryFilter.getItems().setAll("All");
-            categoryFilter.getItems().addAll(
-                categoryService.getCategories().stream().map(TaskCategory::name).collect(Collectors.toList()));
-            categoryFilter.setValue(prev != null ? prev : "All");
+        try {
+            tasks = taskService.getTasks();
+            String previous = categoryFilter.getValue();
+            refreshingCategories = true;
+            try {
+                categoryFilter.getItems().setAll("All");
+                categoryFilter.getItems().addAll(categoryService.getCategories().stream().map(TaskCategory::name).toList());
+                categoryFilter.setValue(categoryFilter.getItems().contains(previous) ? previous : "All");
+            } finally {
+                refreshingCategories = false;
+            }
+            rebuildTaskList();
+            renderSelectedTask();
+        } catch (Exception ex) {
+            tasks = List.of();
+            taskList.getChildren().clear();
+            taskDetails.getChildren().clear();
+            taskRows.clear();
+            taskChecks.clear();
+            checkedIds.clear();
+            updateBulkSelection();
+            Label error = detailLabel("Could not load tasks: " + ex.getMessage());
+            TaskStyleUtils.textColor(error, TaskStyleUtils.COLOR_DANGER);
+            Button retry = new Button("Retry");
+            retry.setOnAction(e -> refreshData());
+            taskList.getChildren().addAll(error, retry);
         }
-        rebuildAllTabs();
     }
 
     @Override
