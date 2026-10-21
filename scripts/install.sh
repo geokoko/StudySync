@@ -100,6 +100,47 @@ build_application() {
     print_success "Build completed"
 }
 
+install_libraries() {
+    # Stage a complete runtime before replacing the old one. Mixing dependency
+    # versions on lib/* can load an incompatible Spring or JavaFX after an upgrade.
+    local staged_lib previous_lib install_lib_dir
+    staged_lib=$(mktemp -d "$INSTALL_DIR/.lib.XXXXXX") || return 1
+    previous_lib="$staged_lib.previous"
+    if ! (
+        # Keep copy failures explicit: errexit is disabled inside an if condition.
+        if [[ "$RELEASE_MODE" == true ]]; then
+            cp -r "$RELEASE_DIR/lib/." "$staged_lib/" || exit 1
+        else
+            cp "$PROJECT_ROOT/build/libs/"*.jar "$staged_lib/" || exit 1
+            install_lib_dir=""
+            if [[ -d "$PROJECT_ROOT/build/install" ]]; then
+                install_lib_dir=$(find "$PROJECT_ROOT/build/install" -mindepth 2 -maxdepth 2 -type d -name lib | head -1)
+            fi
+            if [[ -n "$install_lib_dir" ]]; then
+                cp "$install_lib_dir/"*.jar "$staged_lib/" || exit 1
+            fi
+        fi
+        # Refuse an empty or incomplete package before touching the existing runtime.
+        compgen -G "$staged_lib/StudySync-*.jar" > /dev/null \
+            || compgen -G "$staged_lib/studysync-*.jar" > /dev/null
+    ); then
+        rm -rf -- "$staged_lib"
+        print_error "Could not stage the application libraries; the existing installation is unchanged."
+        return 1
+    fi
+
+    if ! mv -- "$INSTALL_DIR/lib" "$previous_lib"; then
+        rm -rf -- "$staged_lib"
+        return 1
+    fi
+    if ! mv -- "$staged_lib" "$INSTALL_DIR/lib"; then
+        mv -- "$previous_lib" "$INSTALL_DIR/lib"
+        rm -rf -- "$staged_lib"
+        return 1
+    fi
+    rm -rf -- "$previous_lib"
+}
+
 install_files() {
     print_info "Installing StudySync to $INSTALL_DIR..."
     
@@ -110,16 +151,9 @@ install_files() {
     mkdir -p "$APPLICATIONS_DIR"
     mkdir -p "$ICONS_DIR"
 
-    # Remove previous application jars before copying the newly built release.
-    # Dependency jars are kept; only StudySync's own versioned jars are replaced.
-    find "$INSTALL_DIR/lib" -maxdepth 1 -type f \
-        \( -name "StudySync-*.jar" -o -name "studysync-*.jar" \) \
-        -delete
+    install_libraries || return 1
     
     if [[ "$RELEASE_MODE" == true ]]; then
-        # Copy from release tarball
-        cp -r "$RELEASE_DIR/lib/"* "$INSTALL_DIR/lib/"
-        
         # Copy config if exists
         if [[ -d "$RELEASE_DIR/config" ]]; then
             cp -r "$RELEASE_DIR/config" "$INSTALL_DIR/"
@@ -131,19 +165,6 @@ install_files() {
             cp "$RELEASE_DIR/icon.png" "$ICONS_DIR/studysync.png"
         fi
     else
-        # Copy from build output
-        cp "$PROJECT_ROOT/build/libs/"*.jar "$INSTALL_DIR/lib/"
-        
-        # Copy dependencies
-        local install_lib_dir
-        install_lib_dir=""
-        if [[ -d "$PROJECT_ROOT/build/install" ]]; then
-            install_lib_dir=$(find "$PROJECT_ROOT/build/install" -mindepth 2 -maxdepth 2 -type d -name lib | head -1)
-        fi
-        if [[ -n "$install_lib_dir" && -d "$install_lib_dir" ]]; then
-            cp "$install_lib_dir/"*.jar "$INSTALL_DIR/lib/" 2>/dev/null || true
-        fi
-        
         # Copy config
         if [[ -d "$PROJECT_ROOT/config" ]]; then
             cp -r "$PROJECT_ROOT/config" "$INSTALL_DIR/"
@@ -397,4 +418,6 @@ main() {
     print_completion
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

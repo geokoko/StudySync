@@ -128,7 +128,7 @@ To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
 Releases after 0.1.8 need **Java 25**; 0.1.8 and earlier ran on Java 21. Java 25 comes with JavaFX 25, which fixes a Linux bug where opening a dialog shrank a maximized window back to its normal size (seen on KDE Wayland).
 
 1. Install Java 25 (Fedora: `sudo dnf install java-25-openjdk`, Ubuntu/Debian: `sudo apt install openjdk-25-jdk`, Arch: `sudo pacman -S jdk-openjdk`) and check that `java -version` reports 25 in a new terminal.
-2. Reinstall with the new release's `./install.sh` (or `./scripts/install.sh --build` from source). The launcher records the `java` found on your `PATH` at install time, so an install made with JDK 21 selected keeps starting Java 21 and fails until you reinstall.
+2. Reinstall with the new release's `./install.sh` (or `./scripts/install.sh --build` from source). The launcher records the `java` found on your `PATH` at install time, so an install made with JDK 21 selected keeps starting Java 21 and fails until you reinstall. The installer replaces the complete `lib` directory so old Spring and JavaFX dependencies cannot remain on the classpath; data and credentials stay outside that directory.
 
 The move to Java 25 doesn't touch your data: the database engine stays the same, so existing database files open as before. (Other upgrade notes, such as [Upgrading from projects](#upgrading-from-projects), still apply.)
 

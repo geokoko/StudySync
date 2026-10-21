@@ -124,6 +124,16 @@ checkstyleTest {
     source = 'src/test/java'
 }
 
+tasks.register('testInstaller', Exec) {
+    description = 'Tests Linux installation and upgrades in a temporary directory.'
+    group = 'verification'
+    commandLine 'bash', 'scripts/test-install.sh'
+}
+
+tasks.named('check') {
+    dependsOn 'testInstaller'
+}
+
 // Integration tests
 sourceSets {
     integrationTest {
