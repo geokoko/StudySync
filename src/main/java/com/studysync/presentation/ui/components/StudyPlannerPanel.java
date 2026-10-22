@@ -41,7 +41,7 @@ import javafx.animation.KeyFrame;
 import javafx.util.Duration;
 import java.util.function.Consumer;
 
-/** Daily goals and unplanned work, with the live session always in reach. */
+/** Daily goals and available work, with the live session always in reach. */
 public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
 
     private final StudyService studyService;
@@ -450,7 +450,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         needsPlanContainer.getChildren().clear();
         unlinkedRetriesContainer.getChildren().clear();
         String taskHint = "Drag a task into " + goalsTitle.getText() + ", or double-click it, to plan it.";
-        needsPlanHint.setText(taskHint);
+        needsPlanHint.setText(taskHint + " Tasks stay here so you can plan more goals.");
         TilePane retries = planTiles();
         TilePane needed = planTiles();
         TilePane comingUp = planTiles();
@@ -475,7 +475,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             needsPlanContainer.getChildren().addAll(mutedLabel("Coming up"), comingUp);
         }
         if (needsPlanContainer.getChildren().isEmpty()) {
-            needsPlanContainer.getChildren().add(mutedLabel("No unplanned work for this day."));
+            needsPlanContainer.getChildren().add(mutedLabel("No tasks to plan for this day."));
         }
         updateTaskBrowser();
         syncSessionControls();

@@ -41,6 +41,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -214,6 +215,79 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void planningAGoalKeepsTheTaskAvailableToPlanASecondGoal() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                doAnswer(invocation -> {
+                    fixture.attempts.add(fixture.goal(invocation.getArgument(0), fixture.child,
+                            invocation.getArgument(1)));
+                    fixture.child.setStatus(TaskStatus.IN_PROGRESS);
+                    return null;
+                }).when(fixture.study).addStudyGoal(anyString(), any(), eq(fixture.child.getId()), anyString());
+                StudyPlannerPanel panel = fixture.panel();
+
+                for (String description : List.of("Read chapter", "Write summary")) {
+                    Node row = planningTile(panel, "Parent / Subtask");
+                    assertNotNull(row.getOnDragDetected());
+                    row.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER,
+                            false, false, false, false));
+                    TextArea field = nodes(fixture.modal).stream().filter(TextArea.class::isInstance)
+                            .map(TextArea.class::cast).findFirst().orElseThrow();
+                    field.setText(description);
+                    button(fixture.modal, "Add Goal").fire();
+                    verify(fixture.study).addStudyGoal(description, TODAY, fixture.child.getId(), "");
+                }
+
+                assertEquals(2, fixture.attempts.size());
+                assertTrue(labelTexts(panel).containsAll(List.of("Read chapter", "Write summary")));
+                assertTrue(labelTexts(planningTile(panel, "Parent / Subtask")).contains("due today · work planned"));
+            }
+        });
+    }
+
+    @Test
+    void planningOneRetryLeavesTheOtherRetryAndNewGoalActionAvailable() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                fixture.child.setDeadline(TODAY.plusDays(5));
+                fixture.goal.setDate(TODAY.minusDays(2));
+                fixture.goal.setFailed(true);
+                StudyGoal second = fixture.goal("Write summary", fixture.child, TODAY.minusDays(1));
+                second.setFailed(true);
+                List<StudyGoal> retries = new ArrayList<>(List.of(fixture.goal, second));
+                fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned)
+                        .thenAnswer(invocation -> List.copyOf(retries));
+                when(fixture.study.replanGoalForToday(anyString())).thenAnswer(invocation -> {
+                    StudyGoal retry = retries.removeFirst();
+                    assertEquals(retry.getId(), invocation.getArgument(0));
+                    StudyGoal planned = fixture.goal(retry.getDescription(), fixture.child, TODAY);
+                    planned.setId(retry.getId());
+                    fixture.attempts.add(planned);
+                    return true;
+                });
+                StudyPlannerPanel panel = fixture.panel();
+
+                for (StudyGoal retry : List.of(fixture.goal, second)) {
+                    planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                            "", "", KeyCode.ENTER, false, false, false, false));
+                    assertTrue(labelTexts(fixture.modal).contains(retry.getDescription()));
+                    assertNotNull(button(fixture.modal, "+ New goal"));
+                    button(fixture.modal, "Plan retry today").fire();
+                    verify(fixture.study).replanGoalForToday(retry.getId());
+                }
+
+                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+                assertTrue(labelTexts(fixture.modal).contains("Add goal for: Parent / Subtask"));
+                assertNotNull(button(fixture.modal, "Add Goal"));
+                verify(fixture.study, never()).addStudyGoal(anyString(), any(), any(), any());
+            }
+        });
+    }
+
+    @Test
     void retryRowsKeepTheirGoalIdentityInsteadOfCreatingAnotherGoal() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {
@@ -289,6 +363,11 @@ class StudyPlannerPanelTest {
 
     private static List<String> labelTexts(Node root) {
         return nodes(root).stream().filter(Label.class::isInstance).map(node -> ((Label) node).getText()).toList();
+    }
+
+    private static Node planningTile(final Node root, final String title) {
+        return nodes(root).stream().filter(node -> node.getStyleClass().contains("plan-tile")
+                && labelTexts(node).contains(title)).findFirst().orElseThrow();
     }
 
     private static List<Node> nodes(Node root) {
