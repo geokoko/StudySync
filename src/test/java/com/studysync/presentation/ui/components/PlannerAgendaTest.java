@@ -46,7 +46,7 @@ class PlannerAgendaTest {
     }
 
     @Test
-    void pendingAchievedAndMissedAttemptsEachCoverTheirTaskOnTheShownDay() {
+    void pendingAchievedAndMissedAttemptsKeepTheirActiveTaskAvailable() {
         Task task = task("due", TODAY);
         for (StudyGoal.AttemptOutcome outcome : StudyGoal.AttemptOutcome.values()) {
             StudyGoal attempt = goal("plan", task, TODAY);
@@ -56,7 +56,10 @@ class PlannerAgendaTest {
             if (outcome == StudyGoal.AttemptOutcome.MISSED) {
                 attempt.setFailed(true);
             }
-            assertTrue(build(TODAY, List.of(task), List.of(attempt), List.of(), List.of()).isEmpty());
+            List<Entry> entries = build(TODAY, List.of(task), List.of(attempt), List.of(), List.of());
+            assertEquals(1, entries.size());
+            assertEquals(task, entries.getFirst().task());
+            assertEquals("due today · work planned", entries.getFirst().reason());
         }
     }
 
@@ -93,14 +96,16 @@ class PlannerAgendaTest {
     }
 
     @Test
-    void remindersDoNotDuplicateDueOrAlreadyPlannedWork() {
+    void remindersDoNotDuplicateDueWorkAndStayAvailableAfterPlanning() {
         Task due = task("due", TODAY);
         due.setRemindDaysBefore(3);
         assertEquals("due today", build(TODAY, List.of(due), List.of(), List.of(), List.of()).getFirst().reason());
         Task soon = task("soon", TODAY.plusDays(2));
         soon.setRemindDaysBefore(3);
-        assertTrue(build(TODAY, List.of(soon), List.of(goal("planned", soon, TODAY)),
-                List.of(), List.of()).isEmpty());
+        List<Entry> entries = build(TODAY, List.of(soon), List.of(goal("planned", soon, TODAY)),
+                List.of(), List.of());
+        assertEquals(List.of(Kind.REMINDER), kinds(entries));
+        assertEquals("due Thu, Oct 22 · work planned", entries.getFirst().reason());
     }
 
     @Test
@@ -117,12 +122,14 @@ class PlannerAgendaTest {
     }
 
     @Test
-    void handledOccurrencesAndPlannedCarryForwardNeedNoNewGoal() {
+    void handledOccurrencesDropOutButPlannedCarryForwardStaysAvailable() {
         Task recurring = recurring("weekly", "1:1");
         // The domain query omits occurrences handled by an achieved attempt, including a later retry.
         assertTrue(build(TODAY, List.of(recurring), List.of(), List.of(), List.of()).isEmpty());
-        assertTrue(build(TODAY, List.of(recurring), List.of(goal("catch up", recurring, TODAY)),
-                List.of(), List.of(new MissedOccurrence(recurring, TODAY.minusDays(1)))).isEmpty());
+        List<Entry> entries = build(TODAY, List.of(recurring), List.of(goal("catch up", recurring, TODAY)),
+                List.of(), List.of(new MissedOccurrence(recurring, TODAY.minusDays(1))));
+        assertEquals(List.of(Kind.MISSED), kinds(entries));
+        assertEquals("missed Mon · work planned", entries.getFirst().reason());
     }
 
     @Test
@@ -188,12 +195,52 @@ class PlannerAgendaTest {
     }
 
     @Test
-    void aPlannedTaskSuppressesAllItsCompetingReasonsIncludingRetries() {
+    void aPlannedTaskKeepsItsOtherReasonsAndRetries() {
         Task task = recurring("daily", "1:1,2");
         task.setDeadline(TODAY.minusDays(2));
-        assertTrue(build(TODAY, List.of(task), List.of(goal("plan", task, TODAY)),
-                List.of(missed("retry", task, TODAY.minusDays(1))),
-                List.of(new MissedOccurrence(task, TODAY.minusDays(1)))).isEmpty());
+        StudyGoal retry = missed("retry", task, TODAY.minusDays(1));
+        List<Entry> entries = build(TODAY, List.of(task), List.of(goal("plan", task, TODAY)),
+                List.of(retry), List.of(new MissedOccurrence(task, TODAY.minusDays(1))));
+        assertEquals(1, entries.size());
+        assertEquals("2d late · missed Mon · retry · scheduled Tue · work planned", entries.getFirst().reason());
+        assertEquals(List.of(retry), entries.getFirst().retries());
+    }
+
+    @Test
+    void planningOneRetryKeepsTheOtherRetryAndThenTheTaskAvailable() {
+        Task task = task("later", TODAY.plusDays(5));
+        StudyGoal first = missed("first", task, TODAY.minusDays(2));
+        StudyGoal second = missed("second", task, TODAY.minusDays(1));
+        StudyGoal firstRetry = goal("first", task, TODAY);
+        firstRetry.setId(first.getId());
+        StudyGoal secondRetry = goal("second", task, TODAY);
+        secondRetry.setId(second.getId());
+
+        List<Entry> entries = build(TODAY, List.of(task), List.of(firstRetry),
+                List.of(first, second), List.of());
+        assertEquals(1, entries.size());
+        assertEquals(List.of(second), entries.getFirst().retries());
+
+        entries = build(TODAY, List.of(task), List.of(firstRetry, secondRetry), List.of(), List.of());
+        assertEquals(1, entries.size());
+        assertEquals(task, entries.getFirst().task());
+        assertTrue(entries.getFirst().retries().isEmpty());
+        assertEquals("work planned", entries.getFirst().reason());
+    }
+
+    @Test
+    void plannedWorkStaysAvailableOnlyOnItsDayAndWhileItsTaskIsActive() {
+        Task task = task("later", TODAY.plusDays(5));
+        StudyGoal attempt = goal("plan", task, TODAY.plusDays(1));
+        List<Entry> entries = build(attempt.getDate(), List.of(task), List.of(attempt), List.of(), List.of());
+        assertEquals(1, entries.size());
+        assertEquals(task, entries.getFirst().task());
+        assertEquals("work planned", entries.getFirst().reason());
+        assertTrue(build(TODAY, List.of(task), List.of(attempt), List.of(), List.of()).isEmpty());
+        for (TaskStatus status : List.of(TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.POSTPONED)) {
+            task.setStatus(status);
+            assertTrue(build(attempt.getDate(), List.of(task), List.of(attempt), List.of(), List.of()).isEmpty());
+        }
     }
 
     @Test
@@ -223,7 +270,7 @@ class PlannerAgendaTest {
     }
 
     @Test
-    void aSubtaskGoalCoversItsParentButNeitherCoversASibling() {
+    void aSubtaskGoalMarksItsParentAsPlannedButKeepsTheWholeFamilyAvailable() {
         Task parent = task("Parent", TODAY);
         Task child = task("Child", TODAY);
         Task sibling = task("Sibling", TODAY);
@@ -231,10 +278,16 @@ class PlannerAgendaTest {
         sibling.setParentId(parent.getId());
         List<Entry> entries = build(TODAY, List.of(parent, child, sibling),
                 List.of(goal("parent goal", parent, TODAY)), List.of(), List.of());
-        assertEquals(List.of("Parent / Child", "Parent / Sibling"), entries.stream().map(Entry::title).toList());
+        assertEquals(List.of("Parent", "Parent / Child", "Parent / Sibling"),
+                entries.stream().map(Entry::title).toList());
+        assertEquals(List.of("due today · work planned", "due today", "due today"),
+                entries.stream().map(Entry::reason).toList());
         entries = build(TODAY, List.of(parent, child, sibling),
                 List.of(goal("child goal", child, TODAY)), List.of(), List.of());
-        assertEquals(List.of("Parent / Sibling"), entries.stream().map(Entry::title).toList());
+        assertEquals(List.of("Parent", "Parent / Child", "Parent / Sibling"),
+                entries.stream().map(Entry::title).toList());
+        assertEquals(List.of("due today · work planned", "due today · work planned", "due today"),
+                entries.stream().map(Entry::reason).toList());
         entries = build(TODAY, List.of(parent, child, sibling),
                 List.of(goal("child goal", child, TODAY.minusDays(1))), List.of(), List.of());
         assertEquals(List.of("Parent", "Parent / Child", "Parent / Sibling"),

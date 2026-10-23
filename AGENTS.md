@@ -143,10 +143,11 @@ Syncs the whole H2 file. OAuth client credentials live in
 - Task-list urgency and family ordering are decided by `TaskListAgenda`.
   Its class doc defines family/filter placement and the seven-day window;
   recurring tasks without a deadline stay in No deadline.
-- The planner's "Needs a plan" list is decided by `PlannerAgenda` alone (rules
-  in its class doc: a subtask's goal also covers its parent, and missed goals
-  are retry suggestions only while their task is active). The calendar's "To
-  plan" list applies the same parent rule through `CalendarAgenda.withParents`.
+- The planner's "Needs a plan" list is decided by `PlannerAgenda` alone. Active
+  tasks stay available for additional goals after planning; a subtask's goal also
+  marks its parent as planned. Missed goals remain individually retryable only
+  while their task is active. The calendar's "To plan" list excludes planned work,
+  applying the same parent rule through `CalendarAgenda.withParents`.
 
 ### Subtasks and task notes
 

@@ -17,21 +17,23 @@ import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
 
 /**
- * The planner's unplanned work, evaluated against an explicit today. Unlike the
+ * The planner's available work, evaluated against an explicit today. Unlike the
  * calendar, overdue work stays visible on every selected day after its deadline.
  * Carry-forward, reminders, retries and undated tasks are today-only.
  *
- * <p>A dated attempt covers its own task and its parent (work on a subtask is work
- * on the family), never its siblings. Multiple reasons become one task row; multiple
- * missed goals remain individually retryable, but only while their task is active:
- * a completed, cancelled or postponed task's missed goals are moot. Retry candidates
- * and unhandled occurrences come from the existing domain queries so goal history
+ * <p>A dated attempt marks its own task and its parent as planned (work on a subtask
+ * is work on the family), never its siblings. Active tasks remain available for more
+ * goals, even if planned work is their only reason to appear. Multiple reasons become
+ * one task row; missed goals remain individually retryable until that goal is planned,
+ * but only while their task is active: a completed, cancelled or postponed task's
+ * missed goals are moot. Retry candidates and unhandled occurrences come from the
+ * existing domain queries so goal history
  * (including achieved retries) remains the source of truth.</p>
  */
 final class PlannerAgenda {
 
     enum Kind {
-        OVERDUE, DUE, MISSED, RETRY, RECURRING, OPEN, REMINDER
+        OVERDUE, DUE, MISSED, RETRY, RECURRING, OPEN, REMINDER, PLANNED
     }
 
     record Entry(Kind kind, String title, String reason, Task task, List<StudyGoal> retries,
@@ -85,9 +87,6 @@ final class PlannerAgenda {
                 .map(occurrence -> occurrence.task().getId()).collect(Collectors.toSet());
 
         for (Task task : tasksById.values()) {
-            if (plannedTasks.contains(task.getId())) {
-                continue;
-            }
             List<String> reasons = new ArrayList<>();
             Kind kind = null;
             LocalDate relevantDate = null;
@@ -137,6 +136,13 @@ final class PlannerAgenda {
                     relevantDate = deadline;
                 }
                 reasons.add("due " + deadline.format(DateTimeFormatter.ofPattern("EEE, MMM d")));
+            }
+            if (active && plannedTasks.contains(task.getId())) {
+                if (kind == null) {
+                    kind = Kind.PLANNED;
+                    relevantDate = date;
+                }
+                reasons.add("work planned");
             }
             if (kind != null) {
                 entries.add(new Entry(kind, CalendarAgenda.taskTitle(task, tasksById),
