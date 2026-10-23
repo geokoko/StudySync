@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     start_date DATE,
     recurrence_end_date DATE,
     completed_at DATE,
+    resume_on DATE,
     remind_days_before INTEGER,
     done_criteria TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -26,8 +27,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- Task Reschedules Table
 -- ===================================
 -- Full history of task deadline changes: one row per reschedule.
--- For DELAYED tasks a reschedule sets a fresh due date; for POSTPONED
--- tasks the new deadline acts as the "resume on" date.
+-- A reschedule changes the due date; tasks.resume_on separately controls
+-- when explicitly scheduled postponed work returns.
 CREATE TABLE IF NOT EXISTS task_reschedules (
     id VARCHAR(50) PRIMARY KEY,
     task_id VARCHAR(50) NOT NULL,
@@ -378,6 +379,11 @@ WHERE status = 'ABANDONED'
 -- day. A NULL scores zero, which is the honest answer for work finished before
 -- anyone was measuring.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at DATE;
+
+-- Do not infer a resume date from an existing deadline: merely postponing
+-- overdue work must survive a restart. Legacy postponed tasks stay paused
+-- until the user explicitly chooses a resume date or changes their status.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS resume_on DATE;
 
 -- Points are derived data, so they are recomputed from duration/focus on every
 -- startup. This keeps historical sessions on the same scale as new ones and is

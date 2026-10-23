@@ -134,6 +134,11 @@ Syncs the whole H2 file. OAuth client credentials live in
   Per-day figures and the profile charts still show what happened.
 - A reminder is only `tasks.remind_days_before`; the reminder date is derived
   from the deadline and never stored.
+- Postponement is independent of the deadline. Only an explicit `tasks.resume_on`
+  date can automatically resume `POSTPONED` work; NULL means resume manually.
+  Never infer it from legacy deadlines. `TaskService.setTaskResumeDate` saves or
+  clears it; leaving `POSTPONED` clears it. On return, the deadline determines
+  whether the task is `OPEN` or `DELAYED`.
 - What a calendar day lists is decided by `CalendarAgenda` alone, never by
   `TaskService.getTasksForDate`: that answers the planner's question, so it
   repeats a late task on every day and judges past days by today's status. The
