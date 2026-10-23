@@ -16,8 +16,11 @@ import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.TitledPane;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.application.Platform;
@@ -343,6 +346,44 @@ class StudyPlannerPanelTest {
                 checks.forEach(CheckBox::fire);
                 verify(fixture.study, never()).updateStudyGoalAchievement(anyString(), anyBoolean(), any());
                 verify(fixture.study, never()).setGoalCriterionDone(anyString(), anyInt(), anyBoolean());
+            }
+        });
+    }
+
+    @Test
+    void droppedGoalsAreCollapsedAndCanReopenWithoutOfferingCompletionOrASession() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                StudyGoal dropped = mock(StudyGoal.class);
+                when(dropped.getId()).thenReturn("dropped");
+                when(dropped.getDescription()).thenReturn("Build a prototype using the unavailable API");
+                when(dropped.getTaskId()).thenReturn(fixture.child.getId());
+                when(dropped.getDate()).thenReturn(TODAY);
+                when(dropped.getAttemptNumber()).thenReturn(1);
+                when(dropped.getAttemptOutcome()).thenReturn(StudyGoal.AttemptOutcome.DROPPED);
+                when(dropped.getStatus()).thenReturn(StudyGoal.GoalStatus.ABANDONED);
+                when(dropped.isDropped()).thenReturn(true);
+                when(dropped.isDroppedAttempt()).thenReturn(true);
+                when(dropped.getDropReason()).thenReturn("The API was discontinued.");
+                fixture.attempts.add(dropped);
+                StudyPlannerPanel panel = fixture.panel();
+                Scene scene = new Scene(panel, 900, 700);
+                scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+                panel.applyCss();
+                panel.layout();
+                TitledPane history = nodes(panel).stream().filter(TitledPane.class::isInstance)
+                        .map(TitledPane.class::cast).filter(pane -> pane.getText().equals("Dropped (1)"))
+                        .findFirst().orElseThrow();
+                assertFalse(history.isExpanded());
+                assertTrue(nodes(history.getContent()).stream().filter(CheckBox.class::isInstance)
+                        .map(CheckBox.class::cast).allMatch(CheckBox::isDisabled));
+                assertTrue(nodes(history.getContent()).stream().filter(Button.class::isInstance)
+                        .map(Button.class::cast).noneMatch(button -> "Start session".equals(button.getText())));
+                MenuButton actions = nodes(history.getContent()).stream().filter(MenuButton.class::isInstance)
+                        .map(MenuButton.class::cast).findFirst().orElseThrow();
+                assertEquals(List.of("Reopen…"), actions.getItems().stream().map(MenuItem::getText).toList());
+                assertTrue(labelTexts(history.getContent()).contains("Reason: The API was discontinued."));
+                GoalActionsTest.snapshot(panel, "planner-goal-outcomes.png");
             }
         });
     }

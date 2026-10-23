@@ -331,24 +331,20 @@ public final class TaskStyleUtils {
     public static final String MISSED_COLOR = "#e74c3c";
 
     public static String attemptTextColor(StudyGoal goal) {
-        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
-            return COLOR_DANGER;
-        }
         return switch (goal.getAttemptOutcome()) {
             case ACHIEVED -> COLOR_SUCCESS;
             case MISSED -> COLOR_DANGER;
             case PENDING -> COLOR_PRIMARY;
+            case DROPPED -> COLOR_MUTED;
         };
     }
 
     public static String attemptBackgroundColor(StudyGoal goal) {
-        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
-            return TINT_DANGER;
-        }
         return switch (goal.getAttemptOutcome()) {
             case ACHIEVED -> TINT_SUCCESS;
             case MISSED -> TINT_DANGER;
             case PENDING -> TINT_PRIMARY;
+            case DROPPED -> TINT_NEUTRAL;
         };
     }
 

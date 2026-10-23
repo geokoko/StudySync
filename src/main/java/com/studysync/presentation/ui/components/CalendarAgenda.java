@@ -42,8 +42,9 @@ final class CalendarAgenda {
         RECURRING,
         /** Past occurrence with no goal attempt for it that day. */
         RECURRING_MISSED,
-        /** Missed attempt, or any attempt of an abandoned goal. */
+        /** Missed attempt, including misses before a goal was dropped. */
         GOAL_MISSED,
+        GOAL_DROPPED,
         GOAL_ACHIEVED,
         /** Task completed that day. */
         COMPLETED
@@ -145,7 +146,7 @@ final class CalendarAgenda {
             if (day == null) {
                 continue;
             }
-            if (attempt.getTaskId() != null) {
+            if (attempt.getTaskId() != null && !attempt.isDroppedAttempt()) {
                 taskDaysWithGoal.add(attempt.getTaskId() + "|" + attempt.getDate());
             }
             day.add(goalEntry(attempt, tasksById.get(attempt.getTaskId()), tasksById));
@@ -184,6 +185,7 @@ final class CalendarAgenda {
     private static Entry goalEntry(StudyGoal attempt, Task task, Map<String, Task> tasksById) {
         Kind kind = attempt.getAttemptOutcome() == StudyGoal.AttemptOutcome.ACHIEVED ? Kind.GOAL_ACHIEVED
                 : attempt.isFailed() ? Kind.GOAL_MISSED
+                : attempt.isDroppedAttempt() ? Kind.GOAL_DROPPED
                 : Kind.GOAL_PENDING;
         return task != null
                 ? new Entry(kind, taskTitle(task, tasksById), attempt.getDescription(), task, attempt)
@@ -204,11 +206,13 @@ final class CalendarAgenda {
             List<String> details = new ArrayList<>();
             entries.stream().filter(entry -> entry.kind() == Kind.OVERDUE).findFirst()
                     .ifPresent(entry -> details.add(entry.detail()));
-            long goals = entries.stream().filter(entry -> entry.goal() != null).count();
+            long total = entries.stream().filter(entry -> entry.goal() != null).count();
+            long dropped = entries.stream().filter(entry -> entry.kind() == Kind.GOAL_DROPPED).count();
+            long goals = total - dropped;
             long done = entries.stream().filter(entry -> entry.kind() == Kind.GOAL_ACHIEVED).count();
             String title = first.task() != null ? first.title()
-                    : goals == 1 ? first.title() : "Goals without a task";
-            if (first.task() != null || goals > 1) {
+                    : total == 1 ? first.title() : "Goals without a task";
+            if (first.task() != null || total > 1) {
                 if (done == goals && goals > 0) {
                     details.add(count(goals, "goal") + " done");
                 } else if (done > 0) {
@@ -216,6 +220,9 @@ final class CalendarAgenda {
                 } else if (goals > 0) {
                     details.add(count(goals, "goal"));
                 }
+            }
+            if (dropped > 0) {
+                details.add(count(dropped, "goal") + " dropped");
             }
             lines.add(new TaskLine(first.kind(), title, details.isEmpty() ? null : String.join(" · ", details),
                     first.task(), List.copyOf(entries)));

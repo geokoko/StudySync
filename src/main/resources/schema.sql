@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS study_goals (
     replanned_for_date DATE,
     status VARCHAR(20) DEFAULT 'ACTIVE',
     abandoned_explicitly BOOLEAN DEFAULT FALSE,
+    drop_reason TEXT,
     achieved_attempt_id VARCHAR(50),
     done_criteria TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -259,6 +260,7 @@ ALTER TABLE study_sessions ADD CONSTRAINT IF NOT EXISTS fk_study_sessions_task
 -- would make the compatibility backfill below unsafe on later launches.
 ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'ACTIVE';
 ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS abandoned_explicitly BOOLEAN DEFAULT FALSE;
+ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS drop_reason TEXT;
 ALTER TABLE study_goals ADD COLUMN IF NOT EXISTS achieved_attempt_id VARCHAR(50);
 
 CREATE INDEX IF NOT EXISTS idx_study_goals_status ON study_goals(status);
