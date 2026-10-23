@@ -10,7 +10,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![JavaFX](https://img.shields.io/badge/JavaFX-25-blue.svg)](https://openjfx.io/)
 [![H2 Database](https://img.shields.io/badge/Database-H2-blue.svg)](https://www.h2database.com/)
-[![Version](https://img.shields.io/badge/Version-0.1.8-red.svg)](https://github.com/geokoko/StudySync/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.9--beta.1-red.svg)](https://github.com/geokoko/StudySync/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
@@ -19,7 +19,7 @@ StudySync is a comprehensive Study Management System built with modern Java tech
 
 Perfect for students who want to integrate their academic calendar with task management and study tracking! 📚✨
 
-> **⚠️ Beta Release**: This is version 0.1.8 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
+> **⚠️ Beta Release**: This is version 0.1.9-beta.1 under active development. Features may change, and some functionality may be incomplete. Please report issues and provide feedback!
 
 ## Key Features
 
@@ -115,8 +115,8 @@ To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
 
 > **Installing a beta:** `releases/latest` resolves to the newest *stable* release, so the commands above skip pre-releases. To install a specific version, use its tag:
 > ```bash
-> curl -LO https://github.com/geokoko/StudySync/releases/download/v0.1.6-beta/studysync-linux.tar.gz
-> curl -LO https://github.com/geokoko/StudySync/releases/download/v0.1.6-beta/studysync-linux.tar.gz.sha256
+> curl -LO https://github.com/geokoko/StudySync/releases/download/v0.1.9-beta.1/studysync-linux.tar.gz
+> curl -LO https://github.com/geokoko/StudySync/releases/download/v0.1.9-beta.1/studysync-linux.tar.gz.sha256
 > ```
 >
 > Tip: `studysync-linux.tar.gz` is a stable alias attached to every release. Versioned files (`studysync-<version>-linux.tar.gz`) are also attached.
@@ -125,7 +125,7 @@ To uninstall: `~/.local/share/studysync/bin/uninstall.sh`
 
 ### Upgrading an existing install to Java 25
 
-Releases after 0.1.8 need **Java 25**; 0.1.8 and earlier ran on Java 21. Java 25 comes with JavaFX 25, which fixes a Linux bug where opening a dialog shrank a maximized window back to its normal size (seen on KDE Wayland).
+Releases after 0.1.8 need **Java 25**; 0.1.8 and earlier ran on Java 21. The application bundles JavaFX 25, which fixes a Linux bug where opening a dialog shrank a maximized window back to its normal size (seen on KDE Wayland).
 
 1. Install Java 25 (Fedora: `sudo dnf install java-25-openjdk`, Ubuntu/Debian: `sudo apt install openjdk-25-jdk`, Arch: `sudo pacman -S jdk-openjdk`) and check that `java -version` reports 25 in a new terminal.
 2. Reinstall with the new release's `./install.sh` (or `./scripts/install.sh --build` from source). The launcher records the `java` found on your `PATH` at install time, so an install made with JDK 21 selected keeps starting Java 21 and fails until you reinstall. The installer replaces the complete `lib` directory so old Spring and JavaFX dependencies cannot remain on the classpath; data and credentials stay outside that directory.

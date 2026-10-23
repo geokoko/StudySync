@@ -150,7 +150,11 @@ INSTALLATION
 REQUIREMENTS
 ------------
 • Java 25 or later
-• Linux with a desktop environment (KDE, GNOME, XFCE, etc.)
+• Linux x86_64 with a desktop environment (KDE, GNOME, XFCE, etc.)
+• GTK 3.20 or later and ALSA (Ubuntu 24.04: libgtk-3-0t64 libasound2t64)
+
+JavaFX and the application JAR dependencies are included.
+The Java runtime is not bundled; install Java 25 before running install.sh.
 
 UNINSTALLATION
 --------------

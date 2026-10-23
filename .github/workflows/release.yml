@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     
     steps:
       - name: Checkout code
@@ -29,12 +29,27 @@ jobs:
       - name: Make scripts executable
         run: chmod +x gradlew scripts/*.sh
 
+      - name: Verify tag matches package version
+        id: version
+        run: |
+          version="${GITHUB_REF#refs/tags/v}"
+          package_version=$(./gradlew -q properties --property version | sed -n 's/^version: //p')
+          if [[ "$version" != "$package_version" ]]; then
+            echo "Tag version $version does not match package version $package_version" >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux desktop test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes xvfb libgtk-3-0t64 libasound2t64
+
+      - name: Run tests
+        run: xvfb-run -a ./gradlew test testInstaller
+
       - name: Build release package
         run: ./scripts/build-release.sh
-
-      - name: Get version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: List release files
         run: ls -la build/release/
@@ -46,6 +61,7 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'BETA') || contains(github.ref, 'alpha') }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             build/release/studysync-linux.tar.gz
             build/release/studysync-linux.tar.gz.sha256

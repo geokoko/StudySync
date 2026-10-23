@@ -70,7 +70,7 @@ java {
 }
 
 group = 'com.studysync'
-version = '0.1.8'
+version = '0.1.9-beta.1'
 description = 'StudySync - Personal Study and Task Management Desktop Application (Beta)'
 
 application {
