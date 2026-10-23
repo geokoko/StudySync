@@ -547,14 +547,15 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
             actions.getChildren().add(planBtn);
         }
 
-        if (canAbandonGoal(latest)) {
-            Button abandonBtn = new Button("Abandon");
-            abandonBtn.getStyleClass().addAll("btn-danger", "btn-small");
-            abandonBtn.setOnAction(e -> confirmAbandonGoal(task, latest, ownerPane));
-            actions.getChildren().add(abandonBtn);
-        }
+        actions.getChildren().add(GoalActions.menu(latest, studyService, LocalDate.now(),
+                () -> populateGoalHistory(ownerPane, task)));
 
         VBox header = new VBox(6, title, parentBadge, actions);
+        if (latest.isDropped() && latest.getDropReason() != null) {
+            Label reason = new Label("Reason: " + latest.getDropReason());
+            reason.setWrapText(true);
+            header.getChildren().add(reason);
+        }
 
         Label summary = new Label("Latest attempt " + latest.getAttemptNumber()
                 + " | " + attempts.size() + " total attempt" + (attempts.size() == 1 ? "" : "s"));
@@ -588,10 +589,6 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         return goal.getStatus() == StudyGoal.GoalStatus.ACTIVE
                 && goal.getAttemptOutcome() != StudyGoal.AttemptOutcome.PENDING
                 && !goal.isAchieved();
-    }
-
-    private boolean canAbandonGoal(StudyGoal goal) {
-        return goal.getStatus() == StudyGoal.GoalStatus.ACTIVE && !goal.isAchieved();
     }
 
     private FlowPane createAttemptTimelineRow(StudyGoal attempt) {
@@ -630,7 +627,7 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
             return "Achieved";
         }
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
-            return "Abandoned";
+            return "Dropped";
         }
         return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING ? "Active" : "Needs retry";
     }
@@ -639,8 +636,8 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
             return TaskStyleUtils.COLOR_SUCCESS;
         }
-        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
-            return TaskStyleUtils.COLOR_DANGER;
+        if (goal.isDropped()) {
+            return TaskStyleUtils.COLOR_MUTED;
         }
         return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
                 ? TaskStyleUtils.COLOR_PRIMARY : TaskStyleUtils.retryTextColor();
@@ -650,8 +647,8 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         if (goal.getStatus() == StudyGoal.GoalStatus.ACHIEVED) {
             return TaskStyleUtils.TINT_SUCCESS;
         }
-        if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
-            return TaskStyleUtils.TINT_DANGER;
+        if (goal.isDropped()) {
+            return TaskStyleUtils.TINT_NEUTRAL;
         }
         return goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
                 ? TaskStyleUtils.TINT_PRIMARY : TaskStyleUtils.retryBackgroundColor();
@@ -662,18 +659,20 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
             case ACHIEVED -> "\u2713";
             case MISSED -> "\u2715";
             case PENDING -> "\u25CB";
+            case DROPPED -> "−";
         };
     }
 
     private String attemptStatusLabel(StudyGoal attempt) {
         if (attempt.getStatus() == StudyGoal.GoalStatus.ABANDONED
                 && attempt.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING) {
-            return "Abandoned";
+            return "Dropped";
         }
         return switch (attempt.getAttemptOutcome()) {
             case ACHIEVED -> "Achieved";
             case MISSED -> "Missed";
             case PENDING -> "Pending";
+            case DROPPED -> "Dropped";
         };
     }
 
@@ -791,24 +790,6 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         form.getChildren().addAll(title, new Label("Goal:"), description,
                 new Label("Date:"), datePicker, buttons);
         showModal.accept(wrapGoalModal(form));
-    }
-
-    private void confirmAbandonGoal(Task task, StudyGoal goal, VBox ownerPane) {
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                "Abandon \"" + shorten(goal.getDescription(), 80) + "\"?",
-                ButtonType.OK, ButtonType.CANCEL);
-        confirm.setTitle("Abandon Goal");
-        confirm.setHeaderText(null);
-        confirm.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
-        confirm.showAndWait().ifPresent(button -> {
-            if (button == ButtonType.OK) {
-                try {
-                    if (studyService.markGoalAsFailed(goal.getId())) populateGoalHistory(ownerPane, task);
-                } catch (Exception ex) {
-                    showTaskError(ex);
-                }
-            }
-        });
     }
 
     private ScrollPane wrapGoalModal(VBox form) {

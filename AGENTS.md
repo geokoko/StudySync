@@ -188,6 +188,13 @@ Syncs the whole H2 file. OAuth client credentials live in
 - Goal forms reuse `GoalEditFields` and `TaskStyleUtils.criteriaArea` /
   `CRITERIA_LABEL` / `criteriaChecklist` / `criteriaProgress`. A task's
   `done_criteria` is plain text, not a checklist.
+- Goal outcome actions are shared by `GoalActions`. Marking an attempt missed
+  targets its exact attempt ID and leaves the goal retryable. Dropping a goal
+  keeps the persisted parent status `ABANDONED`, records the optional
+  `study_goals.drop_reason`, and changes only a pending attempt to `DROPPED`.
+  Earlier misses remain `MISSED`; dropped attempts earn no goal credit and are
+  excluded from completion-rate denominators. Reopening explicitly creates a
+  new dated attempt, preserving history, checklist ticks and session links.
 
 ### Recurring tasks
 

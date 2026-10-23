@@ -204,6 +204,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
                 legendItem(entryIcon(Kind.GOAL_PENDING), TaskStyleUtils.COLOR_PURPLE, "Planned goal"),
                 legendItem(entryIcon(Kind.GOAL_ACHIEVED), TaskStyleUtils.COLOR_SUCCESS, "Achieved"),
                 legendItem(entryIcon(Kind.GOAL_MISSED), TaskStyleUtils.MISSED_COLOR, "Missed"),
+                legendItem(entryIcon(Kind.GOAL_DROPPED), TaskStyleUtils.COLOR_MUTED, "Dropped"),
                 legendItem(entryIcon(Kind.DUE), TaskStyleUtils.DUE_TODAY_COLOR, "Deadline"),
                 legendItem(entryIcon(Kind.RECURRING), TaskStyleUtils.COLOR_PRIMARY, "Recurring"),
                 legendItem(entryIcon(Kind.OVERDUE), TaskStyleUtils.OVERDUE_COLOR, "Overdue (on today)"),
@@ -471,7 +472,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         TaskStyleUtils.fontNormal(text, week ? 12 : 11);
         switch (entry.kind()) {
             case OVERDUE -> TaskStyleUtils.textColor(text, TaskStyleUtils.OVERDUE_COLOR);
-            case GOAL_ACHIEVED, GOAL_MISSED, COMPLETED, RECURRING_MISSED ->
+            case GOAL_ACHIEVED, GOAL_MISSED, GOAL_DROPPED, COMPLETED, RECURRING_MISSED ->
                     TaskStyleUtils.textColor(text, TaskStyleUtils.COLOR_MUTED);
             default -> { }
         }
@@ -516,6 +517,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             case GOAL_PENDING -> "○";
             case RECURRING, RECURRING_MISSED -> "↺";
             case GOAL_MISSED -> "✕";
+            case GOAL_DROPPED -> "−";
             case GOAL_ACHIEVED -> "✓";
             case COMPLETED -> "☑";
         };
@@ -526,6 +528,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             case OVERDUE -> TaskStyleUtils.OVERDUE_COLOR;
             case DUE -> date.isBefore(today) ? TaskStyleUtils.OVERDUE_COLOR : TaskStyleUtils.DUE_TODAY_COLOR;
             case GOAL_PENDING -> TaskStyleUtils.COLOR_PURPLE;
+            case GOAL_DROPPED -> TaskStyleUtils.COLOR_MUTED;
             case RECURRING -> TaskStyleUtils.COLOR_PRIMARY;
             case RECURRING_MISSED, GOAL_MISSED -> TaskStyleUtils.MISSED_COLOR;
             case GOAL_ACHIEVED, COMPLETED -> TaskStyleUtils.COLOR_SUCCESS;
@@ -539,8 +542,8 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             case GOAL_PENDING -> "Planned goal";
             case RECURRING -> "Recurring - " + entry.task().getRecurringSummary();
             case RECURRING_MISSED -> "Missed recurring occurrence";
-            case GOAL_MISSED -> entry.goal().getStatus() == StudyGoal.GoalStatus.ABANDONED
-                    ? "Abandoned goal" : "Missed goal";
+            case GOAL_MISSED -> "Missed attempt";
+            case GOAL_DROPPED -> "Dropped attempt";
             case GOAL_ACHIEVED -> "Achieved goal";
             case COMPLETED -> "Task completed";
         };
@@ -835,6 +838,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             text = formatStudyTime(score.minutes()) + " studied · "
                     + score.sessions() + (score.sessions() == 1 ? " session" : " sessions") + " · "
                     + score.goalsAchieved() + "/" + score.goalsTotal() + " goals · "
+                    + score.goalsDropped() + " dropped · "
                     + String.format("%+d pts · %.0f%% productive", score.points(), score.productivity());
         }
         Label summary = new Label(text);
@@ -1122,7 +1126,10 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         String backgroundColor;
         String borderColor;
 
-        if (goal.isFailed()) {
+        if (goal.isDroppedAttempt()) {
+            backgroundColor = TaskStyleUtils.TINT_NEUTRAL;
+            borderColor = TaskStyleUtils.COLOR_MUTED;
+        } else if (goal.isFailed()) {
             backgroundColor = "#fdecea";
             borderColor = "#c0392b";
         } else if (goal.isAchieved()) {
@@ -1150,9 +1157,12 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         // Status and description
         String statusIcon;
         String statusText;
-        if (goal.isFailed()) {
+        if (goal.isDroppedAttempt()) {
+            statusIcon = "−";
+            statusText = "Dropped attempt";
+        } else if (goal.isFailed()) {
             statusIcon = "✕";
-            statusText = goal.getStatus() == StudyGoal.GoalStatus.ABANDONED ? "Abandoned Goal" : "Missed Goal";
+            statusText = "Missed attempt";
         } else if (goal.isAchieved()) {
             statusIcon = "✅";
             statusText = "Achieved Goal";
@@ -1193,6 +1203,11 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
             goalBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(), null));
         }
         goalBox.getChildren().add(attemptLabel);
+        if (goal.isDropped() && goal.getDropReason() != null) {
+            Label reason = new Label("Reason: " + goal.getDropReason());
+            wrap(reason);
+            goalBox.getChildren().add(reason);
+        }
 
         // Action buttons
         FlowPane actionBox = new FlowPane(8, 6);
@@ -1203,28 +1218,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
         editBtn.setOnAction(e -> showEditGoalDialog(goal));
         actionBox.getChildren().add(editBtn);
 
-        // "Abandon" button — keeps the attempt timeline but stops future replanning.
-        if (!goal.isAchieved() && !goal.isFailed()) {
-            Button failBtn = new Button("Abandon Goal");
-            failBtn.setGraphic(TaskStyleUtils.iconLabel("✖", 12));
-            failBtn.getStyleClass().addAll("btn-warning", "btn-small");
-            failBtn.setOnAction(e -> {
-                Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
-                confirmation.initOwner(goalBox.getScene() != null ? goalBox.getScene().getWindow() : null);
-                confirmation.setTitle("Abandon Study Goal");
-                confirmation.setHeaderText("Abandon this goal?");
-                confirmation.setContentText("The goal will stop appearing for re-planning, but its attempt history will be kept.\nGoal: "
-                        + goal.getDescription());
-
-                confirmation.showAndWait().ifPresent(response -> {
-                    if (response == ButtonType.OK) {
-                        studyService.markGoalAsFailed(goal.getId());
-                        refresh();
-                    }
-                });
-            });
-            actionBox.getChildren().add(failBtn);
-        }
+        actionBox.getChildren().add(GoalActions.menu(goal, studyService, LocalDate.now(), this::refresh));
 
         // Delete button — permanent removal
         Button deleteBtn = new Button("Delete");
@@ -1289,7 +1283,7 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
                     + " across all attempts (including incomplete)";
         }
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED) {
-            summary += " | parent abandoned";
+            summary += " | goal dropped";
         }
         return summary + TaskStyleUtils.criteriaProgress(goal.getCriteria());
     }

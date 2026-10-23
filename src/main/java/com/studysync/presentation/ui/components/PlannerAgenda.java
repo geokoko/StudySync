@@ -64,6 +64,7 @@ final class PlannerAgenda {
         tasks.forEach(task -> tasksById.putIfAbsent(task.getId(), task));
         Set<String> plannedTasks = CalendarAgenda.withParents(attempts.stream()
                 .filter(goal -> date.equals(goal.getDate()))
+                .filter(goal -> !goal.isDropped() && !goal.isDroppedAttempt())
                 .map(StudyGoal::getTaskId).collect(Collectors.toSet()), tasksById.values());
         Set<String> plannedGoals = attempts.stream().filter(goal -> date.equals(goal.getDate()))
                 .map(StudyGoal::getId).collect(Collectors.toSet());

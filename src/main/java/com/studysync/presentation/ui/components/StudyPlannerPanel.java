@@ -432,9 +432,19 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         goalsTitle.setText(displayDate.equals(dateTimeService.getCurrentDate()) ? "Today's Goals" : "Goals");
         goalsContainer.getChildren().clear();
         goalSessionButtons.clear();
-        displayDateAttempts.stream().sorted(Comparator.comparingInt(goal ->
+        displayDateAttempts.stream().filter(goal -> !goal.isDropped() && !goal.isDroppedAttempt())
+                .sorted(Comparator.comparingInt(goal ->
                 goal.isFailed() ? 2 : goal.isAchieved() ? 1 : 0)).forEach(goal ->
                 goalsContainer.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()))));
+        List<StudyGoal> dropped = displayDateAttempts.stream()
+                .filter(goal -> goal.isDropped() || goal.isDroppedAttempt()).toList();
+        if (!dropped.isEmpty()) {
+            VBox history = new VBox(8);
+            dropped.forEach(goal -> history.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()))));
+            TitledPane section = new TitledPane("Dropped (" + dropped.size() + ")", history);
+            section.setExpanded(false);
+            goalsContainer.getChildren().add(section);
+        }
         if (displayDateAttempts.isEmpty()) {
             goalsContainer.getChildren().add(mutedLabel("No goals planned for this day. Add a goal or drag work here."));
         }
@@ -596,6 +606,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
                 .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING)
                 .count();
         long achieved = attempts.stream().filter(StudyGoal::isAchieved).count();
+        long dropped = attempts.stream().filter(StudyGoal::isDroppedAttempt).count();
         long missed = attempts.stream()
                 .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED)
                 .count();
@@ -608,7 +619,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         attemptOverviewContainer.getChildren().addAll(
                 createAttemptMetricCard("Goal net", String.format("%+d", score),
                         TaskStyleUtils.COLOR_PURPLE, TaskStyleUtils.TINT_PURPLE, true),
-                createAttemptMetricCard("Goals", String.valueOf(attempts.size()),
+                createAttemptMetricCard("Goals", String.valueOf(attempts.size() - dropped),
                         TaskStyleUtils.COLOR_PRIMARY, TaskStyleUtils.TINT_NEUTRAL, false),
                 createAttemptMetricCard("Pending", String.valueOf(pending),
                         TaskStyleUtils.COLOR_PRIMARY, TaskStyleUtils.TINT_NEUTRAL, false),
@@ -617,7 +628,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
                 createAttemptMetricCard("Done", String.valueOf(achieved),
                         TaskStyleUtils.COLOR_SUCCESS, TaskStyleUtils.TINT_NEUTRAL, false),
                 createAttemptMetricCard("Missed", String.valueOf(missed),
-                        TaskStyleUtils.COLOR_DANGER, TaskStyleUtils.TINT_NEUTRAL, false)
+                        TaskStyleUtils.COLOR_DANGER, TaskStyleUtils.TINT_NEUTRAL, false),
+                createAttemptMetricCard("Dropped", String.valueOf(dropped),
+                        TaskStyleUtils.COLOR_MUTED, TaskStyleUtils.TINT_NEUTRAL, false)
         );
     }
 
@@ -851,7 +864,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             }
         });
 
-        row.getChildren().addAll(textBox, spacer, editGoalButton(goal), replanBtn);
+        row.getChildren().addAll(textBox, spacer, editGoalButton(goal), replanBtn, goalActions(goal));
         return row;
     }
 
@@ -871,7 +884,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
 
         String bgColor = TaskStyleUtils.TINT_NEUTRAL;
         boolean missed = goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED
-                || goal.getStatus() == StudyGoal.GoalStatus.ABANDONED;
+                || goal.isDropped() || goal.isDroppedAttempt();
         if (goal.isAchieved()) {
             bgColor = TaskStyleUtils.TINT_SUCCESS;
         } else if (!missed && goal.isDelayed()) {
@@ -913,6 +926,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             goalSessionButtons.add(start);
             actions.getChildren().add(start);
         }
+        actions.getChildren().add(goalActions(goal));
         HBox titleLine = new HBox(10, title, actions);
         titleLine.setAlignment(Pos.TOP_LEFT);
 
@@ -938,6 +952,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
                 : goal.getMissedAttemptCount() > 0 ? TaskStyleUtils.COLOR_DANGER : TaskStyleUtils.COLOR_MUTED);
         TaskStyleUtils.fontNormal(attemptLabel, 11);
         textBox.getChildren().add(attemptLabel);
+        if (goal.isDropped() && goal.getDropReason() != null) {
+            textBox.getChildren().add(mutedLabel("Reason: " + goal.getDropReason()));
+        }
         HBox.setHgrow(textBox, Priority.ALWAYS);
         row.getChildren().addAll(check, textBox);
         return row;
@@ -948,6 +965,14 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         editBtn.getStyleClass().addAll("btn-gray", "btn-small");
         editBtn.setOnAction(e -> showEditGoalDialog(goal));
         return editBtn;
+    }
+
+    private MenuButton goalActions(StudyGoal goal) {
+        return GoalActions.menu(goal, studyService, dateTimeService.getCurrentDate(), () -> {
+            closeModal.run();
+            updateTasksDisplay();
+            updateProgress();
+        });
     }
 
     /** Edit an existing goal's description, done-when checklist and (while pending) its date. */
@@ -991,8 +1016,13 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             summary += " - achieved";
         } else if (goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED) {
             summary += " - missed";
+        } else if (goal.isDroppedAttempt()) {
+            summary += " - dropped";
         } else {
             summary += " - pending";
+        }
+        if (goal.isDropped() && !goal.isDroppedAttempt()) {
+            summary += " · goal dropped";
         }
         return summary + TaskStyleUtils.criteriaProgress(goal.getCriteria());
     }

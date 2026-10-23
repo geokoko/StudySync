@@ -422,12 +422,13 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         List<StudyGoal> allGoals = getSortedGoalHistory("Newest first");
         long achievedCount = allGoals.stream().filter(StudyGoal::isAchieved).count();
         long failedCount = allGoals.stream().filter(StudyGoal::isFailed).count();
+        long droppedCount = allGoals.stream().filter(StudyGoal::isDroppedAttempt).count();
         long activeCount = allGoals.stream()
-            .filter(goal -> !goal.isAchieved() && !goal.isFailed())
+            .filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING && !goal.isDropped())
             .count();
         
         Label countLabel = new Label("(" + achievedCount + " achieved, "
-                + failedCount + " missed/failed, " + activeCount + " active)");
+                + failedCount + " missed, " + droppedCount + " dropped, " + activeCount + " active)");
         TaskStyleUtils.fontNormal(countLabel, 14);
         TaskStyleUtils.textColor(countLabel, "#7f8c8d");
         
@@ -540,7 +541,7 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
             controls.setAlignment(Pos.CENTER_LEFT);
 
             ComboBox<String> filterCombo = new ComboBox<>();
-            filterCombo.getItems().addAll("All goals", "Achieved", "Missed / failed", "Active / pending");
+            filterCombo.getItems().addAll("All goals", "Achieved", "Missed", "Dropped", "Active / pending");
             filterCombo.setValue("All goals");
 
             ComboBox<String> sortCombo = new ComboBox<>();
@@ -615,8 +616,9 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     private boolean matchesGoalHistoryFilter(StudyGoal goal, String filter) {
         return switch (filter) {
             case "Achieved" -> goal.isAchieved();
-            case "Missed / failed" -> goal.isFailed();
-            case "Active / pending" -> !goal.isAchieved() && !goal.isFailed();
+            case "Missed" -> goal.isFailed();
+            case "Dropped" -> goal.isDropped() || goal.isDroppedAttempt();
+            case "Active / pending" -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING && !goal.isDropped();
             default -> true;
         };
     }
@@ -658,6 +660,9 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private String goalHistoryIcon(StudyGoal goal) {
+        if (goal.isDroppedAttempt()) {
+            return "−";
+        }
         if (goal.isAchieved()) {
             return "\u2713";
         }
@@ -668,6 +673,9 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private String goalHistoryColor(StudyGoal goal) {
+        if (goal.isDroppedAttempt()) {
+            return TaskStyleUtils.COLOR_MUTED;
+        }
         if (goal.isAchieved()) {
             return "#27ae60";
         }
@@ -678,6 +686,9 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
     }
 
     private String goalHistoryBackground(StudyGoal goal) {
+        if (goal.isDroppedAttempt()) {
+            return TaskStyleUtils.TINT_NEUTRAL;
+        }
         if (goal.isAchieved()) {
             return "#e8f5e8";
         }
@@ -693,8 +704,11 @@ public class ProfileViewPanel extends ScrollPane implements RefreshablePanel {
         if (goal.isAchieved()) {
             return "Achieved on " + date;
         }
+        if (goal.isDroppedAttempt()) {
+            return "Dropped attempt · planned for " + date;
+        }
         if (goal.isFailed()) {
-            return (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED ? "Abandoned on " : "Missed on ") + date;
+            return "Missed on " + date + (goal.isDropped() ? " · goal dropped" : "");
         }
         return "Planned for " + date;
     }

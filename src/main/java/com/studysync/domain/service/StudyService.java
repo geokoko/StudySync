@@ -338,6 +338,10 @@ public class StudyService {
      * An unknown goal or index changes nothing, achievement included.
      */
     public void setGoalCriterionDone(String goalId, int index, boolean done) {
+        Optional<StudyGoal> goal = StudyGoal.findById(goalId);
+        if (goal.isEmpty() || goal.get().isDropped() || goal.get().isDroppedAttempt()) {
+            return;
+        }
         Optional<List<StudyGoal.Criterion>> changed = StudyGoal.setCriterionDone(goalId, index, done);
         if (changed.isEmpty()) {
             return;
@@ -364,23 +368,45 @@ public class StudyService {
                 : StudyGoal.reopenAchievedGoal(goalId);
     }
 
-    /**
-     * Abandons a study goal while preserving its attempt history for display.
-     * Abandoned goals are excluded from future retry planning.
-     */
-    public boolean markGoalAsFailed(String goalId) {
+    /** A missed attempt stays retryable; it does not drop the goal. */
+    public boolean markGoalAttemptMissed(String goalId, String attemptId) {
+        if (goalId == null || goalId.isBlank() || attemptId == null || attemptId.isBlank()) {
+            throw ValidationException.requiredFieldMissing("goal and attempt");
+        }
+        boolean changed = StudyGoal.markAttemptMissed(goalId, attemptId, dateTimeService.getCurrentDate());
+        if (changed) {
+            markDirtyAndSaveLocally("study goal attempt missed");
+        }
+        return changed;
+    }
+
+    /** Drop a goal without adding a failure; recorded misses and session points survive. */
+    public boolean dropGoal(String goalId, String reason) {
         if (goalId == null || goalId.isBlank()) {
             throw ValidationException.requiredFieldMissing("goalId");
         }
-        boolean abandoned = StudyGoal.abandonGoal(goalId);
-        if (abandoned) {
-            markDirtyAndSaveLocally("study goal failure update");
-            logger.info("Abandoned study goal '{}'", goalId);
-            return true;
-        } else {
-            logger.warn("Requested mark-as-failed for study goal '{}' but it did not exist or was achieved", goalId);
-            return false;
+        boolean changed = StudyGoal.dropGoal(goalId, reason == null || reason.isBlank() ? null : reason.strip());
+        if (changed) {
+            markDirtyAndSaveLocally("study goal dropped");
         }
+        return changed;
+    }
+
+    public boolean reopenDroppedGoal(String goalId, LocalDate plannedForDate) {
+        if (goalId == null || goalId.isBlank()) {
+            throw ValidationException.requiredFieldMissing("goalId");
+        }
+        if (plannedForDate == null) {
+            throw ValidationException.requiredFieldMissing("plannedForDate");
+        }
+        if (plannedForDate.isBefore(dateTimeService.getCurrentDate())) {
+            throw ValidationException.invalidDateRange(plannedForDate.toString(), "today or a future date");
+        }
+        boolean changed = StudyGoal.reopenDroppedGoal(goalId, plannedForDate);
+        if (changed) {
+            markDirtyAndSaveLocally("study goal reopened");
+        }
+        return changed;
     }
 
     /**
@@ -486,7 +512,8 @@ public class StudyService {
 
     @Transactional(readOnly = true)
     public int calculateDailyProgress() {
-        List<StudyGoal> todayGoals = getTodayGoals();
+        List<StudyGoal> todayGoals = getAllGoalsForDate(dateTimeService.getCurrentDate()).stream()
+                .filter(goal -> !goal.isDroppedAttempt()).toList();
         if (todayGoals.isEmpty()) {
             return 0;
         }

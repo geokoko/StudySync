@@ -188,6 +188,7 @@ public class ScoringService {
 
         int goalsAchieved = (int) goals.stream().filter(StudyGoal::isAchieved).count();
         int goalsMissed = (int) goals.stream().filter(StudyGoal::isFailed).count();
+        int goalsDropped = (int) goals.stream().filter(StudyGoal::isDroppedAttempt).count();
         int goalPoints = goalsAchieved * GOAL_ACHIEVED_POINTS;
 
         Map<String, Integer> reschedules = TaskReschedule.countByTaskIds(
@@ -214,7 +215,8 @@ public class ScoringService {
                 avgFocus,
                 goalsAchieved,
                 goalsMissed,
-                goals.size(),
+                goalsDropped,
+                goals.size() - goalsDropped,
                 completedTasks.size(),
                 scoringDays);
     }

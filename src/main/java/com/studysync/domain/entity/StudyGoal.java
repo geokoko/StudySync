@@ -43,7 +43,8 @@ public class StudyGoal {
     public enum AttemptOutcome {
         PENDING,
         ACHIEVED,
-        MISSED
+        MISSED,
+        DROPPED
     }
 
     /** One line of a goal's "what done means" checklist. */
@@ -58,6 +59,7 @@ public class StudyGoal {
             g.description,
             g.task_id,
             g.done_criteria,
+            g.drop_reason,
             COALESCE(g.status, 'ACTIVE') AS status,
             COALESCE(g.abandoned_explicitly, FALSE) AS abandoned_explicitly,
             g.achieved_attempt_id,
@@ -110,6 +112,7 @@ public class StudyGoal {
     private int attemptNumber = 1;
     private int missedAttemptCount = 0;
     private String doneCriteria;
+    private String dropReason;
 
     public static void setJdbcTemplate(JdbcTemplate template) {
         jdbcTemplate = template;
@@ -185,9 +188,10 @@ public class StudyGoal {
                       GoalStatus status, boolean abandonedExplicitly, String achievedAttemptId,
                       String attemptId, String replannedFromAttemptId, AttemptOutcome attemptOutcome,
                       String reasonIfNotAchieved, LocalDateTime outcomeAt,
-                      int attemptNumber, int missedAttemptCount, String doneCriteria) {
+                      int attemptNumber, int missedAttemptCount, String doneCriteria, String dropReason) {
         this.id = id;
         this.doneCriteria = doneCriteria;
+        this.dropReason = dropReason;
         this.date = date;
         this.description = description;
         this.taskId = taskId;
@@ -202,7 +206,7 @@ public class StudyGoal {
         this.attemptNumber = Math.max(1, attemptNumber);
         this.missedAttemptCount = Math.max(0, missedAttemptCount);
         this.achieved = attemptOutcome == AttemptOutcome.ACHIEVED;
-        this.failed = attemptOutcome == AttemptOutcome.MISSED || status == GoalStatus.ABANDONED;
+        this.failed = attemptOutcome == AttemptOutcome.MISSED;
         this.isDelayed = this.missedAttemptCount > 0 || this.failed;
         this.daysDelayed = this.missedAttemptCount;
         this.pointsDeducted = this.missedAttemptCount;
@@ -261,6 +265,10 @@ public class StudyGoal {
     }
 
     public GoalStatus getStatus() { return status; }
+    /** ABANDONED is the persisted name for a goal the user has dropped. */
+    public boolean isDropped() { return status == GoalStatus.ABANDONED; }
+    public boolean isDroppedAttempt() { return attemptOutcome == AttemptOutcome.DROPPED; }
+    public String getDropReason() { return dropReason; }
     public boolean isAbandonedExplicitly() { return abandonedExplicitly; }
     public String getAchievedAttemptId() { return achievedAttemptId; }
     public String getAttemptId() { return attemptId; }
@@ -389,15 +397,15 @@ public class StudyGoal {
                 id, date, description, achieved, reason_if_not_achieved,
                 days_delayed, is_delayed, points_deducted, task_id,
                 replanned_for_date, failed, status, abandoned_explicitly,
-                achieved_attempt_id, done_criteria, updated_at
+                achieved_attempt_id, done_criteria, drop_reason, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         jdbcTemplate.update(sql,
                 id, date, description, status == GoalStatus.ACHIEVED, reasonIfNotAchieved,
                 daysDelayed, isDelayed, pointsDeducted, taskId,
                 replannedForDate, attemptOutcome == AttemptOutcome.MISSED, status.name(),
-                abandonedExplicitly, achievedAttemptId, doneCriteria);
+                abandonedExplicitly, achievedAttemptId, doneCriteria, dropReason);
     }
 
     private void upsertAttempt() {
@@ -835,7 +843,7 @@ public class StudyGoal {
             return false;
         }
         StudyGoal goal = goalOpt.get();
-        if (goal.attemptId == null) {
+        if (goal.attemptId == null || goal.isDropped() || goal.isDroppedAttempt()) {
             return false;
         }
         jdbcTemplate.update("""
@@ -878,31 +886,63 @@ public class StudyGoal {
         return true;
     }
 
-    public static boolean abandonGoal(String goalId) {
+    /** Resolve exactly the selected pending attempt, never a later retry shown elsewhere. */
+    public static boolean markAttemptMissed(String goalId, String selectedAttemptId, LocalDate today) {
+        if (jdbcTemplate == null || goalId == null || selectedAttemptId == null || today == null) {
+            return false;
+        }
+        return jdbcTemplate.update("""
+            UPDATE study_goal_attempts
+            SET outcome = 'MISSED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND goal_id = ? AND outcome = 'PENDING' AND planned_for_date <= ?
+              AND EXISTS (SELECT 1 FROM study_goals WHERE id = ? AND status = 'ACTIVE')
+            """, selectedAttemptId, goalId, today, goalId) > 0;
+    }
+
+    /** Close the intent without rewriting earlier missed attempts as dropped. */
+    public static boolean dropGoal(String goalId, String reason) {
         Optional<StudyGoal> goalOpt = findById(goalId);
         if (goalOpt.isEmpty()) {
             return false;
         }
         StudyGoal goal = goalOpt.get();
-        // An achieved goal cannot be abandoned: the ACHIEVED attempt row would
-        // survive and keep counting the occurrence as handled.
-        if (goal.status == GoalStatus.ACHIEVED) {
+        if (goal.status != GoalStatus.ACTIVE) {
             return false;
         }
         if (goal.attemptId != null && goal.attemptOutcome == AttemptOutcome.PENDING) {
             jdbcTemplate.update("""
                 UPDATE study_goal_attempts
-                SET outcome = 'MISSED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                SET outcome = 'DROPPED', reason_if_not_achieved = ?,
+                    outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-                """, goal.attemptId);
+                """, reason, goal.attemptId);
         }
         int rows = jdbcTemplate.update("""
             UPDATE study_goals
-            SET status = 'ABANDONED', achieved_attempt_id = NULL, achieved = FALSE, failed = TRUE,
-                abandoned_explicitly = TRUE, updated_at = CURRENT_TIMESTAMP
+            SET status = 'ABANDONED', achieved_attempt_id = NULL, achieved = FALSE, failed = FALSE,
+                abandoned_explicitly = TRUE, drop_reason = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-            """, goalId);
+            """, reason, goalId);
         return rows > 0;
+    }
+
+    /** Reopen explicitly, with a new attempt; the old outcomes and checklist survive. */
+    public static boolean reopenDroppedGoal(String goalId, LocalDate plannedForDate) {
+        if (plannedForDate == null) {
+            return false;
+        }
+        Optional<StudyGoal> found = findById(goalId);
+        if (found.isEmpty() || !found.get().isDropped()) {
+            return false;
+        }
+        jdbcTemplate.update("""
+            UPDATE study_goals SET status = 'ACTIVE', abandoned_explicitly = FALSE,
+                failed = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+            """, goalId);
+        if (!createReplanAttempt(goalId, plannedForDate)) {
+            throw new IllegalStateException("Could not create a new attempt for this goal.");
+        }
+        return true;
     }
 
     private static RowMapper<StudyGoal> getAttemptViewMapper() {
@@ -921,7 +961,8 @@ public class StudyGoal {
                 rs.getObject("outcome_at", LocalDateTime.class),
                 rs.getInt("attempt_number"),
                 rs.getInt("missed_attempt_count"),
-                rs.getString("done_criteria")
+                rs.getString("done_criteria"),
+                rs.getString("drop_reason")
         );
     }
 
