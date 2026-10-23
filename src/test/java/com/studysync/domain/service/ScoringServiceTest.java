@@ -315,6 +315,7 @@ class ScoringServiceTest {
                     start_date DATE,
                     recurrence_end_date DATE,
                     completed_at DATE,
+                    resume_on DATE,
                     remind_days_before INTEGER,
                     done_criteria TEXT,
                     parent_id VARCHAR(50) REFERENCES tasks(id),

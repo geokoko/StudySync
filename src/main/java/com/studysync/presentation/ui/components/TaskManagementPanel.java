@@ -267,10 +267,13 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         if (changed) detailScroll.setVvalue(0);
     }
 
-    /** A postponed task's deadline is the day it comes back, not when it is due. */
     private static String deadlineText(Task task) {
-        if (task.getDeadline() == null) return "No deadline";
-        return (task.getStatus() == TaskStatus.POSTPONED ? "Postponed until " : "Due ") + task.getDeadline();
+        String due = task.getDeadline() == null ? "No deadline" : "Due " + task.getDeadline();
+        return task.getStatus() == TaskStatus.POSTPONED ? due + " · " + resumeText(task) : due;
+    }
+
+    private static String resumeText(final Task task) {
+        return task.getResumeOn() == null ? "Resume manually" : "Resumes " + task.getResumeOn();
     }
 
     private void updateSelectionHighlight() {
@@ -303,12 +306,14 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
                 });
             }
             taskDetails.getChildren().addAll(
-                    detailLabel((task.getStatus() == TaskStatus.POSTPONED ? "Postponed until: " : "Due date: ")
-                            + (task.getDeadline() == null ? "No deadline" : task.getDeadline())),
+                    detailLabel("Due date: " + (task.getDeadline() == null ? "No deadline" : task.getDeadline())),
                     detailLabel("Priority: " + (task.getPriority() == null ? "None" : task.getPriority())),
                     detailLabel("Category: " + categoryName(task)),
                     detailLabel("Reminder: " + task.reminderDate().map(date -> date + " ("
                             + task.getRemindDaysBefore() + " days before)").orElse("None")));
+            if (task.getStatus() == TaskStatus.POSTPONED) {
+                taskDetails.getChildren().add(detailLabel(resumeText(task)));
+            }
             if (task.isRecurring()) {
                 taskDetails.getChildren().add(detailLabel(task.getRecurringSummary()
                         + " · From " + task.getRecurrenceAnchor()
@@ -382,7 +387,8 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
             actions.getChildren().add(done);
         }
         if (task.getStatus() == TaskStatus.DELAYED || task.getStatus() == TaskStatus.POSTPONED) {
-            Button reschedule = new Button("Reschedule");
+            Button reschedule = new Button(task.getStatus() == TaskStatus.POSTPONED
+                    ? "Set resume date" : "Reschedule");
             reschedule.getStyleClass().add("btn-small");
             reschedule.setOnAction(e -> showRescheduleDialog(task));
             actions.getChildren().add(reschedule);
@@ -1079,10 +1085,11 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         deadlineHint.setManaged(false);
 
         Runnable updateDeadlineHint = () -> {
-            String text = recurringCheck.isSelected()
-                    ? "The deadline is when this task is due. Use \"Repeat until\" below to stop the repetition."
-                    : statusCombo.getValue() == TaskStatus.POSTPONED
-                        ? "For postponed tasks, the deadline is the resume date - the task returns to the planner on that day."
+            String text = statusCombo.getValue() == TaskStatus.POSTPONED
+                    ? "The deadline stays unchanged when you postpone work. It stays paused until you change "
+                            + "its status or use Set resume date in the task's actions."
+                    : recurringCheck.isSelected()
+                        ? "The deadline is when this task is due. Use \"Repeat until\" below to stop the repetition."
                         : "";
             deadlineHint.setText(text);
             deadlineHint.setVisible(!text.isEmpty());
@@ -1261,11 +1268,13 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
      * Quick reschedule for delayed/postponed tasks: one date picker, no full edit form.
      */
     private void showRescheduleDialog(Task task) {
+        if (task.getStatus() == TaskStatus.POSTPONED) {
+            resumeDateDialog(task).showAndWait();
+            return;
+        }
         Dialog<LocalDate> dialog = new Dialog<>();
         dialog.setTitle("Reschedule Task");
-        dialog.setHeaderText(task.getStatus() == TaskStatus.POSTPONED
-                ? "Pick the date this task should resume on."
-                : "Pick a new due date.");
+        dialog.setHeaderText("Pick a new due date.");
         dialog.initOwner(this.getScene() != null ? this.getScene().getWindow() : null);
 
         DatePicker picker = new DatePicker(LocalDate.now().plusDays(1));
@@ -1284,6 +1293,59 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
                 err.showAndWait();
             }
         });
+    }
+
+    /** Package-visible for exercising the actual save and validation flow. */
+    Dialog<ButtonType> resumeDateDialog(final Task task) {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Set resume date");
+        dialog.setHeaderText("When should this task return?");
+        if (getScene() != null) {
+            dialog.initOwner(getScene().getWindow());
+        }
+        DatePicker picker = new DatePicker(task.getResumeOn());
+        picker.setPromptText("Resume manually");
+        picker.setMaxWidth(Double.MAX_VALUE);
+        Button clear = new Button("Clear date");
+        clear.getStyleClass().addAll("btn-gray", "btn-small");
+        clear.setOnAction(event -> {
+            picker.setValue(null);
+            picker.getEditor().clear();
+        });
+        Label hint = new Label("Leave the date empty to keep this task postponed until you change its status. "
+                + "Choosing a resume date does not change its deadline.");
+        hint.setWrapText(true);
+        hint.setMinHeight(Region.USE_PREF_SIZE);
+        Label error = new Label();
+        error.setWrapText(true);
+        error.setMinHeight(Region.USE_PREF_SIZE);
+        error.setVisible(false);
+        error.setManaged(false);
+        TaskStyleUtils.textColor(error, TaskStyleUtils.COLOR_DANGER);
+        VBox content = new VBox(12, picker, clear, hint, error);
+        content.setPrefWidth(360);
+        dialog.getDialogPane().setContent(content);
+        ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.CANCEL, save);
+        dialog.getDialogPane().lookupButton(save).getStyleClass().add("btn-primary");
+        dialog.getDialogPane().lookupButton(ButtonType.CANCEL).getStyleClass().add("btn-cancel");
+        dialog.getDialogPane().lookupButton(save).addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            try {
+                picker.commitValue();
+                taskService.setTaskResumeDate(task, picker.getValue());
+            } catch (Exception ex) {
+                error.setText(ex.getMessage() == null ? "Could not save the resume date. Try again." : ex.getMessage());
+                error.setVisible(true);
+                error.setManaged(true);
+                event.consume();
+            }
+        });
+        dialog.setOnHidden(event -> {
+            if (dialog.getResult() == save) {
+                refreshData();
+            }
+        });
+        return dialog;
     }
 
     // ──────────────────────────────────────────────

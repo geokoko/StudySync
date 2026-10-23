@@ -163,9 +163,8 @@ public class TaskService {
 
     /**
      * Moves a task to a new due date, recording the change in the reschedule
-     * history. For a DELAYED task this also revives it (status back to OPEN);
-     * for a POSTPONED task the new deadline acts as the resume date and the
-     * status is left alone until the daily pass resurfaces it.
+     * history. For a DELAYED task this also revives it (status back to OPEN).
+     * A POSTPONED task stays paused; its optional resume date is separate.
      */
     @Transactional
     public Task rescheduleTask(@NotNull Task task, @NotNull LocalDate newDeadline) {
@@ -173,6 +172,28 @@ public class TaskService {
             throw ValidationException.requiredFieldMissing("newDeadline");
         }
         return updateTask(task, new TaskUpdate(null, null, null, null, newDeadline, null, null));
+    }
+
+    /** Schedule an explicit return for paused work, or pass null to keep it postponed until manually resumed. */
+    public Task setTaskResumeDate(@NotNull final Task task, final LocalDate resumeOn) {
+        Task stored = requireTask(task);
+        if (stored.getStatus() != TaskStatus.POSTPONED) {
+            throw ValidationException.invalidInput("status", "Only postponed tasks can have a resume date.");
+        }
+        if (resumeOn != null && resumeOn.isBefore(dateTimeService.getCurrentDate())) {
+            throw ValidationException.invalidDateRange(resumeOn.toString(), "today or a future date");
+        }
+        boolean resumeToday = dateTimeService.getCurrentDate().equals(resumeOn);
+        if (!Objects.equals(stored.getResumeOn(), resumeOn) || resumeToday) {
+            stored.setResumeOn(resumeOn);
+            if (resumeToday) {
+                stored.updateStatus(TaskStatus.OPEN);
+                applyBusinessRules(stored);
+            }
+            stored.save();
+            markDirtyAndSaveLocally("task resume date update");
+        }
+        return stored;
     }
     
     @Transactional
@@ -356,20 +377,17 @@ public class TaskService {
             lastDelayedTasksProcessedDate = today;
         }
 
-        // Resurface postponed tasks whose resume date (their deadline) has
-        // arrived: OPEN when it resumes today, straight to DELAYED when the
-        // resume date was already missed.
+        // Only an explicitly chosen resume date can unpause a task. Its deadline
+        // still decides whether the resumed work is overdue.
         int updatedCount = 0;
         for (Task task : Task.findByStatus(TaskStatus.POSTPONED)) {
-            if (task.getDeadline() == null || task.getDeadline().isAfter(today)) {
+            if (task.getResumeOn() == null || task.getResumeOn().isAfter(today)) {
                 continue;
             }
-            boolean missed = task.getDeadline().isBefore(today);
-            task.updateStatus(missed ? TaskStatus.DELAYED : TaskStatus.OPEN);
-            task.save();
+            task.updateStatus(TaskStatus.OPEN);
+            applyBusinessRules(task).save();
             updatedCount++;
-            logger.info("Postponed task '{}' {}", task.getTitle(),
-                    missed ? "missed its resume date, marked DELAYED" : "resumed as OPEN");
+            logger.info("Postponed task '{}' resumed as {}", task.getTitle(), task.getStatus());
         }
 
         List<Task> delayedTasks = Task.findAll().stream()
@@ -788,6 +806,7 @@ public class TaskService {
         Task updated = new Task(task.getId(), newTitle, newDescription, newCategory, newPriority, newDeadline,
                 task.getStatus(), task.getPoints(), newRecurringPattern, newStartDate, newRecurrenceEnd);
         updated.setCompletedAt(task.getCompletedAt());
+        updated.setResumeOn(task.getResumeOn());
         updated.setParentId(update.parentId() != null ? update.parentId() : task.getParentId());
         updated.setEstimatedHours(update.estimatedHours() == null ? task.getEstimatedHours()
                 : TaskUpdate.CLEAR_ESTIMATE.equals(update.estimatedHours()) ? null : update.estimatedHours());
@@ -809,8 +828,8 @@ public class TaskService {
         LocalDate today = dateTimeService.getCurrentDate();
         // Recurring tasks go DELAYED like any other: their deadline is a real
         // due date, and taskSurfacesOn() keeps a DELAYED recurring task visible.
-        // COMPLETED and CANCELLED are terminal; POSTPONED keeps its resume
-        // date until markDelayedTasks resurfaces it.
+        // COMPLETED and CANCELLED are terminal; POSTPONED stays paused until
+        // an explicit resume date arrives or the user changes its status.
         boolean delayEligible = task.getStatus() != TaskStatus.COMPLETED
                 && task.getStatus() != TaskStatus.CANCELLED
                 && task.getStatus() != TaskStatus.POSTPONED;
