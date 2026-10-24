@@ -18,6 +18,29 @@ fail() {
     exit 1
 }
 
+# Version detection must ignore JVM warnings and reject unreadable versions.
+check_mock_java() (
+    fixture_specification=$1
+    java() {
+        echo '[0.001s][warning][os,container] Example JVM startup warning'
+        if [[ "$fixture_specification" == failed ]]; then
+            return 1
+        fi
+        printf '    java.specification.version = %s\n' "$fixture_specification"
+    }
+    check_java
+)
+check_mock_java 25 || fail "rejected Java 25 after a JVM warning"
+if check_mock_java 21; then
+    fail "accepted Java 21 after a JVM warning"
+fi
+if check_mock_java unknown; then
+    fail "accepted an unreadable Java version"
+fi
+if check_mock_java failed; then
+    fail "accepted a failed Java command"
+fi
+
 mkdir -p "$INSTALL_DIR/lib" "$INSTALL_DIR/data" "$INSTALL_DIR/config/google" \
     "$INSTALL_DIR/tokens" "$RELEASE_DIR/lib"
 printf 'old application' > "$INSTALL_DIR/lib/StudySync-0.1.7-plain.jar"
@@ -86,6 +109,32 @@ install_files
 diff -r "$test_dir/source-expected" "$INSTALL_DIR/lib"
 if compgen -G "$INSTALL_DIR/.lib.*" > /dev/null; then
     fail "left staged or previous libraries behind"
+fi
+
+# A fresh extracted release has only its packaged configuration template.
+RELEASE_MODE=true
+mkdir -p "$RELEASE_DIR/config" "$RELEASE_DIR/lib"
+cp "$SCRIPT_DIR/../src/main/resources/application.yml.template" "$RELEASE_DIR/config/"
+cp "$test_dir/source-expected/"*.jar "$RELEASE_DIR/lib/"
+INSTALL_DIR="$test_dir/fresh-install"
+install_files
+setup_config
+expected_url="url: jdbc:h2:file:$INSTALL_DIR/data/studysync;DB_CLOSE_DELAY=-1;CACHE_SIZE=65536"
+grep -Fq "$expected_url" "$INSTALL_DIR/config/application.yml" \
+    || fail "did not configure the packaged database path"
+[[ -d "$INSTALL_DIR/data" ]] || fail "did not create the data directory"
+
+# Reinstalling preserves customized settings in the existing configuration.
+printf '\n# custom setting\n' >> "$INSTALL_DIR/config/application.yml"
+cp "$INSTALL_DIR/config/application.yml" "$test_dir/expected-config.yml"
+install_files
+setup_config
+diff "$test_dir/expected-config.yml" "$INSTALL_DIR/config/application.yml"
+
+# Report an incomplete package explicitly, before rewriting a missing file.
+rm "$INSTALL_DIR/config/application.yml" "$INSTALL_DIR/config/application.yml.template"
+if setup_config; then
+    fail "accepted a package without a configuration template"
 fi
 
 echo 'Installer regression checks passed.'

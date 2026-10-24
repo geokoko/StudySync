@@ -70,8 +70,8 @@ java {
 }
 
 group = 'com.studysync'
-version = '0.1.8'
-description = 'StudySync - Personal Study and Task Management Desktop Application (Beta)'
+version = '0.1.9'
+description = 'StudySync - Personal Study and Task Management Desktop Application'
 
 application {
     mainClass = 'com.studysync.StudySyncApplication'

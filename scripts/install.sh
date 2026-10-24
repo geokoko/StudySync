@@ -67,13 +67,24 @@ check_java() {
         echo "  Ubuntu/Debian: sudo apt install openjdk-25-jdk"
         echo "  Fedora: sudo dnf install java-25-openjdk"
         echo "  Arch: sudo pacman -S jdk-openjdk"
-        exit 1
+        return 1
     fi
     
-    JAVA_VERSION=$(java -version 2>&1 | head -n 1 | cut -d'"' -f2 | cut -d'.' -f1)
+    # JVM warnings can precede the version banner; use the specified property.
+    local java_settings
+    if ! java_settings=$(java -XshowSettings:properties -version 2>&1); then
+        print_error "Could not query the installed Java version."
+        return 1
+    fi
+    JAVA_VERSION=$(sed -n 's/^[[:space:]]*java.specification.version = //p' <<< "$java_settings")
+    JAVA_VERSION="${JAVA_VERSION#1.}"
+    if [[ ! "$JAVA_VERSION" =~ ^[0-9]+$ ]]; then
+        print_error "Could not determine the installed Java version."
+        return 1
+    fi
     if [[ "$JAVA_VERSION" -lt 25 ]]; then
         print_error "Java 25 or later is required (found Java $JAVA_VERSION)"
-        exit 1
+        return 1
     fi
     
     print_success "Java $JAVA_VERSION detected"
@@ -326,10 +337,15 @@ setup_config() {
     
     # Copy application.yml if not exists
     if [[ ! -f "$INSTALL_DIR/config/application.yml" ]]; then
-        if [[ -f "$INSTALL_DIR/resources/application.yml.template" ]]; then
+        if [[ -f "$INSTALL_DIR/config/application.yml.template" ]]; then
+            cp "$INSTALL_DIR/config/application.yml.template" "$INSTALL_DIR/config/application.yml"
+        elif [[ -f "$INSTALL_DIR/resources/application.yml.template" ]]; then
             cp "$INSTALL_DIR/resources/application.yml.template" "$INSTALL_DIR/config/application.yml"
         elif [[ -f "$PROJECT_ROOT/src/main/resources/application.yml.template" ]]; then
             cp "$PROJECT_ROOT/src/main/resources/application.yml.template" "$INSTALL_DIR/config/application.yml"
+        else
+            print_error "Application configuration template not found."
+            return 1
         fi
     fi
 
