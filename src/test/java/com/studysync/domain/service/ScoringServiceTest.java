@@ -266,6 +266,38 @@ class ScoringServiceTest {
         assertTrue(day.productivity() > 0);
     }
 
+    @Test
+    void droppedAttemptsEarnNoCreditAndDoNotChangeSuccessRatesOrEarlierMisses() {
+        achievedGoal("Completed", today);
+        StudyGoal dropped = new StudyGoal("Not achievable");
+        dropped.setDate(today);
+        dropped.save();
+        assertTrue(studyService.dropGoal(dropped.getId(), "External dependency"));
+
+        ScoreBreakdown day = scoringService.scoreForDate(today);
+        assertEquals(1, day.goalsAchieved());
+        assertEquals(0, day.goalsMissed());
+        assertEquals(1, day.goalsDropped());
+        assertEquals(1, day.goalsTotal());
+        assertEquals(15, day.points());
+        assertEquals(20, day.productivity());
+
+        StudyGoal earlier = new StudyGoal("Earlier miss");
+        earlier.setDate(today.minusDays(1));
+        earlier.setFailed(true);
+        earlier.save();
+        assertTrue(studyService.planGoalAttempt(earlier.getId(), today));
+        assertTrue(studyService.dropGoal(earlier.getId(), "Changed plans"));
+        ScoreBreakdown window = scoringService.scoreForWindow(2);
+        assertEquals(1, window.goalsMissed());
+        assertEquals(2, window.goalsDropped());
+        assertEquals(2, window.goalsTotal());
+        assertEquals(10, window.productivity());
+        assertEquals(15, window.points());
+        assertEquals(StudyGoal.AttemptOutcome.MISSED,
+                StudyGoal.findAllByDate(today.minusDays(1)).getFirst().getAttemptOutcome());
+    }
+
     private void session(LocalDate date, int minutes, int focus) {
         StudySession session = new StudySession();
         session.setDate(date);
@@ -349,6 +381,7 @@ class ScoringServiceTest {
                     status VARCHAR(20) DEFAULT 'ACTIVE',
                     abandoned_explicitly BOOLEAN DEFAULT FALSE,
                     achieved_attempt_id VARCHAR(50),
+                    drop_reason TEXT,
                     done_criteria TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

@@ -16,8 +16,9 @@ package com.studysync.domain.service;
  * @param minutes total minutes logged
  * @param avgFocus mean focus level of study sessions, 0 when there were none
  * @param goalsAchieved achieved goal attempts
- * @param goalsMissed missed or abandoned goal attempts
- * @param goalsTotal goal attempts in the period, including still-pending ones
+ * @param goalsMissed missed goal attempts, including misses before a goal was dropped
+ * @param goalsDropped dropped attempts, kept separate and excluded from completion rates
+ * @param goalsTotal goal attempts in the period, including pending ones but excluding dropped ones
  * @param tasksCompleted leaf tasks completed in the period
  * @param scoringDays days in the period that count, off days already removed
  */
@@ -32,13 +33,14 @@ public record ScoreBreakdown(
     double avgFocus,
     int goalsAchieved,
     int goalsMissed,
+    int goalsDropped,
     int goalsTotal,
     int tasksCompleted,
     int scoringDays
 ) {
     /** An empty period, used for error paths and days with nothing on them. */
     public static ScoreBreakdown empty(int scoringDays) {
-        return new ScoreBreakdown(0, 0, 0, 0, 0.0, 0, 0, 0.0, 0, 0, 0, 0, scoringDays);
+        return new ScoreBreakdown(0, 0, 0, 0, 0.0, 0, 0, 0.0, 0, 0, 0, 0, 0, scoringDays);
     }
 
     /**
@@ -49,7 +51,7 @@ public record ScoreBreakdown(
      * @return {@code true} when the period has any session, task or goal
      */
     public boolean hasActivity() {
-        return sessions > 0 || tasksCompleted > 0 || goalsTotal > 0;
+        return sessions > 0 || tasksCompleted > 0 || goalsTotal > 0 || goalsDropped > 0;
     }
 
     /** Points per hour logged, the efficiency figure shown in the profile. */

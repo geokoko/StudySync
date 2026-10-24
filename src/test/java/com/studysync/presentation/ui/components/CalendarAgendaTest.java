@@ -20,6 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class CalendarAgendaTest {
 
@@ -245,6 +247,22 @@ class CalendarAgendaTest {
         Map<LocalDate, List<Entry>> days = build(List.of(done, dueToday, late), List.of(planned));
 
         assertEquals(List.of(Kind.OVERDUE, Kind.DUE, Kind.GOAL_PENDING, Kind.COMPLETED), kinds(days, TODAY));
+    }
+
+    @Test
+    void droppedAttemptsHaveTheirOwnHistoryAndDoNotLowerTheCompletionFraction() {
+        Task task = task("task", "Research", null, TaskStatus.OPEN);
+        StudyGoal done = goal("Completed research", task.getId(), TODAY, true, false);
+        StudyGoal dropped = mock(StudyGoal.class);
+        when(dropped.getTaskId()).thenReturn(task.getId());
+        when(dropped.getDate()).thenReturn(TODAY);
+        when(dropped.getDescription()).thenReturn("Unavailable experiment");
+        when(dropped.getAttemptOutcome()).thenReturn(StudyGoal.AttemptOutcome.DROPPED);
+        when(dropped.isDroppedAttempt()).thenReturn(true);
+        List<Entry> day = build(List.of(task), List.of(done, dropped)).get(TODAY);
+        assertEquals(List.of(Kind.GOAL_DROPPED, Kind.GOAL_ACHIEVED), day.stream().map(Entry::kind).toList());
+        assertFalse(day.getFirst().movable());
+        assertEquals("Research · 1 goal done · 1 goal dropped", CalendarAgenda.byTask(day).getFirst().text());
     }
 
     private static Map<LocalDate, List<Entry>> build(List<Task> tasks, List<StudyGoal> attempts) {

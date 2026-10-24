@@ -48,7 +48,8 @@ class PlannerAgendaTest {
     @Test
     void pendingAchievedAndMissedAttemptsKeepTheirActiveTaskAvailable() {
         Task task = task("due", TODAY);
-        for (StudyGoal.AttemptOutcome outcome : StudyGoal.AttemptOutcome.values()) {
+        for (StudyGoal.AttemptOutcome outcome : List.of(StudyGoal.AttemptOutcome.PENDING,
+                StudyGoal.AttemptOutcome.ACHIEVED, StudyGoal.AttemptOutcome.MISSED)) {
             StudyGoal attempt = goal("plan", task, TODAY);
             if (outcome == StudyGoal.AttemptOutcome.ACHIEVED) {
                 attempt.setAchieved(true);
@@ -69,6 +70,19 @@ class PlannerAgendaTest {
         List<StudyGoal> attempts = List.of(goal("earlier", task, TODAY.minusDays(1)),
                 goal("later", task, TODAY.plusDays(1)), goal("unlinked", null, TODAY));
         assertEquals(List.of(Kind.DUE), kinds(build(TODAY, List.of(task), attempts, List.of(), List.of())));
+    }
+
+    @Test
+    void droppedGoalsDoNotMarkTheirTasksAsPlanned() {
+        Task task = task("due", TODAY);
+        StudyGoal dropped = mock(StudyGoal.class);
+        when(dropped.getTaskId()).thenReturn(task.getId());
+        when(dropped.getDate()).thenReturn(TODAY);
+        when(dropped.isDropped()).thenReturn(true);
+        assertEquals("due today", build(TODAY, List.of(task), List.of(dropped), List.of(), List.of())
+                .getFirst().reason());
+        task.setDeadline(TODAY.plusDays(5));
+        assertTrue(build(TODAY, List.of(task), List.of(dropped), List.of(), List.of()).isEmpty());
     }
 
     @Test

@@ -309,7 +309,7 @@ class StudyServicePersistenceTest {
         studyService.processAllDelayedGoals();
         assertEquals(1, StudyGoal.findDelayedAndNotReplanned().size());
 
-        assertTrue(studyService.markGoalAsFailed(goal.getId()));
+        assertTrue(studyService.dropGoal(goal.getId(), null));
 
         StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
         assertEquals(StudyGoal.GoalStatus.ABANDONED, stored.getStatus());
@@ -318,10 +318,117 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void droppingAPendingGoalPreservesItsChecklistSessionsAndTaskWithoutAddingAMiss() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        Task linked = recurringMondayTask("drop-task", today.minusDays(5));
+        StudyGoal goal = new StudyGoal("No longer achievable", linked.getId());
+        goal.setDate(today);
+        goal.setDoneCriteria("[x] Research\n[ ] Implement");
+        goal.save();
+        StudySession session = studyService.startStudySession(goal.getId(), linked.getId());
+        studyService.endStudySession(session, new StudySessionEnd(3, "Useful research"));
+        TaskStatus statusBefore = Task.findById(linked.getId()).orElseThrow().getStatus();
+        reset(googleDriveService);
+        when(googleDriveService.saveLocally()).thenReturn(true);
+
+        assertTrue(studyService.dropGoal(goal.getId(), "  Dependency is unavailable  "));
+
+        StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
+        assertTrue(stored.isDropped());
+        assertTrue(stored.isDroppedAttempt());
+        assertFalse(stored.isFailed());
+        assertEquals("Dependency is unavailable", stored.getDropReason());
+        assertEquals(goal.getDoneCriteria(), stored.getDoneCriteria());
+        assertEquals(0, stored.getMissedAttemptCount());
+        assertEquals(goal.getId(), StudySession.findById(session.getId()).orElseThrow().getGoalId());
+        assertEquals(statusBefore, Task.findById(linked.getId()).orElseThrow().getStatus());
+        assertTrue(studyService.getTodayGoals().isEmpty());
+        assertTrue(StudyGoal.findDelayedAndNotReplanned().isEmpty());
+        verify(googleDriveService).markLocalDbDirty();
+
+        studyService.updateStudyGoalAchievement(goal.getId(), true, null);
+        studyService.setGoalCriterionDone(goal.getId(), 1, true);
+        stored = StudyGoal.findById(goal.getId()).orElseThrow();
+        assertTrue(stored.isDroppedAttempt());
+        assertFalse(stored.getCriteria().get(1).done());
+    }
+
+    @Test
+    void droppingAMissedGoalPreservesItsMissAndReopeningCreatesANewDatedAttempt() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        StudyGoal missed = missedGoal("Try something else", null, today.minusDays(2));
+        missed.setDoneCriteria("[x] Read\n[ ] Practice");
+        missed.setReasonIfNotAchieved("Ran out of time");
+        missed.save();
+
+        assertTrue(studyService.dropGoal(missed.getId(), "No longer relevant"));
+        StudyGoal dropped = StudyGoal.findById(missed.getId()).orElseThrow();
+        assertTrue(dropped.isDropped());
+        assertTrue(dropped.isFailed());
+        assertEquals("Ran out of time", dropped.getReasonIfNotAchieved());
+        assertEquals(1, dropped.getMissedAttemptCount());
+        assertFalse(studyService.dropGoal(missed.getId(), "Overwrite reason"));
+        assertThrows(ValidationException.class,
+                () -> studyService.reopenDroppedGoal(missed.getId(), today.minusDays(1)));
+
+        assertTrue(studyService.reopenDroppedGoal(missed.getId(), today.plusDays(1)));
+        StudyGoal reopened = StudyGoal.findById(missed.getId()).orElseThrow();
+        assertFalse(reopened.isDropped());
+        assertFalse(reopened.isAbandonedExplicitly());
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, reopened.getAttemptOutcome());
+        assertEquals(today.plusDays(1), reopened.getDate());
+        assertEquals(missed.getDoneCriteria(), reopened.getDoneCriteria());
+        assertEquals(2, StudyGoal.findAll().size());
+        assertEquals(StudyGoal.AttemptOutcome.MISSED,
+                StudyGoal.findAllByDate(missed.getDate()).getFirst().getAttemptOutcome());
+        assertFalse(studyService.reopenDroppedGoal(missed.getId(), today));
+    }
+
+    @Test
+    void manuallyMissingAnAttemptAllowsASameDayRetryAndStaleActionsCannotFailThatRetry() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        StudyGoal goal = new StudyGoal("First try");
+        goal.setDate(today);
+        goal.save();
+        String originalAttempt = goal.getAttemptId();
+
+        assertTrue(studyService.markGoalAttemptMissed(goal.getId(), originalAttempt));
+        assertEquals(StudyGoal.GoalStatus.ACTIVE, StudyGoal.findById(goal.getId()).orElseThrow().getStatus());
+        assertEquals(List.of(goal.getId()), StudyGoal.findDelayedAndNotReplanned().stream().map(StudyGoal::getId).toList());
+        assertTrue(studyService.planGoalAttempt(goal.getId(), today));
+        assertFalse(studyService.markGoalAttemptMissed(goal.getId(), originalAttempt));
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, StudyGoal.findById(goal.getId()).orElseThrow().getAttemptOutcome());
+
+        StudyGoal future = new StudyGoal("Future try");
+        future.setDate(today.plusDays(1));
+        future.save();
+        assertFalse(studyService.markGoalAttemptMissed(future.getId(), future.getAttemptId()));
+        assertFalse(studyService.markGoalAttemptMissed(future.getId(), originalAttempt));
+    }
+
+    @Test
+    void dailyProgressIncludesManualMissesButExcludesDroppedAttempts() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        StudyGoal done = new StudyGoal("Done");
+        done.setDate(today);
+        done.setAchieved(true);
+        done.save();
+        StudyGoal missed = new StudyGoal("Missed");
+        missed.setDate(today);
+        missed.save();
+        StudyGoal dropped = new StudyGoal("Dropped");
+        dropped.setDate(today);
+        dropped.save();
+        assertTrue(studyService.markGoalAttemptMissed(missed.getId(), missed.getAttemptId()));
+        assertTrue(studyService.dropGoal(dropped.getId(), null));
+        assertEquals(50, studyService.calculateDailyProgress());
+    }
+
+    @Test
     void abandonedGoalCannotBeReplannedThroughServiceOrEntity() {
         StudyGoal abandoned = missedGoal("Abandoned retry guard", null, LocalDate.of(2026, 3, 24));
 
-        assertTrue(studyService.markGoalAsFailed(abandoned.getId()));
+        assertTrue(studyService.dropGoal(abandoned.getId(), null));
         Integer beforeAttempts = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM study_goal_attempts WHERE goal_id = ?
                 """, Integer.class, abandoned.getId());
@@ -342,7 +449,7 @@ class StudyServicePersistenceTest {
         goal.save();
         studyService.updateStudyGoalAchievement(goal.getId(), true, null);
 
-        assertFalse(studyService.markGoalAsFailed(goal.getId()));
+        assertFalse(studyService.dropGoal(goal.getId(), null));
 
         StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
         assertEquals(StudyGoal.GoalStatus.ACHIEVED, stored.getStatus());
@@ -376,7 +483,7 @@ class StudyServicePersistenceTest {
         StudyGoal achieved = missedGoal("Achieved requested task goal", "task-1", LocalDate.of(2026, 3, 27));
 
         assertTrue(StudyGoal.createReplanAttempt(alreadyReplanned.getId(), LocalDate.of(2026, 3, 28)));
-        assertTrue(studyService.markGoalAsFailed(abandoned.getId()));
+        assertTrue(studyService.dropGoal(abandoned.getId(), null));
         jdbcTemplate.update("""
                 UPDATE study_goal_attempts
                 SET outcome = 'ACHIEVED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -409,7 +516,7 @@ class StudyServicePersistenceTest {
         StudyGoal achieved = missedGoal("Unlinked achieved", null, LocalDate.of(2026, 3, 27));
 
         assertTrue(StudyGoal.createReplanAttempt(alreadyReplanned.getId(), LocalDate.of(2026, 3, 28)));
-        assertTrue(studyService.markGoalAsFailed(abandoned.getId()));
+        assertTrue(studyService.dropGoal(abandoned.getId(), null));
         jdbcTemplate.update("""
                 UPDATE study_goal_attempts
                 SET outcome = 'ACHIEVED', outcome_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -593,7 +700,7 @@ class StudyServicePersistenceTest {
         studyService.addStudyGoal("Already done", LocalDate.of(2026, 3, 28), "done-task");
         studyService.updateStudyGoalAchievement(StudyGoal.findByTaskId("done-task").getFirst().getId(), true, null);
         studyService.addStudyGoal("Dropped", LocalDate.of(2026, 3, 30), "abandoned-task");
-        assertTrue(studyService.markGoalAsFailed(StudyGoal.findByTaskId("abandoned-task").getFirst().getId()));
+        assertTrue(studyService.dropGoal(StudyGoal.findByTaskId("abandoned-task").getFirst().getId(), null));
 
         assertEquals(Set.of("today-task", "ahead-task"), studyService.getTaskIdsWithPlannedGoals());
     }
@@ -922,6 +1029,7 @@ class StudyServicePersistenceTest {
                     status VARCHAR(20) DEFAULT 'ACTIVE',
                     abandoned_explicitly BOOLEAN DEFAULT FALSE,
                     achieved_attempt_id VARCHAR(50),
+                    drop_reason TEXT,
                     done_criteria TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
