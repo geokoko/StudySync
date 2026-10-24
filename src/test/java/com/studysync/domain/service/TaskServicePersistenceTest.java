@@ -68,6 +68,7 @@ class TaskServicePersistenceTest {
                     start_date DATE,
                     recurrence_end_date DATE,
                     completed_at DATE,
+                    resume_on DATE,
                     remind_days_before INTEGER,
                     done_criteria TEXT,
                     parent_id VARCHAR(50) REFERENCES tasks(id),
@@ -540,16 +541,63 @@ class TaskServicePersistenceTest {
 
     @Test
     void markDelayedTasksResumesPostponedTasksWhoseDateArrived() {
-        savedTask("resume-today", TODAY, TaskStatus.POSTPONED);
-        savedTask("resume-missed", TODAY.minusDays(5), TaskStatus.POSTPONED);
-        savedTask("resume-later", TODAY.plusDays(5), TaskStatus.POSTPONED);
+        Task today = savedTask("resume-today", TODAY.plusDays(10), TaskStatus.POSTPONED);
+        today.setResumeOn(TODAY);
+        today.save();
+        Task missed = savedTask("resume-missed", TODAY.minusDays(5), TaskStatus.POSTPONED);
+        missed.setResumeOn(TODAY.minusDays(1));
+        missed.save();
+        Task later = savedTask("resume-later", TODAY.minusDays(5), TaskStatus.POSTPONED);
+        later.setResumeOn(TODAY.plusDays(5));
+        later.save();
+        Task noDeadline = savedTask("resume-without-deadline", null, TaskStatus.POSTPONED);
+        noDeadline.setResumeOn(TODAY.minusDays(1));
+        noDeadline.save();
+        savedTask("resume-manually", TODAY.minusDays(5), TaskStatus.POSTPONED);
 
         taskService.markDelayedTasks();
 
         assertEquals(TaskStatus.OPEN, Task.findById("resume-today").orElseThrow().getStatus());
-        // Missed its resume date entirely, so it falls through to the DELAYED sweep.
+        // Lateness follows the deadline, not the return date.
         assertEquals(TaskStatus.DELAYED, Task.findById("resume-missed").orElseThrow().getStatus());
         assertEquals(TaskStatus.POSTPONED, Task.findById("resume-later").orElseThrow().getStatus());
+        assertEquals(TaskStatus.OPEN, Task.findById("resume-without-deadline").orElseThrow().getStatus());
+        assertEquals(TaskStatus.POSTPONED, Task.findById("resume-manually").orElseThrow().getStatus());
+        assertNull(Task.findById("resume-today").orElseThrow().getResumeOn());
+    }
+
+    @Test
+    void explicitResumeDateCanBeChangedClearedAndPreservedDuringEditsWithoutChangingTheDeadline() {
+        Task task = savedTask("paused", TODAY.minusDays(4), TaskStatus.POSTPONED);
+        clearInvocations(googleDriveService);
+        taskService.setTaskResumeDate(task, TODAY.plusDays(3));
+        verify(googleDriveService).markLocalDbDirty();
+        assertEquals(TODAY.plusDays(3), Task.findById(task.getId()).orElseThrow().getResumeOn());
+        taskService.updateTask(task, new TaskUpdate("Edited title", null, null, null, null));
+        assertEquals(TODAY.plusDays(3), Task.findById(task.getId()).orElseThrow().getResumeOn());
+        assertEquals(TODAY.minusDays(4), Task.findById(task.getId()).orElseThrow().getDeadline());
+        assertTrue(TaskReschedule.findByTaskId(task.getId()).isEmpty());
+        assertThrows(ValidationException.class, () -> taskService.setTaskResumeDate(task, TODAY.minusDays(1)));
+        taskService.setTaskResumeDate(task, null);
+        taskService.markDelayedTasks();
+        assertNull(Task.findById(task.getId()).orElseThrow().getResumeOn());
+        assertEquals(TaskStatus.POSTPONED, Task.findById(task.getId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void resumingTodayIsImmediateAndLeavingPostponedClearsItsScheduledReturn() {
+        Task task = savedTask("paused", TODAY.minusDays(4), TaskStatus.POSTPONED);
+        taskService.setTaskResumeDate(task, TODAY);
+        assertEquals(TaskStatus.DELAYED, Task.findById(task.getId()).orElseThrow().getStatus());
+        assertNull(Task.findById(task.getId()).orElseThrow().getResumeOn());
+        assertThrows(ValidationException.class, () -> taskService.setTaskResumeDate(task, TODAY.plusDays(2)));
+
+        taskService.updateTaskStatus(task, TaskStatus.POSTPONED);
+        taskService.setTaskResumeDate(task, TODAY.plusDays(2));
+        taskService.updateTask(task, details(null, null, null, null, TaskStatus.COMPLETED));
+        assertNull(Task.findById(task.getId()).orElseThrow().getResumeOn());
+        taskService.updateTaskStatus(task, TaskStatus.POSTPONED);
+        assertNull(Task.findById(task.getId()).orElseThrow().getResumeOn());
     }
 
     @Test
@@ -748,9 +796,7 @@ class TaskServicePersistenceTest {
 
     @Test
     void postponedTasksDoNotFireReminders() {
-        // A postponed task's deadline is its resume date, so counting down to
-        // it would announce "due in N days" for something that is not due then
-        // — and drag it into a planner that excludes postponed work.
+        // A deadline reminder must not undo the user's deliberate pause.
         Task postponed = savedTask("postponed-reminder", TODAY.plusDays(2), TaskStatus.POSTPONED);
         postponed.setRemindDaysBefore(7);
         postponed.save();

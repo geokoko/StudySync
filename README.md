@@ -39,6 +39,7 @@ StudySync provides comprehensive academic management with three main modules:
 
 ## 📋 Task Management Features
 * **Task Management**: Create, edit, and delete tasks with rich attributes (title, description, category, priority, deadline, status, recurring schedule)
+* **Postponed work**: Postponed tasks stay paused across restarts, regardless of their deadline. Use **Set resume date** to schedule their return. Clearing the resume date keeps the task paused; change the task’s status to resume it manually. The due date stays separate. Existing postponed tasks have no automatic return date until you explicitly choose one.
 * **Recurring Tasks**: Give any task its own repeating schedule and optional "repeat until" date, separate from its deadline. Parents and subtasks can each be one-off or recurring; schedules are never inherited. Completing a recurring task permanently ends its future occurrences; handling one occurrence through a goal does not.
 * **Subtasks**: Use **Add subtask** on a task, or choose a parent in the edit form. One level of nesting is supported. Progress counts completed subtasks, ignoring cancelled ones. Parents and subtasks follow their own dates in the planner and calendar.
 * **Estimates**: Enter optional estimated hours per task. A parent shows its subtasks' total (ignoring cancelled ones) alongside its own budget, for example **Estimate: 12 h from subtasks · 40 h planned**. The two figures stay independent.

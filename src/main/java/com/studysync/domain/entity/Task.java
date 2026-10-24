@@ -95,6 +95,9 @@ public class Task {
      */
     private LocalDate completedAt;
 
+    /** Explicit return date for postponed work; null means resume manually. Never inferred from the deadline. */
+    private LocalDate resumeOn;
+
     /**
      * How many days before the deadline this task starts reminding, or NULL for
      * no reminder. The reminder date itself is derived from the deadline rather
@@ -182,6 +185,9 @@ public class Task {
 
     public void updateStatus(TaskStatus newStatus) {
         this.status = newStatus;
+        if (newStatus != TaskStatus.POSTPONED) {
+            this.resumeOn = null;
+        }
         // Completion date follows the status, so no caller has to remember to
         // maintain it. Re-completing keeps the original date.
         if (newStatus == TaskStatus.COMPLETED) {
@@ -260,12 +266,23 @@ public class Task {
         this.deadline = deadline;
     }
 
+    public LocalDate getResumeOn() {
+        return resumeOn;
+    }
+
+    public void setResumeOn(final LocalDate resumeOn) {
+        this.resumeOn = resumeOn;
+    }
+
     public TaskStatus getStatus() {
         return status;
     }
 
     public void setStatus(TaskStatus status) {
         this.status = status;
+        if (status != TaskStatus.POSTPONED) {
+            this.resumeOn = null;
+        }
     }
 
     public int getPoints() {
@@ -448,11 +465,7 @@ public class Task {
      * @return {@code true} when the task should show a reminder
      */
     public boolean isReminderDue(LocalDate today) {
-        // POSTPONED is excluded along with the resolved states: a postponed
-        // task's deadline is its resume date, not a due date, so counting down
-        // to it would announce "due in N days" for something that is not due
-        // then - and would drag it back into a planner that deliberately
-        // leaves postponed work out.
+        // Reminders must not surface work the user deliberately paused.
         if (today == null || status == TaskStatus.COMPLETED
                 || status == TaskStatus.CANCELLED || status == TaskStatus.POSTPONED) {
             return false;
@@ -534,8 +547,8 @@ public class Task {
         String sql = """
             MERGE INTO tasks (id, title, description, category, priority, deadline, status, points,
                               recurring_pattern, start_date, recurrence_end_date, completed_at,
-                              remind_days_before, done_criteria, parent_id, estimated_hours, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              remind_days_before, done_criteria, parent_id, estimated_hours, notes, resume_on)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
         jdbcTemplate.update(sql,
@@ -555,7 +568,8 @@ public class Task {
             this.doneCriteria,
             this.parentId,
             this.estimatedHours,
-            this.notes
+            this.notes,
+            this.resumeOn
         );
         
         logger.debug("Task saved: {} - {}", id, this.title);
@@ -751,10 +765,11 @@ public class Task {
         String sql = """
             UPDATE tasks
             SET status = ?,
-                completed_at = CASE WHEN ? = 'COMPLETED' THEN COALESCE(completed_at, CURRENT_DATE) ELSE NULL END
+                completed_at = CASE WHEN ? = 'COMPLETED' THEN COALESCE(completed_at, CURRENT_DATE) ELSE NULL END,
+                resume_on = CASE WHEN ? = 'POSTPONED' THEN resume_on ELSE NULL END
             WHERE id = ?
             """;
-        return jdbcTemplate.update(sql, status.name(), status.name(), taskId) > 0;
+        return jdbcTemplate.update(sql, status.name(), status.name(), status.name(), taskId) > 0;
     }
 
     /**
@@ -869,6 +884,7 @@ public class Task {
                 rs.getObject("recurrence_end_date", LocalDate.class)
             );
             task.completedAt = rs.getObject("completed_at", LocalDate.class);
+            task.resumeOn = rs.getObject("resume_on", LocalDate.class);
             task.remindDaysBefore = rs.getObject("remind_days_before", Integer.class);
             task.doneCriteria = rs.getString("done_criteria");
             task.parentId = rs.getString("parent_id");
