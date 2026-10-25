@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -286,6 +287,87 @@ class StudyPlannerPanelTest {
                 assertTrue(labelTexts(fixture.modal).contains("Add goal for: Parent / Subtask"));
                 assertNotNull(button(fixture.modal, "Add Goal"));
                 verify(fixture.study, never()).addStudyGoal(anyString(), any(), any(), any());
+            }
+        });
+    }
+
+    @Test
+    void retryDialogStaysOpenAcrossActionsUntilDone() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                fixture.child.setDeadline(TODAY.plusDays(5));
+                fixture.goal.setDate(TODAY.minusDays(2));
+                fixture.goal.setFailed(true);
+                StudyGoal second = fixture.goal("Write summary", fixture.child, TODAY.minusDays(1));
+                second.setFailed(true);
+                List<StudyGoal> retries = new ArrayList<>(List.of(fixture.goal, second));
+                fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned)
+                        .thenAnswer(invocation -> List.copyOf(retries));
+                when(fixture.study.replanGoalForToday(fixture.goal.getId())).thenAnswer(invocation -> {
+                    retries.remove(fixture.goal);
+                    return true;
+                });
+                StudyPlannerPanel panel = fixture.panel();
+                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+
+                button(fixture.modal, "Plan retry today").fire();
+                verify(fixture.study).replanGoalForToday(fixture.goal.getId());
+                assertTrue(labelTexts(fixture.modal).contains("Planned \u201CRead chapter\u201D for today."));
+                assertFalse(labelTexts(fixture.modal).contains("Read chapter"));
+                assertTrue(labelTexts(fixture.modal).contains("Write summary"));
+
+                button(fixture.modal, "Edit").fire();
+                assertTrue(labelTexts(fixture.modal).contains("Edit goal"));
+                button(fixture.modal, "Cancel").fire();
+                assertTrue(labelTexts(fixture.modal).contains("Plan retry: Parent / Subtask"));
+                button(fixture.modal, "Edit").fire();
+                button(fixture.modal, "Save").fire();
+                verify(fixture.study).updateStudyGoalDetails(eq(second.getId()), eq("Write summary"), any(), any());
+                assertTrue(labelTexts(fixture.modal).contains("Goal saved."));
+
+                button(fixture.modal, "+ New goal").fire();
+                nodes(fixture.modal).stream().filter(TextArea.class::isInstance).map(TextArea.class::cast)
+                        .findFirst().orElseThrow().setText("Outline answers");
+                button(fixture.modal, "Add Goal").fire();
+                verify(fixture.study).addStudyGoal(eq("Outline answers"), eq(TODAY), eq(fixture.child.getId()), any());
+                assertTrue(labelTexts(fixture.modal).contains("Added a new goal."));
+                assertTrue(labelTexts(fixture.modal).contains("Write summary"));
+
+                // A goal that changed elsewhere reports in the dialog and leaves the refreshed list.
+                when(fixture.study.replanGoalForToday(second.getId())).thenAnswer(invocation -> {
+                    retries.remove(second);
+                    return false;
+                });
+                button(fixture.modal, "Plan retry today").fire();
+                assertTrue(labelTexts(fixture.modal).contains(
+                        "This goal is no longer ready to retry. The list has been updated."));
+                assertTrue(labelTexts(fixture.modal).contains("No missed goals left to retry."));
+
+                button(fixture.modal, "Done").fire();
+                assertNull(fixture.modal);
+            }
+        });
+    }
+
+    @Test
+    void standaloneGoalDialogsStillCloseAfterSaving() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                StudyPlannerPanel panel = fixture.panel();
+                button(panel, "+ Add goal").fire();
+                nodes(fixture.modal).stream().filter(TextArea.class::isInstance).map(TextArea.class::cast)
+                        .findFirst().orElseThrow().setText("Skim chapter two");
+                button(fixture.modal, "Add Goal").fire();
+                verify(fixture.study).addStudyGoal(eq("Skim chapter two"), eq(TODAY), any(), any());
+                assertNull(fixture.modal);
+
+                button(panel, "Edit").fire();
+                button(fixture.modal, "Save").fire();
+                verify(fixture.study).updateStudyGoalDetails(eq(fixture.goal.getId()), eq("Read chapter"),
+                        any(), any());
+                assertNull(fixture.modal);
             }
         });
     }

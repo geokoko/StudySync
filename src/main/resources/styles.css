@@ -590,6 +590,15 @@
     -fx-background-radius: 4;
 }
 
+/* Modena pads a menu button's label and arrow too; drop it so small menus match small buttons. */
+.menu-button.btn-small > .label {
+    -fx-padding: 0;
+}
+
+.menu-button.btn-small > .arrow-button {
+    -fx-padding: 0 0 0 6;
+}
+
 .planner-view-toggle {
     -fx-background-color: #ecf0f1;
     -fx-text-fill: #2c3e50;
@@ -760,6 +769,15 @@
 .planner-goal-row {
     -fx-padding: 8 10 8 10;
     -fx-background-radius: 6;
+}
+
+/* A missed goal waiting for a retry (TaskStyleUtils.retryBackgroundColor) */
+.planner-retry-row {
+    -fx-background-color: #fff3e0;
+    -fx-background-radius: 6;
+    -fx-border-color: #f8d1a8;
+    -fx-border-radius: 6;
+    -fx-padding: 8 10 8 10;
 }
 
 /* Planning tiles (Needs a plan): size comes from their TilePane */
