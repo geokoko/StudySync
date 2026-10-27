@@ -324,22 +324,49 @@ public class StudyService {
                 : StudyGoal.criteriaFromLines(doneCriteriaLines, goal.getDoneCriteria());
         boolean updated = StudyGoal.updateDetails(goalId, description, pendingPlannedForDate, doneCriteria);
         if (updated) {
+            if (doneCriteriaLines != null) {
+                reconcileAchievementWithChecklist(goal, StudyGoal.parseCriteria(doneCriteria));
+            }
             markDirtyAndSaveLocally("study goal details update");
         }
         return updated;
     }
 
     /**
+     * Keeps "achieved exactly when the checklist is complete" after a checklist edit. A pending goal
+     * whose remaining open lines were removed is achieved; an achieved goal that gained an open line
+     * reopens. An achieved attempt from an earlier day is history: reopening it would leave a pending
+     * attempt in the past that the next refresh sweeps to missed, so its lines are ticked instead.
+     * Missed and dropped goals are left alone.
+     */
+    private void reconcileAchievementWithChecklist(StudyGoal goal, List<StudyGoal.Criterion> criteria) {
+        if (criteria.isEmpty() || goal.isDropped() || goal.isDroppedAttempt()
+                || goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED) {
+            return;
+        }
+        boolean complete = criteria.stream().allMatch(StudyGoal.Criterion::done);
+        if (complete && !goal.isAchieved()) {
+            applyAchievement(goal.getId(), true, null);
+        } else if (!complete && goal.isAchieved()) {
+            if (goal.getDate() != null && goal.getDate().isBefore(dateTimeService.getCurrentDate())) {
+                StudyGoal.setAllCriteriaDone(goal.getId(), true);
+            } else {
+                applyAchievement(goal.getId(), false, null);
+            }
+        }
+    }
+
+    /**
      * Ticks or unticks one line of a goal's checklist. Ticking the last open
      * line achieves the current attempt; unticking any line on an achieved
-     * goal reopens it, with exactly the semantics of the achieved checkbox.
-     * Ticking a line never reopens anything: a goal achieved by hand with
-     * open criteria stays achieved while the remaining lines are filled in.
-     * An unknown goal or index changes nothing, achievement included.
+     * goal reopens it and keeps the other ticks. Ticking a line never reopens
+     * anything. A missed or dropped goal, or an unknown goal or index, changes
+     * nothing; a retry continues from the ticks the missed attempt left.
      */
     public void setGoalCriterionDone(String goalId, int index, boolean done) {
         Optional<StudyGoal> goal = StudyGoal.findById(goalId);
-        if (goal.isEmpty() || goal.get().isDropped() || goal.get().isDroppedAttempt()) {
+        if (goal.isEmpty() || goal.get().isDropped() || goal.get().isDroppedAttempt()
+                || goal.get().getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED) {
             return;
         }
         Optional<List<StudyGoal.Criterion>> changed = StudyGoal.setCriterionDone(goalId, index, done);
@@ -355,8 +382,15 @@ public class StudyService {
         markDirtyAndSaveLocally("study goal criterion update");
     }
 
+    /**
+     * The goal checkbox. Its checklist mirrors it: achieving ticks every line
+     * and reopening clears them, so a goal is achieved exactly when its
+     * checklist is complete. A goal that cannot change (dropped, missed,
+     * not achieved) keeps its ticks.
+     */
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
         if (applyAchievement(goalId, achieved, reasonIfNot)) {
+            StudyGoal.setAllCriteriaDone(goalId, achieved);
             markDirtyAndSaveLocally("study goal achievement update");
         }
     }

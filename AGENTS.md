@@ -186,10 +186,17 @@ Syncs the whole H2 file. OAuth client credentials live in
   (not the attempt) so a retry continues from earlier ticks. Only
   `StudyGoal.parseCriteria` / `serializeCriteria` know its `[x] ` / `[ ] `
   line format.
-- Ticking the last criterion achieves the current attempt through the same path
-  as the checkbox (`StudyService.setGoalCriterionDone`); unticking one reopens
-  an achieved goal. The checkbox also works alone, so a goal can be achieved
-  with criteria open or with no checklist. There is no partial credit.
+- The checkbox and the checklist mirror each other, so a goal with a checklist
+  is achieved exactly when every line is ticked. Ticking the last criterion
+  achieves the current attempt and unticking one reopens it, keeping the other
+  ticks (`StudyService.setGoalCriterionDone`). Ticking the checkbox ticks every
+  line and unticking it clears them (`updateStudyGoalAchievement`); a goal it
+  cannot change keeps its ticks. A checklist edit re-applies the rule, except
+  that an earlier day's achieved goal stays achieved with its lines ticked
+  (reopening would leave a past pending attempt that is swept to missed). A
+  missed or dropped attempt can be neither achieved nor ticked; a retry
+  continues from its ticks. A goal without a checklist uses the checkbox alone.
+  There is no partial credit.
 - Goal forms reuse `GoalEditFields` and `TaskStyleUtils.criteriaArea` /
   `CRITERIA_LABEL` / `criteriaChecklist` / `criteriaProgress`. A task's
   `done_criteria` is plain text, not a checklist.

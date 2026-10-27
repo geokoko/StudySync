@@ -14,6 +14,7 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
@@ -84,10 +85,44 @@ class StudyPlannerPanelTest {
                 assertTrue(bar.isVisible());
                 List<String> labels = nodes(panel).stream().filter(Label.class::isInstance)
                         .map(Label.class::cast).map(Label::getText).toList();
-                assertTrue(labels.contains("Parent / Subtask"));
-                assertTrue(labels.contains("Unlinked goal"));
-                assertTrue(labels.indexOf("Unlinked goal") < labels.indexOf("Finished chapter"));
+                // Grouped by task by default: a task's goals stay under its heading, not in each title.
+                assertTrue(labels.indexOf("Parent / Subtask") < labels.indexOf("Read chapter"));
+                assertTrue(labels.indexOf("Read chapter") < labels.indexOf("Finished chapter"));
+                assertTrue(labels.indexOf("Finished chapter") < labels.indexOf("No task"));
+                assertTrue(labels.indexOf("No task") < labels.indexOf("Unlinked goal"));
+                assertFalse(labels.contains("Task: Parent / Subtask"));
                 assertNotNull(button(panel, "+ Add goal"));
+            }
+        });
+    }
+
+    @Test
+    void goalsCanBeRegroupedByStatusOrShownUngroupedWithTheirTaskUnderTheTitle() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                StudyGoal achieved = fixture.goal("Finished chapter", fixture.child, TODAY);
+                achieved.setAchieved(true);
+                fixture.attempts.add(fixture.goal("Unlinked goal", null, TODAY));
+                fixture.attempts.add(achieved);
+                StudyPlannerPanel panel = fixture.panel();
+                ComboBox<?> group = nodes(panel).stream().filter(ComboBox.class::isInstance)
+                        .map(node -> (ComboBox<?>) node)
+                        .filter(combo -> "Group goals by".equals(combo.getAccessibleText())).findFirst().orElseThrow();
+
+                group.getSelectionModel().select(1);
+                List<String> labels = labelTexts(goalsCard(panel));
+                assertEquals(GoalListAgenda.Group.STATUS, group.getValue());
+                assertTrue(labels.indexOf("Pending") < labels.indexOf("Read chapter"));
+                assertTrue(labels.indexOf("Unlinked goal") < labels.indexOf("Done"));
+                assertTrue(labels.indexOf("Done") < labels.indexOf("Finished chapter"));
+                assertTrue(labels.contains("Task: Parent / Subtask"));
+
+                group.getSelectionModel().select(2);
+                labels = labelTexts(goalsCard(panel));
+                assertFalse(labels.contains("Pending"));
+                assertFalse(labels.contains("No task"));
+                assertTrue(labels.indexOf("Unlinked goal") < labels.indexOf("Finished chapter"));
+                assertTrue(labels.contains("Task: Parent / Subtask"));
             }
         });
     }
@@ -373,6 +408,33 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void retryButtonsKeepTheirFullLabelsInANarrowDialog() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                fixture.child.setDeadline(TODAY.plusDays(5));
+                fixture.goal.setDate(TODAY.minusDays(1));
+                fixture.goal.setFailed(true);
+                fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
+                StudyPlannerPanel panel = fixture.panel();
+                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+                Scene scene = new Scene(new javafx.scene.layout.StackPane(fixture.modal), 300, 600);
+                scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+                scene.getRoot().applyCss();
+                scene.getRoot().layout();
+
+                List<javafx.scene.control.Labeled> actions = nodes(fixture.modal).stream()
+                        .filter(node -> node instanceof Button || node instanceof MenuButton)
+                        .map(javafx.scene.control.Labeled.class::cast).filter(Node::isManaged).toList();
+                assertTrue(actions.stream().anyMatch(action -> "Plan retry today".equals(action.getText())));
+                actions.forEach(action -> assertTrue(action.getWidth() >= action.prefWidth(-1) - 0.5,
+                        action.getText() + " is narrower than its label"));
+            }
+        });
+    }
+
+    @Test
     void retryRowsKeepTheirGoalIdentityInsteadOfCreatingAnotherGoal() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {
@@ -482,6 +544,12 @@ class StudyPlannerPanelTest {
     private static Button button(Node root, String text) {
         return nodes(root).stream().filter(Button.class::isInstance).map(Button.class::cast)
                 .filter(button -> text.equals(button.getText())).findFirst().orElseThrow();
+    }
+
+    /** The goals card alone: the attempt overview above it also has Pending and Done labels. */
+    private static Node goalsCard(Node panel) {
+        return nodes(panel).stream().filter(node -> node.getStyleClass().contains("planner-goals"))
+                .findFirst().orElseThrow();
     }
 
     private static List<String> labelTexts(Node root) {

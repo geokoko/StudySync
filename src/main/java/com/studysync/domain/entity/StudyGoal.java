@@ -837,13 +837,35 @@ public class StudyGoal {
         return Optional.of(criteria);
     }
 
+    /** Ticks or clears every checklist line of the parent goal; a goal without a checklist is left alone. */
+    public static void setAllCriteriaDone(String goalId, boolean done) {
+        if (jdbcTemplate == null || goalId == null || goalId.isBlank()) {
+            return;
+        }
+        String stored = jdbcTemplate.query("""
+            SELECT done_criteria FROM study_goals WHERE id = ?
+            """, rs -> rs.next() ? rs.getString("done_criteria") : null, goalId);
+        List<Criterion> criteria = parseCriteria(stored);
+        if (criteria.isEmpty() || criteria.stream().allMatch(criterion -> criterion.done() == done)) {
+            return;
+        }
+        jdbcTemplate.update("""
+            UPDATE study_goals
+            SET done_criteria = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, serializeCriteria(criteria.stream().map(criterion -> new Criterion(criterion.text(), done))
+                .toList()), goalId);
+    }
+
     public static boolean markCurrentAttemptAchieved(String goalId, String reasonIfNot) {
         Optional<StudyGoal> goalOpt = findById(goalId);
         if (goalOpt.isEmpty()) {
             return false;
         }
         StudyGoal goal = goalOpt.get();
-        if (goal.attemptId == null || goal.isDropped() || goal.isDroppedAttempt()) {
+        // A missed attempt is history; achieving the goal means planning a retry first.
+        if (goal.attemptId == null || goal.isDropped() || goal.isDroppedAttempt()
+                || goal.attemptOutcome == AttemptOutcome.MISSED) {
             return false;
         }
         jdbcTemplate.update("""

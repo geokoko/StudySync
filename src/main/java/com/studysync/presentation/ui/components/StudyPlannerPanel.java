@@ -67,6 +67,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
     // Sort / group state for the tasks section
     private String currentSort = "Status";
     private String currentGroup = "None";
+    private GoalListAgenda.Group goalGroup = GoalListAgenda.Group.TASK;
+    private GoalListAgenda.Sort goalSort = GoalListAgenda.Sort.STATUS;
     private PlannerTaskView currentTaskView = PlannerTaskView.TODAY;
 
     // UI containers that get rebuilt on navigation
@@ -162,9 +164,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         HBox.setHgrow(goalsHeaderSpacer, Priority.ALWAYS);
         HBox goalsHeader = new HBox(10, goalsTitle, goalsHeaderSpacer, addGoal);
         goalsHeader.setAlignment(Pos.CENTER_LEFT);
-        goalsContainer = new VBox(8);
+        goalsContainer = new VBox(16);
         unlinkedRetriesContainer = new VBox(8);
-        goals.getChildren().addAll(goalsHeader, goalsContainer, unlinkedRetriesContainer);
+        goals.getChildren().addAll(goalsHeader, createGoalListToolbar(), goalsContainer, unlinkedRetriesContainer);
         installPlanningDropTarget(goals);
 
         VBox sidebar = new VBox(20);
@@ -316,6 +318,36 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         mainContent.getChildren().add(browse);
     }
 
+    /** Group and sort controls for the goal list; the rules are in {@link GoalListAgenda}. */
+    private FlowPane createGoalListToolbar() {
+        Label groupLabel = new Label("Group:");
+        TaskStyleUtils.fontBold(groupLabel, 12);
+        ComboBox<GoalListAgenda.Group> groupCombo = new ComboBox<>();
+        groupCombo.getItems().addAll(GoalListAgenda.Group.values());
+        groupCombo.setValue(goalGroup);
+        groupCombo.setAccessibleText("Group goals by");
+        groupCombo.valueProperty().addListener((obs, old, value) -> {
+            goalGroup = value;
+            updateTasksDisplay();
+        });
+
+        Label sortLabel = new Label("Sort:");
+        TaskStyleUtils.fontBold(sortLabel, 12);
+        ComboBox<GoalListAgenda.Sort> sortCombo = new ComboBox<>();
+        sortCombo.getItems().addAll(GoalListAgenda.Sort.values());
+        sortCombo.setValue(goalSort);
+        sortCombo.setAccessibleText("Sort goals by");
+        sortCombo.valueProperty().addListener((obs, old, value) -> {
+            goalSort = value;
+            updateTasksDisplay();
+        });
+
+        FlowPane toolbar = new FlowPane(8, 6, groupLabel, groupCombo, sortLabel, sortCombo);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        FlowPane.setMargin(sortLabel, new Insets(0, 0, 0, 8));
+        return toolbar;
+    }
+
     private void createSessionBar() {
         // An HBox, not a FlowPane: a FlowPane is at least as wide as its widest child's
         // preferred width, so a long goal name would set the whole planner's minimum width.
@@ -432,15 +464,24 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         goalsTitle.setText(displayDate.equals(dateTimeService.getCurrentDate()) ? "Today's Goals" : "Goals");
         goalsContainer.getChildren().clear();
         goalSessionButtons.clear();
-        displayDateAttempts.stream().filter(goal -> !goal.isDropped() && !goal.isDroppedAttempt())
-                .sorted(Comparator.comparingInt(goal ->
-                goal.isFailed() ? 2 : goal.isAchieved() ? 1 : 0)).forEach(goal ->
-                goalsContainer.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()))));
+        List<StudyGoal> active = displayDateAttempts.stream()
+                .filter(goal -> !goal.isDropped() && !goal.isDroppedAttempt()).toList();
+        boolean byTask = goalGroup == GoalListAgenda.Group.TASK;
+        GoalListAgenda.build(active, tasksById, goalGroup, goalSort).forEach(section -> {
+            VBox group = new VBox(8);
+            if (section.title() != null) {
+                group.getChildren().add(goalGroupHeader(section));
+            }
+            section.goals().forEach(goal ->
+                    group.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()), !byTask)));
+            goalsContainer.getChildren().add(group);
+        });
         List<StudyGoal> dropped = displayDateAttempts.stream()
                 .filter(goal -> goal.isDropped() || goal.isDroppedAttempt()).toList();
         if (!dropped.isEmpty()) {
             VBox history = new VBox(8);
-            dropped.forEach(goal -> history.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()))));
+            dropped.forEach(goal ->
+                    history.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()), true)));
             TitledPane section = new TitledPane("Dropped (" + dropped.size() + ")", history);
             section.setExpanded(false);
             goalsContainer.getChildren().add(section);
@@ -957,7 +998,28 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         return summary + TaskStyleUtils.criteriaProgress(goal.getCriteria());
     }
 
-    private HBox buildGoalRow(StudyGoal goal, Task linkedTask) {
+    /** A group heading in the goal list: the task, or the status, with its goal count. */
+    private HBox goalGroupHeader(GoalListAgenda.Section section) {
+        Label title = new Label(section.title());
+        title.setWrapText(true);
+        title.setMinWidth(0);
+        TaskStyleUtils.fontBold(title, 14);
+        int total = section.goals().size();
+        String count = total + (total == 1 ? " goal" : " goals");
+        if (goalGroup != GoalListAgenda.Group.STATUS) {
+            count += " \u00B7 " + section.goals().stream().filter(StudyGoal::isAchieved).count() + " done";
+        }
+        Label countLabel = mutedLabel(count);
+        countLabel.setWrapText(false);
+        countLabel.setMinWidth(Region.USE_PREF_SIZE);
+        HBox header = new HBox(8, title, countLabel);
+        header.setAlignment(Pos.BASELINE_LEFT);
+        header.getStyleClass().add("planner-goal-group-header");
+        return header;
+    }
+
+    /** {@code showTask} names the goal's task under its title; off when a task heading already does. */
+    private HBox buildGoalRow(StudyGoal goal, Task linkedTask, boolean showTask) {
         HBox row = new HBox(10);
         row.setAlignment(Pos.TOP_LEFT);
         row.getStyleClass().add("planner-goal-row");
@@ -986,8 +1048,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             updateTasksDisplay();
         });
 
-        // Title and actions share the first line; the goal, checklist and attempt sit under the title.
-        Label title = new Label(linkedTask != null ? taskTitle(linkedTask) : goal.getDescription());
+        // The goal and its actions share the first line; its task, checklist and attempt sit under it.
+        Label title = new Label(goal.getDescription());
         title.setWrapText(true);
         title.setMinWidth(0);
         title.setMaxWidth(Double.MAX_VALUE);
@@ -1012,14 +1074,10 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
 
         VBox textBox = new VBox(4, titleLine);
         textBox.setMinWidth(0);
-        if (linkedTask != null) {
-            Label goalLabel = new Label(goal.getDescription());
-            goalLabel.setWrapText(true);
-            if (goal.isAchieved() || missed) {
-                TaskStyleUtils.textColor(goalLabel, TaskStyleUtils.COLOR_MUTED);
-            }
-            TaskStyleUtils.fontNormal(goalLabel, 12);
-            textBox.getChildren().add(goalLabel);
+        if (showTask && linkedTask != null) {
+            Label taskLabel = mutedLabel("Task: " + taskTitle(linkedTask));
+            taskLabel.setMinWidth(0);
+            textBox.getChildren().add(taskLabel);
         }
         if (!goal.getCriteria().isEmpty()) {
             textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(),

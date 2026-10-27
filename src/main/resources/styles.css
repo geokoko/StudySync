@@ -771,6 +771,12 @@
     -fx-background-radius: 6;
 }
 
+/* A heading in the goal list when it is grouped by task or status */
+.planner-goal-group-header {
+    -fx-padding: 0 2 4 2;
+    -fx-border-color: transparent transparent #e5e8eb transparent;
+}
+
 /* A missed goal waiting for a retry (TaskStyleUtils.retryBackgroundColor) */
 .planner-retry-row {
     -fx-background-color: #fff3e0;
