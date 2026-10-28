@@ -14,6 +14,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -756,6 +758,92 @@ class StudyServicePersistenceTest {
         assertEquals(2, StudyGoal.findById(goal.getId()).orElseThrow().getCriteria().size());
         assertTrue(studyService.updateStudyGoalDetails(goal.getId(), "Renamed", LocalDate.of(2026, 3, 28), "  "));
         assertTrue(StudyGoal.findById(goal.getId()).orElseThrow().getCriteria().isEmpty());
+    }
+
+    @Test
+    void creatingAFullyTickedChecklistAchievesTheGoal() {
+        studyService.addStudyGoal("Already read", LocalDate.of(2026, 3, 28), null, "[x] Read\n[x] Notes");
+
+        StudyGoal stored = studyService.getTodayGoals().getFirst();
+        assertTrue(stored.isAchieved());
+        assertEquals(StudyGoal.GoalStatus.ACHIEVED, stored.getStatus());
+        assertEquals(StudyGoal.AttemptOutcome.ACHIEVED, stored.getAttemptOutcome());
+        assertTrue(stored.getCriteria().stream().allMatch(StudyGoal.Criterion::done));
+        verify(googleDriveService).markLocalDbDirty();
+        verify(googleDriveService).saveLocally();
+    }
+
+    @Test
+    void detailsEditsPreserveTicksOnMissedAndDroppedGoals() {
+        for (boolean dropped : List.of(false, true)) {
+            StudyGoal goal = new StudyGoal("Locked checklist");
+            goal.setDate(LocalDate.of(2026, 3, 28));
+            goal.setDoneCriteria("[ ] Lap\n[x] Lap\n[x] Notes");
+            goal.save();
+            if (dropped) {
+                assertTrue(studyService.dropGoal(goal.getId(), "Keep history"));
+            } else {
+                assertTrue(studyService.markGoalAttemptMissed(goal.getId(), goal.getAttemptId()));
+            }
+
+            assertTrue(studyService.updateStudyGoalDetails(goal.getId(), "Edited description", null,
+                    "[x] Lap\nLap\nNotes\n[x] New criterion"));
+
+            StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
+            assertEquals("Edited description", stored.getDescription());
+            assertEquals(dropped ? StudyGoal.AttemptOutcome.DROPPED : StudyGoal.AttemptOutcome.MISSED,
+                    stored.getAttemptOutcome());
+            assertEquals(List.of(new StudyGoal.Criterion("Lap", false), new StudyGoal.Criterion("Lap", true),
+                    new StudyGoal.Criterion("Notes", true), new StudyGoal.Criterion("New criterion", false)),
+                    stored.getCriteria());
+            assertFalse(stored.isAchieved());
+        }
+    }
+
+    @Test
+    void achievedChecklistNormalizationIsIdempotentAndDoesNotFlagLocalEdits() {
+        StudyGoal achieved = new StudyGoal("Legacy achievement");
+        achieved.setDate(LocalDate.of(2026, 3, 27));
+        achieved.setDoneCriteria("[ ] Read\n[x] Notes\n[ ] Read");
+        achieved.setAchieved(true);
+        achieved.save();
+        StudyGoal pending = new StudyGoal("Pending");
+        pending.setDate(LocalDate.of(2026, 3, 28));
+        pending.setDoneCriteria("[x] Read\n[ ] Notes");
+        pending.save();
+        StudyGoal missed = missedGoal("Missed", null, LocalDate.of(2026, 3, 27));
+        jdbcTemplate.update("UPDATE study_goals SET done_criteria = ? WHERE id = ?", "[ ] Read", missed.getId());
+        StudyGoal dropped = new StudyGoal("Dropped");
+        dropped.setDate(LocalDate.of(2026, 3, 28));
+        dropped.setDoneCriteria("[ ] Read");
+        dropped.save();
+        studyService.dropGoal(dropped.getId(), null);
+        LocalDateTime outcomeAt = StudyGoal.findById(achieved.getId()).orElseThrow().getOutcomeAt();
+        reset(googleDriveService);
+        when(googleDriveService.saveLocally()).thenReturn(true);
+
+        TransactionTemplate transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        transaction.executeWithoutResult(status -> {
+            assertEquals(1, studyService.normalizeAchievedGoalChecklists());
+            verify(googleDriveService, never()).saveLocally();
+            verify(googleDriveService, never()).markLocalDbDirty();
+        });
+
+        StudyGoal stored = StudyGoal.findById(achieved.getId()).orElseThrow();
+        assertTrue(stored.getCriteria().stream().allMatch(StudyGoal.Criterion::done));
+        assertEquals(achieved.getAttemptId(), stored.getAttemptId());
+        assertEquals(StudyGoal.AttemptOutcome.ACHIEVED, stored.getAttemptOutcome());
+        assertEquals(outcomeAt, stored.getOutcomeAt());
+        assertEquals(pending.getDoneCriteria(), StudyGoal.findById(pending.getId()).orElseThrow().getDoneCriteria());
+        assertEquals("[ ] Read", StudyGoal.findById(missed.getId()).orElseThrow().getDoneCriteria());
+        assertEquals(dropped.getDoneCriteria(), StudyGoal.findById(dropped.getId()).orElseThrow().getDoneCriteria());
+        verify(googleDriveService).saveLocally();
+        verify(googleDriveService, never()).markLocalDbDirty();
+
+        reset(googleDriveService);
+        assertEquals(0, studyService.normalizeAchievedGoalChecklists());
+        verify(googleDriveService, never()).saveLocally();
+        verify(googleDriveService, never()).markLocalDbDirty();
     }
 
     @Test

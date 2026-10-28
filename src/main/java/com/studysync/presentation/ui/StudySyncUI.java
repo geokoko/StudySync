@@ -368,6 +368,7 @@ public class StudySyncUI {
 
     private void processDelayedGoalsOnStartup() {
         try {
+            studyService.normalizeAchievedGoalChecklists();
             StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
             if (result.missedAttempts() > 0) {
                 logger.info("Marked {} overdue study goal attempt(s) as missed", result.missedAttempts());

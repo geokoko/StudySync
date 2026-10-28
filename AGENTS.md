@@ -73,13 +73,14 @@ Syncs the whole H2 file. OAuth client credentials live in
   `bootstrap/PendingDownloadApplier` swaps it in at the next launch, before
   Spring opens H2. There is no live reload, and nothing is downloaded
   automatically at startup.
-- Startup maintenance (marking delayed tasks, sweeping overdue goal attempts)
+- Startup maintenance (marking delayed tasks, sweeping overdue goal attempts,
+  normalizing achieved goal checklists)
   is derived data every machine recomputes, so it must not set the dirty flag:
   otherwise merely opening the app looks like unsaved edits and raises a false
   sync conflict. `StudySyncUI.runStartupMaintenance` wraps it in
   `GoogleDriveService.runStartupMaintenanceWithoutDirtyTracking`, and the goal
-  sweep saves through `StudyService.saveLocallyWithoutDirtyFlag` (its javadoc
-  says why the wrapper alone is not enough). It runs only once the startup
+  sweep and checklist repair save through `StudyService.saveLocallyWithoutDirtyFlag`
+  (its javadoc says why the wrapper alone is not enough). It runs only once the startup
   Drive check reports up to date, local newer, unknown or disabled; never with
   a newer Drive copy, a conflict, or a staged download pending. Reading goals
   also sweeps overdue attempts, so `StudySyncUI` holds that sweep

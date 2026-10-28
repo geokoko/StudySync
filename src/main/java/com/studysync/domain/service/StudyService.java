@@ -189,6 +189,7 @@ public class StudyService {
         StudyGoal goal = new StudyGoal(null, date, description, false, null, 0, false, 0, taskId);
         goal.setDoneCriteria(StudyGoal.criteriaFromLines(doneCriteriaLines, null));
         goal.save();
+        reconcileAchievementWithChecklist(goal, goal.getCriteria());
 
         // When a goal is created for an OPEN task, automatically transition it
         // to IN_PROGRESS to reflect that active work has been planned.
@@ -321,7 +322,7 @@ public class StudyService {
         }
         String doneCriteria = doneCriteriaLines == null
                 ? goal.getDoneCriteria()
-                : StudyGoal.criteriaFromLines(doneCriteriaLines, goal.getDoneCriteria());
+                : StudyGoal.criteriaFromLines(doneCriteriaLines, goal.getDoneCriteria(), !checklistTicksLocked(goal));
         boolean updated = StudyGoal.updateDetails(goalId, description, pendingPlannedForDate, doneCriteria);
         if (updated) {
             if (doneCriteriaLines != null) {
@@ -333,15 +334,14 @@ public class StudyService {
     }
 
     /**
-     * Keeps "achieved exactly when the checklist is complete" after a checklist edit. A pending goal
+     * Keeps "achieved exactly when the checklist is complete" on creation and checklist edits. A pending goal
      * whose remaining open lines were removed is achieved; an achieved goal that gained an open line
      * reopens. An achieved attempt from an earlier day is history: reopening it would leave a pending
      * attempt in the past that the next refresh sweeps to missed, so its lines are ticked instead.
      * Missed and dropped goals are left alone.
      */
     private void reconcileAchievementWithChecklist(StudyGoal goal, List<StudyGoal.Criterion> criteria) {
-        if (criteria.isEmpty() || goal.isDropped() || goal.isDroppedAttempt()
-                || goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED) {
+        if (criteria.isEmpty() || checklistTicksLocked(goal)) {
             return;
         }
         boolean complete = criteria.stream().allMatch(StudyGoal.Criterion::done);
@@ -356,6 +356,24 @@ public class StudyService {
         }
     }
 
+    private static boolean checklistTicksLocked(StudyGoal goal) {
+        return goal.isDropped() || goal.isDroppedAttempt()
+                || goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED;
+    }
+
+    /**
+     * Idempotent upgrade maintenance, called only after the startup Drive check permits mutations.
+     * Like the overdue sweep, this derived repair must checkpoint without setting the dirty flag,
+     * including when its transaction commits after the UI's maintenance wrapper has returned.
+     */
+    public int normalizeAchievedGoalChecklists() {
+        int changed = StudyGoal.normalizeAchievedChecklists();
+        if (changed > 0) {
+            saveLocallyWithoutDirtyFlag("achieved goal checklist normalization");
+        }
+        return changed;
+    }
+
     /**
      * Ticks or unticks one line of a goal's checklist. Ticking the last open
      * line achieves the current attempt; unticking any line on an achieved
@@ -365,8 +383,7 @@ public class StudyService {
      */
     public void setGoalCriterionDone(String goalId, int index, boolean done) {
         Optional<StudyGoal> goal = StudyGoal.findById(goalId);
-        if (goal.isEmpty() || goal.get().isDropped() || goal.get().isDroppedAttempt()
-                || goal.get().getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED) {
+        if (goal.isEmpty() || checklistTicksLocked(goal.get())) {
             return;
         }
         Optional<List<StudyGoal.Criterion>> changed = StudyGoal.setCriterionDone(goalId, index, done);

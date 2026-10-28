@@ -10,6 +10,7 @@ import com.studysync.domain.service.TaskService;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
 import javafx.scene.Node;
+import javafx.scene.AccessibleAction;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -27,6 +28,9 @@ import javafx.scene.input.KeyEvent;
 import javafx.application.Platform;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 
 import java.time.LocalDate;
@@ -92,6 +96,110 @@ class StudyPlannerPanelTest {
                 assertTrue(labels.indexOf("No task") < labels.indexOf("Unlinked goal"));
                 assertFalse(labels.contains("Task: Parent / Subtask"));
                 assertNotNull(button(panel, "+ Add goal"));
+            }
+        });
+    }
+
+    @Test
+    void taskGoalGroupsKeepTheirSummaryAndCollapseChoiceAcrossRefreshesAndRegrouping() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                StudyGoal done = fixture.goal("Finished chapter", fixture.child, TODAY);
+                done.setAchieved(true);
+                StudyGoal dropped = mock(StudyGoal.class);
+                when(dropped.getId()).thenReturn("dropped");
+                when(dropped.getDescription()).thenReturn("Dropped chapter");
+                when(dropped.getTaskId()).thenReturn(fixture.child.getId());
+                when(dropped.getDate()).thenReturn(TODAY);
+                when(dropped.getStatus()).thenReturn(StudyGoal.GoalStatus.ABANDONED);
+                when(dropped.getAttemptOutcome()).thenReturn(StudyGoal.AttemptOutcome.DROPPED);
+                when(dropped.isDropped()).thenReturn(true);
+                fixture.attempts.addAll(List.of(done, dropped,
+                        fixture.goal("Parent goal", fixture.parent, TODAY), fixture.goal("Unlinked", null, TODAY)));
+                StudyPlannerPanel panel = fixture.panel();
+                TitledPane child = taskGoalGroup(panel, "Parent / Subtask");
+                assertTrue(child.isExpanded());
+                assertTrue(labelTexts(child.getGraphic()).contains("2 planned \u00B7 1 done"));
+
+                child.setExpanded(false);
+                assertTrue(taskGoalGroup(panel, "Parent").isExpanded());
+                taskGoalGroup(panel, "No task").setExpanded(false);
+                fixture.goal.setAchieved(true);
+                fixture.child.setTitle("Renamed subtask");
+                panel.updateDisplay();
+
+                child = taskGoalGroup(panel, "Parent / Renamed subtask");
+                assertFalse(child.isExpanded());
+                assertTrue(labelTexts(child.getGraphic()).contains("2 planned \u00B7 2 done"));
+                assertTrue(child.getAccessibleText().contains("2 planned \u00B7 2 done"));
+                assertFalse(taskGoalGroup(panel, "No task").isExpanded());
+
+                ComboBox<?> group = nodes(panel).stream().filter(ComboBox.class::isInstance)
+                        .map(node -> (ComboBox<?>) node)
+                        .filter(combo -> "Group goals by".equals(combo.getAccessibleText())).findFirst().orElseThrow();
+                group.getSelectionModel().select(1);
+                assertFalse(nodes(goalsCard(panel)).stream()
+                        .anyMatch(node -> node.getStyleClass().contains("planner-task-goals")));
+                group.getSelectionModel().select(0);
+                assertFalse(taskGoalGroup(panel, "Parent / Renamed subtask").isExpanded());
+                taskGoalGroup(panel, "Parent / Renamed subtask").setExpanded(true);
+                panel.updateDisplay();
+                assertTrue(taskGoalGroup(panel, "Parent / Renamed subtask").isExpanded());
+            }
+        });
+    }
+
+    @Test
+    void taskGroupsWithTheSameTitleCollapseIndependently() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.child.setParentId(null);
+                fixture.child.setTitle("Same title");
+                fixture.parent.setTitle("Same title");
+                fixture.attempts.add(fixture.goal("Parent goal", fixture.parent, TODAY));
+                StudyPlannerPanel panel = fixture.panel();
+                TitledPane child = nodes(goalsCard(panel)).stream().filter(TitledPane.class::isInstance)
+                        .map(TitledPane.class::cast).filter(pane -> labelTexts(pane.getContent())
+                                .contains("Read chapter")).findFirst().orElseThrow();
+                child.setExpanded(false);
+                panel.updateDisplay();
+
+                List<TitledPane> groups = nodes(goalsCard(panel)).stream().filter(TitledPane.class::isInstance)
+                        .map(TitledPane.class::cast).toList();
+                assertEquals(2, groups.size());
+                assertEquals(1, groups.stream().filter(TitledPane::isExpanded).count());
+                assertTrue(groups.stream().filter(TitledPane::isExpanded)
+                        .anyMatch(pane -> labelTexts(pane.getContent()).contains("Parent goal")));
+            }
+        });
+    }
+
+    @Test
+    void longTaskHeadersKeepCountsVisibleAndSupportAccessibleDisclosure() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.child.setTitle("A very long task title ".repeat(8));
+                StudyPlannerPanel panel = fixture.panel();
+                new Scene(panel, 900, 800).getStylesheets()
+                        .add(getClass().getResource("/styles.css").toExternalForm());
+                panel.applyCss();
+                panel.layout();
+                TitledPane group = nodes(goalsCard(panel)).stream().filter(TitledPane.class::isInstance)
+                        .map(TitledPane.class::cast).findFirst().orElseThrow();
+                Label count = nodes(group.getGraphic()).stream().filter(Label.class::isInstance)
+                        .map(Label.class::cast).filter(label -> "1 planned \u00B7 0 done".equals(label.getText()))
+                        .findFirst().orElseThrow();
+                assertTrue(count.getWidth() >= count.prefWidth(-1) - 0.5);
+                assertTrue(count.localToScene(count.getBoundsInLocal()).getMaxX()
+                        <= goalsCard(panel).localToScene(goalsCard(panel).getLayoutBounds()).getMaxX());
+
+                group.executeAccessibleAction(AccessibleAction.COLLAPSE);
+                assertFalse(group.isExpanded());
+                panel.layout();
+                assertFalse(group.getContent().isVisible());
+                assertTrue(count.isVisible());
+                group.executeAccessibleAction(AccessibleAction.EXPAND);
+                assertTrue(group.isExpanded());
             }
         });
     }
@@ -387,6 +495,117 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void cancellingNewGoalAfterARefreshFailureDoesNotRestoreStaleRetries() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                fixture.goal.setDate(TODAY.minusDays(1));
+                fixture.goal.setFailed(true);
+                fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
+                when(fixture.study.replanGoalForToday(fixture.goal.getId())).thenReturn(true);
+                StudyPlannerPanel panel = fixture.panel();
+                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+                when(fixture.tasks.getTasks()).thenThrow(new IllegalStateException("reload failed"));
+                button(fixture.modal, "Plan retry today").fire();
+
+                button(fixture.modal, "+ New goal").fire();
+                button(fixture.modal, "Cancel").fire();
+
+                assertTrue(labelTexts(fixture.modal).contains("The planner could not refresh: reload failed"));
+                assertFalse(nodes(fixture.modal).stream().anyMatch(node -> node instanceof Button action
+                        && "Plan retry today".equals(action.getText())));
+                button(fixture.modal, "Done").fire();
+                assertNull(fixture.modal);
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"retry,tasks", "edit,tasks", "add,tasks", "retry,progress", "edit,progress", "add,progress"})
+    void retryDialogReportsRefreshFailuresAfterEverySave(String action, String failingRefresh) throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                fixture.goal.setDate(TODAY.minusDays(1));
+                fixture.goal.setFailed(true);
+                fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
+                when(fixture.study.replanGoalForToday(fixture.goal.getId())).thenReturn(true);
+                StudyPlannerPanel panel = fixture.panel();
+                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+                if (action.equals("edit")) {
+                    button(fixture.modal, "Edit").fire();
+                } else if (action.equals("add")) {
+                    button(fixture.modal, "+ New goal").fire();
+                    nodes(fixture.modal).stream().filter(TextArea.class::isInstance).map(TextArea.class::cast)
+                            .findFirst().orElseThrow().setText("New goal");
+                }
+                if (failingRefresh.equals("tasks")) {
+                    when(fixture.tasks.getTasks()).thenThrow(new IllegalStateException("reload failed"));
+                } else {
+                    when(fixture.study.calculateDailyProgress()).thenThrow(new IllegalStateException("reload failed"));
+                }
+
+                button(fixture.modal, switch (action) {
+                    case "edit" -> "Save";
+                    case "add" -> "Add Goal";
+                    default -> "Plan retry today";
+                }).fire();
+
+                assertTrue(labelTexts(fixture.modal).contains(
+                        "Changes saved. The planner could not refresh: reload failed"));
+                assertTrue(labelTexts(fixture.modal).contains(
+                        "Retry list unavailable. Close and reopen this dialog to refresh."));
+                assertFalse(labelTexts(fixture.modal).contains("No missed goals left to retry."));
+                assertFalse(labelTexts(fixture.modal).contains("Goal saved."));
+                assertFalse(labelTexts(fixture.modal).contains("Added a new goal."));
+                assertFalse(nodes(fixture.modal).stream().anyMatch(node -> node instanceof Button button
+                        && ("Plan retry today".equals(button.getText()) || "Save".equals(button.getText())
+                        || "Add Goal".equals(button.getText()))));
+                switch (action) {
+                    case "edit" -> verify(fixture.study).updateStudyGoalDetails(eq(fixture.goal.getId()),
+                            eq("Read chapter"), any(), any());
+                    case "add" -> verify(fixture.study).addStudyGoal(eq("New goal"), eq(TODAY),
+                            eq(fixture.child.getId()), any());
+                    default -> verify(fixture.study).replanGoalForToday(fixture.goal.getId());
+                }
+                button(fixture.modal, "Done").fire();
+                assertNull(fixture.modal);
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"add", "edit"})
+    void standaloneGoalDialogsCloseAfterSavingEvenWhenRefreshFails(String action) throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                StudyPlannerPanel panel = fixture.panel();
+                if (action.equals("add")) {
+                    button(panel, "+ Add goal").fire();
+                    nodes(fixture.modal).stream().filter(TextArea.class::isInstance).map(TextArea.class::cast)
+                            .findFirst().orElseThrow().setText("New goal");
+                } else {
+                    button(panel, "Edit").fire();
+                }
+                when(fixture.tasks.getTasks()).thenThrow(new IllegalStateException("reload failed"));
+
+                button(fixture.modal, action.equals("add") ? "Add Goal" : "Save").fire();
+
+                assertNull(fixture.modal);
+                assertTrue(labelTexts(panel).contains("The planner could not refresh: reload failed"));
+                if (action.equals("add")) {
+                    verify(fixture.study).addStudyGoal(eq("New goal"), eq(TODAY), any(), any());
+                } else {
+                    verify(fixture.study).updateStudyGoalDetails(eq(fixture.goal.getId()), eq("Read chapter"),
+                            any(), any());
+                }
+            }
+        });
+    }
+
+    @Test
     void standaloneGoalDialogsStillCloseAfterSaving() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {
@@ -552,6 +771,11 @@ class StudyPlannerPanelTest {
                 .findFirst().orElseThrow();
     }
 
+    private static TitledPane taskGoalGroup(Node panel, String title) {
+        return nodes(goalsCard(panel)).stream().filter(TitledPane.class::isInstance).map(TitledPane.class::cast)
+                .filter(pane -> title.equals(pane.getText())).findFirst().orElseThrow();
+    }
+
     private static List<String> labelTexts(Node root) {
         return nodes(root).stream().filter(Label.class::isInstance).map(node -> ((Label) node).getText()).toList();
     }
@@ -564,7 +788,14 @@ class StudyPlannerPanelTest {
     private static List<Node> nodes(Node root) {
         List<Node> result = new ArrayList<>();
         result.add(root);
-        if (root instanceof ScrollPane scroll) {
+        if (root instanceof TitledPane pane) {
+            if (pane.getGraphic() != null) {
+                result.addAll(nodes(pane.getGraphic()));
+            }
+            if (pane.getContent() != null) {
+                result.addAll(nodes(pane.getContent()));
+            }
+        } else if (root instanceof ScrollPane scroll) {
             result.addAll(nodes(scroll.getContent()));
         } else if (root instanceof Parent parent) {
             parent.getChildrenUnmodifiable().forEach(child -> result.addAll(nodes(child)));

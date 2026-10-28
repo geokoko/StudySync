@@ -321,6 +321,11 @@ public class StudyGoal {
     // ponytail: ticks re-matched by exact trimmed text; a reworded done
     // criterion comes back unticked.
     public static String criteriaFromLines(String plainLines, String previousStored) {
+        return criteriaFromLines(plainLines, previousStored, true);
+    }
+
+    /** When typed ticks are disallowed, only matching previously stored ticks survive an edit. */
+    public static String criteriaFromLines(String plainLines, String previousStored, boolean allowTypedTicks) {
         if (plainLines == null) {
             return null;
         }
@@ -334,7 +339,7 @@ public class StudyGoal {
             // Always consume the matching previous tick, even when the typed line
             // is already "[x]", or it would leak to the next duplicate line.
             boolean previouslyDone = ticks != null && !ticks.isEmpty() && ticks.poll();
-            out.add(new Criterion(typed.text(), typed.done() || previouslyDone));
+            out.add(new Criterion(typed.text(), (allowTypedTicks && typed.done()) || previouslyDone));
         }
         return serializeCriteria(out);
     }
@@ -837,24 +842,39 @@ public class StudyGoal {
         return Optional.of(criteria);
     }
 
-    /** Ticks or clears every checklist line of the parent goal; a goal without a checklist is left alone. */
-    public static void setAllCriteriaDone(String goalId, boolean done) {
+    /** Ticks or clears every checklist line; returns whether the stored checklist changed. */
+    public static boolean setAllCriteriaDone(String goalId, boolean done) {
         if (jdbcTemplate == null || goalId == null || goalId.isBlank()) {
-            return;
+            return false;
         }
         String stored = jdbcTemplate.query("""
             SELECT done_criteria FROM study_goals WHERE id = ?
             """, rs -> rs.next() ? rs.getString("done_criteria") : null, goalId);
         List<Criterion> criteria = parseCriteria(stored);
         if (criteria.isEmpty() || criteria.stream().allMatch(criterion -> criterion.done() == done)) {
-            return;
+            return false;
         }
-        jdbcTemplate.update("""
+        return jdbcTemplate.update("""
             UPDATE study_goals
             SET done_criteria = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """, serializeCriteria(criteria.stream().map(criterion -> new Criterion(criterion.text(), done))
-                .toList()), goalId);
+                .toList()), goalId) > 0;
+    }
+
+    /** Repairs pre-mirroring achieved goals without changing their outcome or completion history. */
+    public static int normalizeAchievedChecklists() {
+        requireJdbcTemplate();
+        List<String> goalIds = jdbcTemplate.queryForList("""
+            SELECT id FROM study_goals WHERE status = 'ACHIEVED' AND done_criteria IS NOT NULL
+            """, String.class);
+        int changed = 0;
+        for (String goalId : goalIds) {
+            if (setAllCriteriaDone(goalId, true)) {
+                changed++;
+            }
+        }
+        return changed;
     }
 
     public static boolean markCurrentAttemptAchieved(String goalId, String reasonIfNot) {

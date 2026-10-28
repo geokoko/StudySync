@@ -777,6 +777,22 @@
     -fx-border-color: transparent transparent #e5e8eb transparent;
 }
 
+/* Keep task summaries visible in the native disclosure header when its goals are collapsed. */
+.planner-task-goals > .title {
+    -fx-padding: 8 10;
+}
+
+.planner-task-goals > .title .planner-goal-group-header {
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+}
+
+.planner-task-goals > .content {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 8 0 0 0;
+}
+
 /* A missed goal waiting for a retry (TaskStyleUtils.retryBackgroundColor) */
 .planner-retry-row {
     -fx-background-color: #fff3e0;
