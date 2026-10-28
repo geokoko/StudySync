@@ -12,6 +12,7 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextArea;
 import javafx.scene.image.WritableImage;
 import org.junit.jupiter.api.BeforeAll;
@@ -111,7 +112,7 @@ class GoalActionsTest {
             interact(missed, pane -> button(pane, "Mark as missed").fire());
             verify(service).markGoalAttemptMissed("goal", "attempt");
 
-            when(service.reopenDroppedGoal("goal", TODAY.plusDays(2))).thenReturn(true);
+            when(service.reopenDroppedGoal("goal", TODAY.plusDays(2), null)).thenReturn(true);
             Dialog<ButtonType> reopen = GoalActions.dialog(new Label(), GoalActions.Action.REOPEN,
                     goal(StudyGoal.AttemptOutcome.DROPPED, true), service, TODAY, () -> { });
             interact(reopen, pane -> {
@@ -121,7 +122,35 @@ class GoalActionsTest {
                 date.setValue(TODAY.plusDays(2));
                 button(pane, "Reopen goal").fire();
             });
-            verify(service).reopenDroppedGoal("goal", TODAY.plusDays(2));
+            verify(service).reopenDroppedGoal("goal", TODAY.plusDays(2), null);
+        });
+    }
+
+    @Test
+    void retryingACompleteChecklistAsksToStartOverOrMarkDoneToday() throws Exception {
+        onFx(() -> {
+            StudyService service = mock(StudyService.class);
+            StudyGoal goal = goal(StudyGoal.AttemptOutcome.MISSED, false);
+            when(goal.isChecklistComplete()).thenReturn(true);
+            when(service.planGoalAttempt("goal", TODAY, StudyService.CompletedChecklist.MARK_DONE)).thenReturn(true);
+            Dialog<ButtonType> retry = GoalActions.dialog(new Label(), GoalActions.Action.RETRY,
+                    goal, service, TODAY, () -> { });
+            interact(retry, pane -> {
+                DatePicker date = nodes(pane).stream().filter(DatePicker.class::isInstance)
+                        .map(DatePicker.class::cast).findFirst().orElseThrow();
+                List<RadioButton> choices = nodes(pane).stream().filter(RadioButton.class::isInstance)
+                        .map(RadioButton.class::cast).toList();
+                assertEquals(List.of("Start the checklist over", "Mark the goal done today"),
+                        choices.stream().map(RadioButton::getText).toList());
+                assertTrue(choices.getFirst().isSelected());
+                date.setValue(TODAY.plusDays(4));
+                choices.get(1).setSelected(true);
+                assertEquals(TODAY, date.getValue());
+                assertTrue(date.isDisabled());
+                snapshot(pane, "retry-complete-checklist.png");
+                button(pane, "Plan retry").fire();
+            });
+            verify(service).planGoalAttempt("goal", TODAY, StudyService.CompletedChecklist.MARK_DONE);
         });
     }
 

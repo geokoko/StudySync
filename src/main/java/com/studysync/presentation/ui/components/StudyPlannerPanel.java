@@ -973,28 +973,6 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         Button replanBtn = new Button("Plan retry today");
         replanBtn.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 12));
         replanBtn.getStyleClass().addAll("btn-orange", "btn-small");
-        replanBtn.setOnAction(e -> {
-            String error = null;
-            try {
-                if (!studyService.replanGoalForToday(goal.getId())) {
-                    error = dialog != null
-                            ? "This goal is no longer ready to retry. The list has been updated."
-                            : "This goal is no longer ready to retry. Refresh the planner and try again.";
-                }
-            } catch (Exception ex) {
-                error = "Could not plan retry: " + ex.getMessage();
-            }
-            if (dialog != null) {
-                dialog.refresh(error != null ? error
-                        : "Planned \u201C" + goal.getDescription() + "\u201D for today.", error != null);
-            } else {
-                refreshAfterChange();
-                if (error != null) {
-                    showPlannerError(error);
-                }
-            }
-        });
-
         Button editBtn = editGoalButton(goal);
         if (dialog != null) {
             editBtn.setOnAction(e -> showEditGoalDialog(goal,
@@ -1006,9 +984,63 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         FlowPane actions = new FlowPane(6, 6, replanBtn, editBtn, more);
         actions.setPadding(new Insets(4, 0, 0, 0));
         actions.getChildren().forEach(node -> ((Region) node).setMinWidth(Region.USE_PREF_SIZE));
+        replanBtn.setOnAction(e -> {
+            if (goal.isChecklistComplete()) {
+                askCompletedChecklist(goal, dialog, actions);
+            } else {
+                retryToday(goal, dialog, null);
+            }
+        });
 
         row.getChildren().addAll(goalLabel, attemptLabel, actions);
         return row;
+    }
+
+    /**
+     * Every checklist line is already ticked, so a retry would start pending with nothing left to do.
+     * Ask in the row itself, replacing its actions until the user answers or cancels.
+     */
+    private void askCompletedChecklist(StudyGoal goal, RetryDialog dialog, FlowPane actions) {
+        List<Node> original = List.copyOf(actions.getChildren());
+        Label prompt = mutedLabel("Every checklist item is already ticked.");
+        Button startOver = new Button("Start over");
+        startOver.getStyleClass().addAll("btn-orange", "btn-small");
+        startOver.setOnAction(e -> retryToday(goal, dialog, StudyService.CompletedChecklist.START_OVER));
+        Button markDone = new Button("Mark done");
+        markDone.getStyleClass().addAll("btn-success", "btn-small");
+        markDone.setOnAction(e -> retryToday(goal, dialog, StudyService.CompletedChecklist.MARK_DONE));
+        Button cancel = new Button("Cancel");
+        cancel.getStyleClass().addAll("btn-gray", "btn-small");
+        cancel.setOnAction(e -> actions.getChildren().setAll(original));
+        List.of(startOver, markDone, cancel).forEach(button -> button.setMinWidth(Region.USE_PREF_SIZE));
+        actions.getChildren().setAll(prompt, startOver, markDone, cancel);
+    }
+
+    /** Plan the goal's retry for today; {@code choice} answers a complete checklist, else null. */
+    private void retryToday(StudyGoal goal, RetryDialog dialog, StudyService.CompletedChecklist choice) {
+        String error = null;
+        try {
+            if (!studyService.replanGoalForToday(goal.getId(), choice)) {
+                error = dialog != null
+                        ? "This goal is no longer ready to retry. The list has been updated."
+                        : "This goal is no longer ready to retry. Refresh the planner and try again.";
+            }
+        } catch (Exception ex) {
+            error = "Could not plan retry: " + ex.getMessage();
+        }
+        if (dialog != null) {
+            String name = "“" + goal.getDescription() + "”";
+            String done = choice == StudyService.CompletedChecklist.MARK_DONE ? "Marked " + name + " done."
+                    : choice == StudyService.CompletedChecklist.START_OVER
+                    ? "Planned " + name + " for today with its checklist cleared."
+                    : "Planned " + name + " for today.";
+            dialog.refresh(error != null ? error : done, error != null);
+        } else {
+            refreshAfterChange();
+            if (error != null) {
+                showPlannerError(error);
+            }
+        }
     }
 
     private String formatRetryAttemptSummary(StudyGoal goal) {

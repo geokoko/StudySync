@@ -196,8 +196,11 @@ Syncs the whole H2 file. OAuth client credentials live in
   that an earlier day's achieved goal stays achieved with its lines ticked
   (reopening would leave a past pending attempt that is swept to missed). A
   missed or dropped attempt can be neither achieved nor ticked; a retry
-  continues from its ticks. A goal without a checklist uses the checkbox alone.
-  There is no partial credit.
+  continues from its ticks. When those ticks are already complete, a retry or
+  reopen must say what to do (`StudyService.CompletedChecklist`): start the
+  checklist over, or mark the goal done with an attempt dated today. The
+  planner asks in the retry row; date dialogs use `GoalActions.ChecklistChoice`.
+  A goal without a checklist uses the checkbox alone. There is no partial credit.
 - Goal forms reuse `GoalEditFields` and `TaskStyleUtils.criteriaArea` /
   `CRITERIA_LABEL` / `criteriaChecklist` / `criteriaProgress`. A task's
   `done_criteria` is plain text, not a checklist.

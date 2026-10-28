@@ -111,6 +111,13 @@
     -fx-text-fill: #2c3e50;
 }
 
+/* The dot is drawn in -fx-mark-color, which .root sets to white; fill the circle as for checkboxes. */
+.radio-button:selected > .radio {
+    -fx-background-color: #3498db;
+    -fx-border-color: #2980b9;
+    -fx-border-radius: 1em;
+}
+
 /* The inner text node also carries .text, which the rule above turns dark */
 .hyperlink,
 .hyperlink .text {

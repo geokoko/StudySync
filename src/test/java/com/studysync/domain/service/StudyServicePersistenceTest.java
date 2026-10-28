@@ -999,6 +999,82 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void retryingAGoalWhoseChecklistIsCompleteNeedsAChoice() {
+        LocalDate today = LocalDate.of(2026, 3, 28);
+        StudyGoal missed = completedMissedGoal("Missed reading");
+
+        assertThrows(ValidationException.class, () -> studyService.planGoalAttempt(missed.getId(), today));
+        assertThrows(ValidationException.class, () -> studyService.replanGoalForToday(missed.getId()));
+        assertEquals(StudyGoal.AttemptOutcome.MISSED,
+                StudyGoal.findById(missed.getId()).orElseThrow().getAttemptOutcome());
+
+        assertTrue(studyService.replanGoalForToday(missed.getId(), StudyService.CompletedChecklist.START_OVER));
+        StudyGoal restarted = StudyGoal.findById(missed.getId()).orElseThrow();
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, restarted.getAttemptOutcome());
+        assertEquals(today, restarted.getDate());
+        assertEquals(List.of(new StudyGoal.Criterion("Read", false)), restarted.getCriteria());
+    }
+
+    @Test
+    void markingACompleteRetryDoneAchievesItTodayWhateverDateWasPicked() {
+        LocalDate today = LocalDate.of(2026, 3, 28);
+        StudyGoal missed = completedMissedGoal("Missed reading");
+
+        assertTrue(studyService.planGoalAttempt(missed.getId(), today.plusDays(3),
+                StudyService.CompletedChecklist.MARK_DONE));
+
+        StudyGoal done = StudyGoal.findById(missed.getId()).orElseThrow();
+        assertTrue(done.isAchieved());
+        assertEquals(StudyGoal.AttemptOutcome.ACHIEVED, done.getAttemptOutcome());
+        assertEquals(today, done.getDate());
+        assertEquals(List.of(new StudyGoal.Criterion("Read", true)), done.getCriteria());
+    }
+
+    @Test
+    void aChecklistChoiceIsIgnoredWhileLinesAreStillOpen() {
+        StudyGoal missed = missedGoal("Missed reading", null, LocalDate.of(2026, 3, 27));
+        jdbcTemplate.update("UPDATE study_goals SET done_criteria = ? WHERE id = ?", "[x] Read\n[ ] Notes",
+                missed.getId());
+
+        assertTrue(studyService.replanGoalForToday(missed.getId(), StudyService.CompletedChecklist.START_OVER));
+
+        StudyGoal retry = StudyGoal.findById(missed.getId()).orElseThrow();
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, retry.getAttemptOutcome());
+        assertEquals(List.of(new StudyGoal.Criterion("Read", true), new StudyGoal.Criterion("Notes", false)),
+                retry.getCriteria());
+    }
+
+    @Test
+    void reopeningADroppedGoalWithACompleteChecklistAsksTheSameChoice() {
+        LocalDate today = LocalDate.of(2026, 3, 28);
+        studyService.addStudyGoal("Dropped reading", today, "task-14", "[x] Read\nNotes");
+        StudyGoal goal = StudyGoal.findByTaskId("task-14").getFirst();
+        assertTrue(studyService.dropGoal(goal.getId(), null));
+        assertTrue(studyService.updateStudyGoalDetails(goal.getId(), "Dropped reading", null, "Read"));
+        assertTrue(StudyGoal.findById(goal.getId()).orElseThrow().isChecklistComplete());
+
+        assertThrows(ValidationException.class, () -> studyService.reopenDroppedGoal(goal.getId(), today));
+        assertTrue(studyService.reopenDroppedGoal(goal.getId(), today.plusDays(1),
+                StudyService.CompletedChecklist.MARK_DONE));
+
+        StudyGoal reopened = StudyGoal.findById(goal.getId()).orElseThrow();
+        assertTrue(reopened.isAchieved());
+        assertEquals(today, reopened.getDate());
+    }
+
+    /** A missed goal whose only open line was edited away, as the checklist rule then leaves it. */
+    private StudyGoal completedMissedGoal(final String description) {
+        StudyGoal missed = missedGoal(description, null, LocalDate.of(2026, 3, 27));
+        jdbcTemplate.update("UPDATE study_goals SET done_criteria = ? WHERE id = ?", "[x] Read\n[ ] Notes",
+                missed.getId());
+        assertTrue(studyService.updateStudyGoalDetails(missed.getId(), description, null, "Read"));
+        StudyGoal stored = StudyGoal.findById(missed.getId()).orElseThrow();
+        assertEquals(StudyGoal.AttemptOutcome.MISSED, stored.getAttemptOutcome());
+        assertTrue(stored.isChecklistComplete());
+        return stored;
+    }
+
+    @Test
     void duplicateChecklistLinesKeepTheirOwnTicks() {
         studyService.addStudyGoal("Two laps", LocalDate.of(2026, 3, 28), "task-9", "Lap\nLap");
         StudyGoal goal = StudyGoal.findByTaskId("task-9").getFirst();

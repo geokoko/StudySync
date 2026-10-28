@@ -12,7 +12,10 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import java.time.LocalDate;
@@ -87,6 +90,9 @@ final class GoalActions {
         TaskStyleUtils.fontSemiBold(description, 13);
         Label explanation = new Label(action.explanation);
         explanation.setWrapText(true);
+        // A wrapped label may otherwise shrink to one ellipsized line when the dialog has more content.
+        description.setMinHeight(Region.USE_PREF_SIZE);
+        explanation.setMinHeight(Region.USE_PREF_SIZE);
         VBox content = new VBox(12, description, explanation);
         content.setPrefWidth(400);
 
@@ -106,8 +112,17 @@ final class GoalActions {
                 setDisable(empty || value == null || value.isBefore(today));
             }
         });
-        if (action == Action.REOPEN || action == Action.RETRY) {
+        boolean plansAttempt = action == Action.REOPEN || action == Action.RETRY;
+        ChecklistChoice checklist = plansAttempt ? ChecklistChoice.forGoal(goal, date, today) : null;
+        if (plansAttempt) {
             content.getChildren().addAll(new Label("Planned date"), date);
+        }
+        if (checklist != null) {
+            // The choice below decides what happens to the ticks, so do not promise to keep them.
+            explanation.setText(action == Action.RETRY
+                    ? "Choose a date for another attempt. Earlier attempts will be kept."
+                    : "Plan a new attempt. Earlier attempts will be kept.");
+            content.getChildren().add(checklist.view);
         }
         Label error = new Label();
         error.setWrapText(true);
@@ -129,8 +144,8 @@ final class GoalActions {
                 boolean changed = switch (action) {
                     case MISS -> service.markGoalAttemptMissed(goal.getId(), goal.getAttemptId());
                     case DROP -> service.dropGoal(goal.getId(), reason.getText());
-                    case REOPEN -> service.reopenDroppedGoal(goal.getId(), date.getValue());
-                    case RETRY -> service.planGoalAttempt(goal.getId(), date.getValue());
+                    case REOPEN -> service.reopenDroppedGoal(goal.getId(), date.getValue(), checklistValue(checklist));
+                    case RETRY -> service.planGoalAttempt(goal.getId(), date.getValue(), checklistValue(checklist));
                 };
                 if (!changed) {
                     throw new IllegalStateException(
@@ -150,5 +165,48 @@ final class GoalActions {
             }
         });
         return dialog;
+    }
+
+    private static StudyService.CompletedChecklist checklistValue(final ChecklistChoice checklist) {
+        return checklist == null ? null : checklist.value();
+    }
+
+    /**
+     * What a retry or reopen does when every checklist line is already ticked, asked wherever an
+     * attempt is planned with a date. Marking the goal done plans the attempt for today, so the
+     * date is fixed to today while that option is selected.
+     */
+    static final class ChecklistChoice {
+        final VBox view;
+        private final RadioButton markDone = new RadioButton("Mark the goal done today");
+
+        private ChecklistChoice(final DatePicker date, final LocalDate today) {
+            RadioButton startOver = new RadioButton("Start the checklist over");
+            ToggleGroup group = new ToggleGroup();
+            startOver.setToggleGroup(group);
+            markDone.setToggleGroup(group);
+            startOver.setSelected(true);
+            Label prompt = new Label("Every checklist item is already ticked.");
+            prompt.setWrapText(true);
+            prompt.setMinHeight(Region.USE_PREF_SIZE);
+            TaskStyleUtils.fontSemiBold(prompt, 12);
+            markDone.selectedProperty().addListener((observable, wasSelected, selected) -> {
+                if (selected) {
+                    date.setValue(today);
+                }
+                date.setDisable(selected);
+            });
+            view = new VBox(6, prompt, startOver, markDone);
+        }
+
+        /** The choice for a goal whose checklist is complete, or null when it has open lines. */
+        static ChecklistChoice forGoal(final StudyGoal goal, final DatePicker date, final LocalDate today) {
+            return goal.isChecklistComplete() ? new ChecklistChoice(date, today) : null;
+        }
+
+        StudyService.CompletedChecklist value() {
+            return markDone.isSelected() ? StudyService.CompletedChecklist.MARK_DONE
+                    : StudyService.CompletedChecklist.START_OVER;
+        }
     }
 }

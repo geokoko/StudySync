@@ -406,7 +406,7 @@ class StudyPlannerPanelTest {
                 List<StudyGoal> retries = new ArrayList<>(List.of(fixture.goal, second));
                 fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned)
                         .thenAnswer(invocation -> List.copyOf(retries));
-                when(fixture.study.replanGoalForToday(anyString())).thenAnswer(invocation -> {
+                when(fixture.study.replanGoalForToday(anyString(), any())).thenAnswer(invocation -> {
                     StudyGoal retry = retries.removeFirst();
                     assertEquals(retry.getId(), invocation.getArgument(0));
                     StudyGoal planned = fixture.goal(retry.getDescription(), fixture.child, TODAY);
@@ -422,7 +422,7 @@ class StudyPlannerPanelTest {
                     assertTrue(labelTexts(fixture.modal).contains(retry.getDescription()));
                     assertNotNull(button(fixture.modal, "+ New goal"));
                     button(fixture.modal, "Plan retry today").fire();
-                    verify(fixture.study).replanGoalForToday(retry.getId());
+                    verify(fixture.study).replanGoalForToday(retry.getId(), null);
                 }
 
                 planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
@@ -447,7 +447,7 @@ class StudyPlannerPanelTest {
                 List<StudyGoal> retries = new ArrayList<>(List.of(fixture.goal, second));
                 fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned)
                         .thenAnswer(invocation -> List.copyOf(retries));
-                when(fixture.study.replanGoalForToday(fixture.goal.getId())).thenAnswer(invocation -> {
+                when(fixture.study.replanGoalForToday(fixture.goal.getId(), null)).thenAnswer(invocation -> {
                     retries.remove(fixture.goal);
                     return true;
                 });
@@ -456,7 +456,7 @@ class StudyPlannerPanelTest {
                         "", "", KeyCode.ENTER, false, false, false, false));
 
                 button(fixture.modal, "Plan retry today").fire();
-                verify(fixture.study).replanGoalForToday(fixture.goal.getId());
+                verify(fixture.study).replanGoalForToday(fixture.goal.getId(), null);
                 assertTrue(labelTexts(fixture.modal).contains("Planned \u201CRead chapter\u201D for today."));
                 assertFalse(labelTexts(fixture.modal).contains("Read chapter"));
                 assertTrue(labelTexts(fixture.modal).contains("Write summary"));
@@ -479,7 +479,7 @@ class StudyPlannerPanelTest {
                 assertTrue(labelTexts(fixture.modal).contains("Write summary"));
 
                 // A goal that changed elsewhere reports in the dialog and leaves the refreshed list.
-                when(fixture.study.replanGoalForToday(second.getId())).thenAnswer(invocation -> {
+                when(fixture.study.replanGoalForToday(second.getId(), null)).thenAnswer(invocation -> {
                     retries.remove(second);
                     return false;
                 });
@@ -502,7 +502,7 @@ class StudyPlannerPanelTest {
                 fixture.goal.setDate(TODAY.minusDays(1));
                 fixture.goal.setFailed(true);
                 fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
-                when(fixture.study.replanGoalForToday(fixture.goal.getId())).thenReturn(true);
+                when(fixture.study.replanGoalForToday(fixture.goal.getId(), null)).thenReturn(true);
                 StudyPlannerPanel panel = fixture.panel();
                 planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
@@ -530,7 +530,7 @@ class StudyPlannerPanelTest {
                 fixture.goal.setDate(TODAY.minusDays(1));
                 fixture.goal.setFailed(true);
                 fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
-                when(fixture.study.replanGoalForToday(fixture.goal.getId())).thenReturn(true);
+                when(fixture.study.replanGoalForToday(fixture.goal.getId(), null)).thenReturn(true);
                 StudyPlannerPanel panel = fixture.panel();
                 planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
@@ -568,7 +568,7 @@ class StudyPlannerPanelTest {
                             eq("Read chapter"), any(), any());
                     case "add" -> verify(fixture.study).addStudyGoal(eq("New goal"), eq(TODAY),
                             eq(fixture.child.getId()), any());
-                    default -> verify(fixture.study).replanGoalForToday(fixture.goal.getId());
+                    default -> verify(fixture.study).replanGoalForToday(fixture.goal.getId(), null);
                 }
                 button(fixture.modal, "Done").fire();
                 assertNull(fixture.modal);
@@ -654,6 +654,38 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void retryingACompleteChecklistAsksInTheRowBeforePlanning() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                fixture.child.setDeadline(TODAY.plusDays(5));
+                fixture.goal.setDate(TODAY.minusDays(1));
+                fixture.goal.setFailed(true);
+                fixture.goal.setDoneCriteria("[x] Read");
+                fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
+                when(fixture.study.replanGoalForToday(fixture.goal.getId(),
+                        StudyService.CompletedChecklist.START_OVER)).thenReturn(true);
+                StudyPlannerPanel panel = fixture.panel();
+                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+
+                button(fixture.modal, "Plan retry today").fire();
+                assertTrue(labelTexts(fixture.modal).contains("Every checklist item is already ticked."));
+                verify(fixture.study, never()).replanGoalForToday(anyString(), any());
+                button(fixture.modal, "Cancel").fire();
+                assertFalse(labelTexts(fixture.modal).contains("Every checklist item is already ticked."));
+
+                button(fixture.modal, "Plan retry today").fire();
+                button(fixture.modal, "Start over").fire();
+                verify(fixture.study).replanGoalForToday(fixture.goal.getId(),
+                        StudyService.CompletedChecklist.START_OVER);
+                assertTrue(labelTexts(fixture.modal).contains(
+                        "Planned “Read chapter” for today with its checklist cleared."));
+            }
+        });
+    }
+
+    @Test
     void retryRowsKeepTheirGoalIdentityInsteadOfCreatingAnotherGoal() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {
@@ -661,14 +693,14 @@ class StudyPlannerPanelTest {
                 fixture.goal.setDate(TODAY.minusDays(1));
                 fixture.goal.setFailed(true);
                 fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
-                when(fixture.study.replanGoalForToday(fixture.goal.getId())).thenReturn(true);
+                when(fixture.study.replanGoalForToday(fixture.goal.getId(), null)).thenReturn(true);
                 StudyPlannerPanel panel = fixture.panel();
                 Node row = nodes(panel).stream().filter(node -> node.isFocusTraversable()
                         && node.getStyleClass().contains("cal-plan-item")).findFirst().orElseThrow();
                 row.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER,
                         false, false, false, false));
                 button(fixture.modal, "Plan retry today").fire();
-                verify(fixture.study).replanGoalForToday(fixture.goal.getId());
+                verify(fixture.study).replanGoalForToday(fixture.goal.getId(), null);
                 verify(fixture.study, never()).addStudyGoal(anyString(), any(), any(), any());
             }
         });

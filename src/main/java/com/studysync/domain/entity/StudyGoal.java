@@ -284,6 +284,12 @@ public class StudyGoal {
     /** The checklist behind {@link #getDoneCriteria()}; empty when none was written. */
     public List<Criterion> getCriteria() { return parseCriteria(doneCriteria); }
 
+    /** True when the goal has a checklist and every line of it is ticked. */
+    public boolean isChecklistComplete() {
+        List<Criterion> criteria = getCriteria();
+        return !criteria.isEmpty() && criteria.stream().allMatch(Criterion::done);
+    }
+
     // ponytail: checklist stored as "[x] line" text on the parent goal, not a
     // table - move to a study_goal_criteria table only if criteria ever need
     // ids or history.
