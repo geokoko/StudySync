@@ -662,6 +662,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         try {
             updateTasksDisplay();
             updateProgress();
+            plannerError.setVisible(false);
+            plannerError.setManaged(false);
             return null;
         } catch (Exception ex) {
             String message = "The planner could not refresh: " + ex.getMessage();

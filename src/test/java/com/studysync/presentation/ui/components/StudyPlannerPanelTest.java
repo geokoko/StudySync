@@ -51,6 +51,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -601,6 +602,42 @@ class StudyPlannerPanelTest {
                     verify(fixture.study).updateStudyGoalDetails(eq(fixture.goal.getId()), eq("Read chapter"),
                             any(), any());
                 }
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"tasks", "progress"})
+    void successfulRefreshClearsPreviousPlannerError(String failingRefresh) throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                StudyPlannerPanel panel = fixture.panel();
+                button(panel, "+ Add goal").fire();
+                nodes(fixture.modal).stream().filter(TextArea.class::isInstance).map(TextArea.class::cast)
+                        .findFirst().orElseThrow().setText("New goal");
+                if (failingRefresh.equals("tasks")) {
+                    when(fixture.tasks.getTasks()).thenThrow(new IllegalStateException("reload failed"));
+                } else {
+                    when(fixture.study.calculateDailyProgress()).thenThrow(new IllegalStateException("reload failed"));
+                }
+                button(fixture.modal, "Add Goal").fire();
+
+                Label error = nodes(panel).stream().filter(Label.class::isInstance).map(Label.class::cast)
+                        .filter(label -> "The planner could not refresh: reload failed".equals(label.getText()))
+                        .findFirst().orElseThrow();
+                assertTrue(error.isVisible());
+                assertTrue(error.isManaged());
+
+                doReturn(List.of(fixture.parent, fixture.child)).when(fixture.tasks).getTasks();
+                doReturn(0).when(fixture.study).calculateDailyProgress();
+                button(panel, "+ Add goal").fire();
+                nodes(fixture.modal).stream().filter(TextArea.class::isInstance).map(TextArea.class::cast)
+                        .findFirst().orElseThrow().setText("Another goal");
+                button(fixture.modal, "Add Goal").fire();
+
+                assertNull(fixture.modal);
+                assertFalse(error.isVisible());
+                assertFalse(error.isManaged());
             }
         });
     }
