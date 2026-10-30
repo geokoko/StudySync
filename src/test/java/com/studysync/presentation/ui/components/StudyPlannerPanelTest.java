@@ -749,8 +749,12 @@ class StudyPlannerPanelTest {
                 assertTrue(achieved.isDisabled());
                 List<CheckBox> lines = checks.stream().filter(check -> check != achieved).toList();
                 assertEquals(2, lines.size());
-                assertTrue(lines.stream().allMatch(line -> line.isSelected() && line.isMouseTransparent()
-                        && line.getOnAction() == null));
+                assertTrue(lines.stream().allMatch(line -> line.isSelected() && line.isDisabled()));
+
+                // A screen reader acts through accessible actions, which ignore mouse transparency.
+                lines.forEach(line -> line.executeAccessibleAction(AccessibleAction.FIRE));
+                assertTrue(lines.stream().allMatch(CheckBox::isSelected));
+                verify(fixture.study, never()).setGoalCriterionDone(anyString(), anyInt(), anyBoolean());
             }
         });
     }
@@ -837,8 +841,7 @@ class StudyPlannerPanelTest {
                 List<CheckBox> checks = nodes(panel).stream().filter(CheckBox.class::isInstance)
                         .map(CheckBox.class::cast).toList();
                 assertFalse(checks.isEmpty());
-                assertTrue(checks.stream().allMatch(check -> check.isDisabled()
-                        || check.isMouseTransparent() && check.getOnAction() == null));
+                assertTrue(checks.stream().allMatch(CheckBox::isDisabled));
                 checks.forEach(CheckBox::fire);
                 verify(fixture.study, never()).updateStudyGoalAchievement(anyString(), anyBoolean(), any());
                 verify(fixture.study, never()).setGoalCriterionDone(anyString(), anyInt(), anyBoolean());

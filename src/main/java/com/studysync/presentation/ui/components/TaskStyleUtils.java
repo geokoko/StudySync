@@ -400,7 +400,8 @@ public final class TaskStyleUtils {
     /**
      * A goal's "what done means" checklist, one checkbox per criterion. With a
      * handler each box is live and reports (index, ticked); without one the
-     * boxes are inert, which reads as the same list without inviting clicks.
+     * boxes are disabled. Ignoring the mouse is not enough: assistive technology
+     * can still fire an enabled box and flip its displayed tick.
      */
     public static VBox criteriaChecklist(List<StudyGoal.Criterion> criteria, BiConsumer<Integer, Boolean> onToggle) {
         VBox box = new VBox(2);
@@ -417,8 +418,7 @@ public final class TaskStyleUtils {
                 int index = i;
                 check.setOnAction(e -> onToggle.accept(index, check.isSelected()));
             } else {
-                check.setMouseTransparent(true);
-                check.setFocusTraversable(false);
+                check.setDisable(true);
             }
             box.getChildren().add(check);
         }
