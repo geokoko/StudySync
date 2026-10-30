@@ -73,13 +73,14 @@ Syncs the whole H2 file. OAuth client credentials live in
   `bootstrap/PendingDownloadApplier` swaps it in at the next launch, before
   Spring opens H2. There is no live reload, and nothing is downloaded
   automatically at startup.
-- Startup maintenance (marking delayed tasks, sweeping overdue goal attempts)
+- Startup maintenance (marking delayed tasks, sweeping overdue goal attempts,
+  normalizing achieved goal checklists)
   is derived data every machine recomputes, so it must not set the dirty flag:
   otherwise merely opening the app looks like unsaved edits and raises a false
   sync conflict. `StudySyncUI.runStartupMaintenance` wraps it in
   `GoogleDriveService.runStartupMaintenanceWithoutDirtyTracking`, and the goal
-  sweep saves through `StudyService.saveLocallyWithoutDirtyFlag` (its javadoc
-  says why the wrapper alone is not enough). It runs only once the startup
+  sweep and checklist repair save through `StudyService.saveLocallyWithoutDirtyFlag`
+  (its javadoc says why the wrapper alone is not enough). It runs only once the startup
   Drive check reports up to date, local newer, unknown or disabled; never with
   a newer Drive copy, a conflict, or a staged download pending. Reading goals
   also sweeps overdue attempts, so `StudySyncUI` holds that sweep
@@ -186,10 +187,22 @@ Syncs the whole H2 file. OAuth client credentials live in
   (not the attempt) so a retry continues from earlier ticks. Only
   `StudyGoal.parseCriteria` / `serializeCriteria` know its `[x] ` / `[ ] `
   line format.
-- Ticking the last criterion achieves the current attempt through the same path
-  as the checkbox (`StudyService.setGoalCriterionDone`); unticking one reopens
-  an achieved goal. The checkbox also works alone, so a goal can be achieved
-  with criteria open or with no checklist. There is no partial credit.
+- The checkbox and the checklist mirror each other, so a goal with a checklist
+  is achieved exactly when every line is ticked. Ticking the last criterion
+  achieves the current attempt and unticking one reopens it, keeping the other
+  ticks (`StudyService.setGoalCriterionDone`). Ticking the checkbox ticks every
+  line and unticking it clears them (`updateStudyGoalAchievement`); a goal it
+  cannot change keeps its ticks. A checklist edit re-applies the rule. An
+  earlier day's achieved goal stays achieved with its lines ticked
+  (`StudyGoal.isAchievedBefore`): reopening it would leave a past pending
+  attempt that is swept to missed, so unticking it changes nothing, the planner
+  shows it read-only, and a checklist edit ticks its new lines instead. A
+  missed or dropped attempt can be neither achieved nor ticked; a retry
+  continues from its ticks. When those ticks are already complete, a retry or
+  reopen must say what to do (`StudyService.CompletedChecklist`): start the
+  checklist over, or mark the goal done with an attempt dated today. The
+  planner asks in the retry row; date dialogs use `GoalActions.ChecklistChoice`.
+  A goal without a checklist uses the checkbox alone. There is no partial credit.
 - Goal forms reuse `GoalEditFields` and `TaskStyleUtils.criteriaArea` /
   `CRITERIA_LABEL` / `criteriaChecklist` / `criteriaProgress`. A task's
   `done_criteria` is plain text, not a checklist.

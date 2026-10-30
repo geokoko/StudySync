@@ -35,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javafx.animation.Timeline;
 import javafx.animation.KeyFrame;
@@ -67,6 +68,10 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
     // Sort / group state for the tasks section
     private String currentSort = "Status";
     private String currentGroup = "None";
+    private GoalListAgenda.Group goalGroup = GoalListAgenda.Group.TASK;
+    private GoalListAgenda.Sort goalSort = GoalListAgenda.Sort.STATUS;
+    // Task IDs survive refreshes and renames; null is the "No task" group.
+    private final Set<String> collapsedGoalTaskIds = new HashSet<>();
     private PlannerTaskView currentTaskView = PlannerTaskView.TODAY;
 
     // UI containers that get rebuilt on navigation
@@ -162,9 +167,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         HBox.setHgrow(goalsHeaderSpacer, Priority.ALWAYS);
         HBox goalsHeader = new HBox(10, goalsTitle, goalsHeaderSpacer, addGoal);
         goalsHeader.setAlignment(Pos.CENTER_LEFT);
-        goalsContainer = new VBox(8);
+        goalsContainer = new VBox(16);
         unlinkedRetriesContainer = new VBox(8);
-        goals.getChildren().addAll(goalsHeader, goalsContainer, unlinkedRetriesContainer);
+        goals.getChildren().addAll(goalsHeader, createGoalListToolbar(), goalsContainer, unlinkedRetriesContainer);
         installPlanningDropTarget(goals);
 
         VBox sidebar = new VBox(20);
@@ -316,6 +321,36 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         mainContent.getChildren().add(browse);
     }
 
+    /** Group and sort controls for the goal list; the rules are in {@link GoalListAgenda}. */
+    private FlowPane createGoalListToolbar() {
+        Label groupLabel = new Label("Group:");
+        TaskStyleUtils.fontBold(groupLabel, 12);
+        ComboBox<GoalListAgenda.Group> groupCombo = new ComboBox<>();
+        groupCombo.getItems().addAll(GoalListAgenda.Group.values());
+        groupCombo.setValue(goalGroup);
+        groupCombo.setAccessibleText("Group goals by");
+        groupCombo.valueProperty().addListener((obs, old, value) -> {
+            goalGroup = value;
+            updateTasksDisplay();
+        });
+
+        Label sortLabel = new Label("Sort:");
+        TaskStyleUtils.fontBold(sortLabel, 12);
+        ComboBox<GoalListAgenda.Sort> sortCombo = new ComboBox<>();
+        sortCombo.getItems().addAll(GoalListAgenda.Sort.values());
+        sortCombo.setValue(goalSort);
+        sortCombo.setAccessibleText("Sort goals by");
+        sortCombo.valueProperty().addListener((obs, old, value) -> {
+            goalSort = value;
+            updateTasksDisplay();
+        });
+
+        FlowPane toolbar = new FlowPane(8, 6, groupLabel, groupCombo, sortLabel, sortCombo);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        FlowPane.setMargin(sortLabel, new Insets(0, 0, 0, 8));
+        return toolbar;
+    }
+
     private void createSessionBar() {
         // An HBox, not a FlowPane: a FlowPane is at least as wide as its widest child's
         // preferred width, so a long goal name would set the whole planner's minimum width.
@@ -432,15 +467,24 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         goalsTitle.setText(displayDate.equals(dateTimeService.getCurrentDate()) ? "Today's Goals" : "Goals");
         goalsContainer.getChildren().clear();
         goalSessionButtons.clear();
-        displayDateAttempts.stream().filter(goal -> !goal.isDropped() && !goal.isDroppedAttempt())
-                .sorted(Comparator.comparingInt(goal ->
-                goal.isFailed() ? 2 : goal.isAchieved() ? 1 : 0)).forEach(goal ->
-                goalsContainer.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()))));
+        List<StudyGoal> active = displayDateAttempts.stream()
+                .filter(goal -> !goal.isDropped() && !goal.isDroppedAttempt()).toList();
+        boolean byTask = goalGroup == GoalListAgenda.Group.TASK;
+        GoalListAgenda.build(active, tasksById, goalGroup, goalSort).forEach(section -> {
+            VBox group = new VBox(8);
+            if (!byTask && section.title() != null) {
+                group.getChildren().add(goalGroupHeader(section));
+            }
+            section.goals().forEach(goal ->
+                    group.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()), !byTask)));
+            goalsContainer.getChildren().add(byTask ? taskGoalGroup(section, group) : group);
+        });
         List<StudyGoal> dropped = displayDateAttempts.stream()
                 .filter(goal -> goal.isDropped() || goal.isDroppedAttempt()).toList();
         if (!dropped.isEmpty()) {
             VBox history = new VBox(8);
-            dropped.forEach(goal -> history.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()))));
+            dropped.forEach(goal ->
+                    history.getChildren().add(buildGoalRow(goal, tasksById.get(goal.getTaskId()), true)));
             TitledPane section = new TitledPane("Dropped (" + dropped.size() + ")", history);
             section.setExpanded(false);
             goalsContainer.getChildren().add(section);
@@ -517,6 +561,23 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         if (entry.retries().isEmpty()) {
             showAddGoalDialog(entry.task());
         } else {
+            new RetryDialog(entry).refresh(null, false);
+        }
+    }
+
+    /**
+     * The "Plan retry" modal. Every action in it refreshes the planner and brings the dialog back
+     * with a notice, so several goals can be handled in one visit; only Done closes it. The frame is
+     * built once so a refresh keeps the scroll position; only the notice and rows are rebuilt.
+     */
+    private final class RetryDialog {
+        private final PlannerAgenda.Entry entry;
+        private final Label notice = new Label();
+        private final VBox rows = new VBox(12);
+        private final ScrollPane wrapper;
+
+        RetryDialog(PlannerAgenda.Entry entry) {
+            this.entry = entry;
             VBox content = new VBox(12);
             content.setPadding(new Insets(20));
             content.getStyleClass().add("modal-content");
@@ -525,22 +586,105 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             Label title = new Label("Plan retry: " + entry.title());
             title.setWrapText(true);
             TaskStyleUtils.fontBold(title, 16);
-            content.getChildren().add(title);
-            entry.retries().forEach(goal -> content.getChildren().add(buildTaskRetryRow(goal)));
+            notice.setWrapText(true);
+            TaskStyleUtils.fontNormal(notice, 12);
+
             Button newGoal = new Button("+ New goal");
             newGoal.getStyleClass().add("btn-purple");
-            newGoal.setOnAction(event -> showAddGoalDialog(entry.task()));
-            Button cancel = new Button("Cancel");
-            cancel.getStyleClass().add("btn-cancel");
-            cancel.setOnAction(event -> closeModal.run());
-            content.getChildren().add(new HBox(10, newGoal, cancel));
-            ScrollPane wrapper = new ScrollPane(content);
+            newGoal.setOnAction(event -> showAddGoalDialog(entry.task(),
+                    refreshError -> showAfterRefresh("Added a new goal.", false, refreshError), this::reopen));
+            Button done = new Button("Done");
+            done.getStyleClass().add("btn-primary");
+            done.setOnAction(event -> {
+                closeModal.run();
+                focusPlanningTile(entry.key());
+            });
+            Region spacer = new Region();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+
+            content.getChildren().addAll(title, mutedLabel(entry.task() != null
+                            ? "Try a missed goal again today, or add a new goal for this task."
+                            : "Try this missed goal again today, or add a new goal."),
+                    notice, rows, new HBox(10, newGoal, spacer, done));
+            wrapper = new ScrollPane(content);
             wrapper.setFitToWidth(true);
             wrapper.getStyleClass().add("transparent-bg");
             wrapper.setMaxWidth(580);
             wrapper.setMaxHeight(600);
+        }
+
+        /** Reload the planner after a change made here, then show the dialog's current retries. */
+        void refresh(String message, boolean error) {
+            showAfterRefresh(message, error, refreshAfterChange());
+        }
+
+        /** A failed reload must not offer actions on stale retry rows or claim the list is empty. */
+        void showAfterRefresh(String message, boolean error, String refreshError) {
+            if (refreshError == null) {
+                show(message, error, true);
+                return;
+            }
+            String failure = refreshError;
+            if (message != null) {
+                failure = (error ? message + "\n" : "Changes saved. ") + refreshError;
+            }
+            show(failure, true, false);
+        }
+
+        void reopen() {
+            refresh(null, false);
+        }
+
+        /** Offer retry actions only when the planner's list was successfully refreshed. */
+        private void show(String message, boolean error, boolean listAvailable) {
+            // The planner rebuilds its entries on refresh; handled goals have left this one.
+            PlannerAgenda.Entry current = planningEntries.get(entry.key());
+            List<StudyGoal> retries = current == null ? List.of() : current.retries();
+            notice.setText(message);
+            notice.setVisible(message != null);
+            notice.setManaged(message != null);
+            notice.setGraphic(TaskStyleUtils.iconLabel(error ? "\u26A0" : "\u2713", 12));
+            TaskStyleUtils.textColor(notice, error ? TaskStyleUtils.COLOR_DANGER : TaskStyleUtils.COLOR_SUCCESS);
+            rows.getChildren().clear();
+            if (!listAvailable) {
+                rows.getChildren().add(mutedLabel("Retry list unavailable. Close and reopen this dialog to refresh."));
+            } else if (retries.isEmpty()) {
+                rows.getChildren().add(mutedLabel("No missed goals left to retry."));
+            } else {
+                rows.getChildren().setAll(retries.stream().map(goal -> (Node) buildTaskRetryRow(goal, this)).toList());
+            }
             showModal.accept(wrapper);
         }
+    }
+
+    /**
+     * Reload the planner after a change that already succeeded. A failure here is reported rather
+     * than thrown, so the dialog that made the change still closes or moves on instead of staying
+     * open and inviting the same save twice.
+     */
+    private String refreshAfterChange() {
+        try {
+            updateTasksDisplay();
+            updateProgress();
+            plannerError.setVisible(false);
+            plannerError.setManaged(false);
+            return null;
+        } catch (Exception ex) {
+            String message = "The planner could not refresh: " + ex.getMessage();
+            showPlannerError(message);
+            return message;
+        }
+    }
+
+    /**
+     * Opening the retry dialog rebuilds the planning tiles, so the one it was opened from has lost
+     * keyboard focus; give it to that entry's new tile, if it is still listed.
+     */
+    private void focusPlanningTile(String key) {
+        Stream.of(needsPlanContainer, unlinkedRetriesContainer)
+                .flatMap(container -> container.lookupAll(".plan-tile").stream())
+                .filter(tile -> key.equals(tile.getProperties().get(PlanningRow.KEY)))
+                .findFirst().ifPresent(Node::requestFocus);
     }
 
     private void installPlanningDropTarget(VBox goals) {
@@ -789,7 +933,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             row.getChildren().add(badges);
         }
         retryableGoals.stream().filter(goal -> task.getId().equals(goal.getTaskId())).forEach(goal ->
-                row.getChildren().add(buildTaskRetryRow(goal)));
+                row.getChildren().add(buildTaskRetryRow(goal, null)));
         return row;
     }
 
@@ -826,58 +970,152 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         return badges;
     }
 
-    private HBox buildTaskRetryRow(StudyGoal goal) {
-        HBox row = new HBox(10);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(6, 8, 6, 8));
-        row.setStyle("-fx-background-color: " + TaskStyleUtils.retryBackgroundColor() + "; -fx-background-radius: 5;");
+    /**
+     * A missed goal as a card: text on top, actions on their own line so their labels never truncate.
+     * Inside the retry dialog its actions return to that dialog; in the task browser ({@code dialog}
+     * null) they just refresh the planner.
+     */
+    private VBox buildTaskRetryRow(StudyGoal goal, RetryDialog dialog) {
+        VBox row = new VBox(4);
+        row.getStyleClass().add("planner-retry-row");
 
-        VBox textBox = new VBox(2);
         Label goalLabel = new Label(goal.getDescription());
         goalLabel.setWrapText(true);
-        TaskStyleUtils.fontNormal(goalLabel, 13);
+        TaskStyleUtils.fontSemiBold(goalLabel, 13);
         Label attemptLabel = new Label(formatRetryAttemptSummary(goal));
         TaskStyleUtils.fontNormal(attemptLabel, 11);
         TaskStyleUtils.textColor(attemptLabel, TaskStyleUtils.retryTextColor());
         attemptLabel.setWrapText(true);
-        textBox.setMinWidth(0);
-        HBox.setHgrow(textBox, Priority.ALWAYS);
-        textBox.getChildren().addAll(goalLabel, attemptLabel);
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
 
         Button replanBtn = new Button("Plan retry today");
         replanBtn.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 12));
         replanBtn.getStyleClass().addAll("btn-orange", "btn-small");
+        Button editBtn = editGoalButton(goal);
+        if (dialog != null) {
+            editBtn.setOnAction(e -> showEditGoalDialog(goal,
+                    refreshError -> dialog.showAfterRefresh("Goal saved.", false, refreshError),
+                    dialog::reopen));
+        }
+        MenuButton more = goalActions(goal, dialog == null ? null
+                : () -> dialog.refresh("Updated \u201C" + goal.getDescription() + "\u201D.", false));
+        FlowPane actions = new FlowPane(6, 6, replanBtn, editBtn, more);
+        actions.setPadding(new Insets(4, 0, 0, 0));
+        actions.getChildren().forEach(node -> ((Region) node).setMinWidth(Region.USE_PREF_SIZE));
         replanBtn.setOnAction(e -> {
-            try {
-                if (!studyService.replanGoalForToday(goal.getId())) {
-                    showPlannerError("This goal is no longer ready to retry. Refresh the planner and try again.");
-                }
-                closeModal.run();
-                updateTasksDisplay();
-                updateProgress();
-            } catch (Exception ex) {
-                showPlannerError("Could not plan retry: " + ex.getMessage());
-                closeModal.run();
+            if (goal.isChecklistComplete()) {
+                askCompletedChecklist(goal, dialog, actions);
+            } else {
+                retryToday(goal, dialog, null);
             }
         });
 
-        row.getChildren().addAll(textBox, spacer, editGoalButton(goal), replanBtn, goalActions(goal));
+        row.getChildren().addAll(goalLabel, attemptLabel, actions);
         return row;
     }
 
-    private String formatRetryAttemptSummary(StudyGoal goal) {
-        String missedOn = goal.getDate() != null
-                ? goal.getDate().format(DateTimeFormatter.ofPattern("MMM d"))
-                : "previous attempt";
-        // Retry rows show the goal's latest attempt, so the retry is the one after it.
-        return "Missed " + missedOn + " - " + formatAttemptSummary(goal)
-                + " - next attempt " + (goal.getAttemptNumber() + 1);
+    /**
+     * Every checklist line is already ticked, so a retry would start pending with nothing left to do.
+     * Ask in the row itself, replacing its actions until the user answers or cancels.
+     */
+    private void askCompletedChecklist(StudyGoal goal, RetryDialog dialog, FlowPane actions) {
+        List<Node> original = List.copyOf(actions.getChildren());
+        Label prompt = mutedLabel("Every checklist item is already ticked.");
+        Button startOver = new Button("Start over");
+        startOver.getStyleClass().addAll("btn-orange", "btn-small");
+        startOver.setOnAction(e -> retryToday(goal, dialog, StudyService.CompletedChecklist.START_OVER));
+        Button markDone = new Button("Mark done");
+        markDone.getStyleClass().addAll("btn-success", "btn-small");
+        markDone.setOnAction(e -> retryToday(goal, dialog, StudyService.CompletedChecklist.MARK_DONE));
+        Button cancel = new Button("Cancel");
+        cancel.getStyleClass().addAll("btn-gray", "btn-small");
+        cancel.setOnAction(e -> actions.getChildren().setAll(original));
+        List.of(startOver, markDone, cancel).forEach(button -> button.setMinWidth(Region.USE_PREF_SIZE));
+        actions.getChildren().setAll(prompt, startOver, markDone, cancel);
     }
 
-    private HBox buildGoalRow(StudyGoal goal, Task linkedTask) {
+    /** Plan the goal's retry for today; {@code choice} answers a complete checklist, else null. */
+    private void retryToday(StudyGoal goal, RetryDialog dialog, StudyService.CompletedChecklist choice) {
+        String error = null;
+        try {
+            if (!studyService.replanGoalForToday(goal.getId(), choice)) {
+                error = dialog != null
+                        ? "This goal is no longer ready to retry. The list has been updated."
+                        : "This goal is no longer ready to retry. Refresh the planner and try again.";
+            }
+        } catch (Exception ex) {
+            error = "Could not plan retry: " + ex.getMessage();
+        }
+        if (dialog != null) {
+            String name = "“" + goal.getDescription() + "”";
+            String done = choice == StudyService.CompletedChecklist.MARK_DONE ? "Marked " + name + " done."
+                    : choice == StudyService.CompletedChecklist.START_OVER
+                    ? "Planned " + name + " for today with its checklist cleared."
+                    : "Planned " + name + " for today.";
+            dialog.refresh(error != null ? error : done, error != null);
+        } else {
+            refreshAfterChange();
+            if (error != null) {
+                showPlannerError(error);
+            }
+        }
+    }
+
+    private String formatRetryAttemptSummary(StudyGoal goal) {
+        // Retry rows show the goal's latest attempt, the one that was missed.
+        String summary = "Attempt " + goal.getAttemptNumber() + " missed";
+        if (goal.getDate() != null) {
+            summary += " " + goal.getDate().format(DateTimeFormatter.ofPattern("MMM d"));
+        }
+        return summary + TaskStyleUtils.criteriaProgress(goal.getCriteria());
+    }
+
+    /** Independently collapsible task goals, retaining the user's choice across planner rebuilds. */
+    private TitledPane taskGoalGroup(GoalListAgenda.Section section, VBox content) {
+        Task task = tasksById.get(section.goals().getFirst().getTaskId());
+        String taskId = task == null ? null : task.getId();
+        HBox header = goalGroupHeader(section);
+        TitledPane pane = new TitledPane(section.title(), content);
+        pane.setMinWidth(0);
+        pane.getStyleClass().add("planner-task-goals");
+        pane.setGraphic(header);
+        pane.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+        pane.setAccessibleText(header.getAccessibleText());
+        pane.setAnimated(false);
+        pane.setExpanded(!collapsedGoalTaskIds.contains(taskId));
+        pane.expandedProperty().addListener((observable, wasExpanded, expanded) -> {
+            if (expanded) {
+                collapsedGoalTaskIds.remove(taskId);
+            } else {
+                collapsedGoalTaskIds.add(taskId);
+            }
+        });
+        return pane;
+    }
+
+    /** A group heading with the task's planned/done summary, or a status's goal count. */
+    private HBox goalGroupHeader(GoalListAgenda.Section section) {
+        Label title = new Label(section.title());
+        title.setWrapText(true);
+        title.setMinWidth(0);
+        TaskStyleUtils.fontBold(title, 14);
+        int total = section.goals().size();
+        String count = goalGroup == GoalListAgenda.Group.TASK
+                ? total + " planned \u00B7 " + section.goals().stream().filter(StudyGoal::isAchieved).count() + " done"
+                : total + (total == 1 ? " goal" : " goals");
+        Label countLabel = mutedLabel(count);
+        countLabel.setWrapText(false);
+        countLabel.setMinWidth(Region.USE_PREF_SIZE);
+        HBox header = new HBox(8, title, countLabel);
+        header.setMinWidth(0);
+        HBox.setHgrow(title, Priority.ALWAYS);
+        header.setAccessibleText(section.title() + ", " + count);
+        header.setAlignment(Pos.BASELINE_LEFT);
+        header.getStyleClass().add("planner-goal-group-header");
+        return header;
+    }
+
+    /** {@code showTask} names the goal's task under its title; off when a task heading already does. */
+    private HBox buildGoalRow(StudyGoal goal, Task linkedTask, boolean showTask) {
         HBox row = new HBox(10);
         row.setAlignment(Pos.TOP_LEFT);
         row.getStyleClass().add("planner-goal-row");
@@ -891,10 +1129,12 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             bgColor = goal.getDelayColorIntensity() < 0.5 ? "#fff3cd" : "#f8d7da";
         }
         row.setStyle("-fx-background-color: " + bgColor + ";");
+        // StudyService would refuse these: a missed goal waits for a retry, and an earlier day's achievement stays.
+        boolean locked = missed || goal.isAchievedBefore(dateTimeService.getCurrentDate());
 
         CheckBox check = new CheckBox();
         check.setSelected(goal.isAchieved());
-        check.setDisable(missed);
+        check.setDisable(locked);
         check.setAccessibleText("Achieve goal: " + goal.getDescription());
         check.setOnAction(e -> {
             try {
@@ -906,8 +1146,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             updateTasksDisplay();
         });
 
-        // Title and actions share the first line; the goal, checklist and attempt sit under the title.
-        Label title = new Label(linkedTask != null ? taskTitle(linkedTask) : goal.getDescription());
+        // The goal and its actions share the first line; its task, checklist and attempt sit under it.
+        Label title = new Label(goal.getDescription());
         title.setWrapText(true);
         title.setMinWidth(0);
         title.setMaxWidth(Double.MAX_VALUE);
@@ -932,18 +1172,14 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
 
         VBox textBox = new VBox(4, titleLine);
         textBox.setMinWidth(0);
-        if (linkedTask != null) {
-            Label goalLabel = new Label(goal.getDescription());
-            goalLabel.setWrapText(true);
-            if (goal.isAchieved() || missed) {
-                TaskStyleUtils.textColor(goalLabel, TaskStyleUtils.COLOR_MUTED);
-            }
-            TaskStyleUtils.fontNormal(goalLabel, 12);
-            textBox.getChildren().add(goalLabel);
+        if (showTask && linkedTask != null) {
+            Label taskLabel = mutedLabel("Task: " + taskTitle(linkedTask));
+            taskLabel.setMinWidth(0);
+            textBox.getChildren().add(taskLabel);
         }
         if (!goal.getCriteria().isEmpty()) {
             textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(),
-                    missed ? null : criterionToggle(goal)));
+                    locked ? null : criterionToggle(goal)));
         }
 
         Label attemptLabel = new Label(formatAttemptSummary(goal));
@@ -968,15 +1204,28 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
     }
 
     private MenuButton goalActions(StudyGoal goal) {
-        return GoalActions.menu(goal, studyService, dateTimeService.getCurrentDate(), () -> {
-            closeModal.run();
-            updateTasksDisplay();
-            updateProgress();
-        });
+        return goalActions(goal, null);
     }
 
-    /** Edit an existing goal's description, done-when checklist and (while pending) its date. */
+    /** {@code afterChange} replaces the default close-and-refresh; it must refresh the planner itself. */
+    private MenuButton goalActions(StudyGoal goal, Runnable afterChange) {
+        return GoalActions.menu(goal, studyService, dateTimeService.getCurrentDate(), afterChange != null
+                ? afterChange : () -> {
+                    closeModal.run();
+                    updateTasksDisplay();
+                    updateProgress();
+                });
+    }
+
     private void showEditGoalDialog(StudyGoal goal) {
+        showEditGoalDialog(goal, refreshError -> closeModal.run(), closeModal);
+    }
+
+    /**
+     * Edit an existing goal's description, done-when checklist and (while pending) its date.
+     * {@code onSaved} receives the refresh error, or null on success, after the save succeeds.
+     */
+    private void showEditGoalDialog(StudyGoal goal, Consumer<String> onSaved, Runnable onCancel) {
         VBox content = new VBox(12);
         content.setPadding(new Insets(20));
         content.getStyleClass().add("modal-content");
@@ -993,16 +1242,15 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         saveBtn.setOnAction(e -> {
             try {
                 fields.save(studyService, currentGoal);
-                closeModal.run();
-                updateTasksDisplay();
-                updateProgress();
             } catch (Exception ex) {
                 fields.showError(ex.getMessage());
+                return;
             }
+            onSaved.accept(refreshAfterChange());
         });
         Button cancelBtn = new Button("Cancel");
         cancelBtn.getStyleClass().add("btn-cancel");
-        cancelBtn.setOnAction(e -> closeModal.run());
+        cancelBtn.setOnAction(e -> onCancel.run());
         HBox btnRow = new HBox(10, saveBtn, cancelBtn);
         btnRow.setAlignment(Pos.CENTER_RIGHT);
 
@@ -1483,6 +1731,11 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
     }
 
     private void showAddGoalDialog(Task linkedTask) {
+        showAddGoalDialog(linkedTask, refreshError -> closeModal.run(), closeModal);
+    }
+
+    /** {@code onAdded} receives the refresh error, or null on success, after the save succeeds. */
+    private void showAddGoalDialog(Task linkedTask, Consumer<String> onAdded, Runnable onCancel) {
         VBox content = new VBox(12);
         content.setPadding(new Insets(20));
         content.getStyleClass().add("modal-content");
@@ -1557,7 +1810,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
 
         Button cancelBtn = new Button("Cancel");
         cancelBtn.getStyleClass().add("btn-cancel");
-        cancelBtn.setOnAction(e -> closeModal.run());
+        cancelBtn.setOnAction(e -> onCancel.run());
 
         okBtn.setOnAction(e -> {
             String desc = descArea.getText().trim();
@@ -1567,15 +1820,14 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
                     : (taskCombo.getValue() != null ? taskCombo.getValue().getId() : null);
             try {
                 studyService.addStudyGoal(desc, date, taskId, criteriaArea.getText());
-                closeModal.run();
-                updateTasksDisplay();
-                updateProgress();
             } catch (Exception ex) {
                 Label err = new Label(ex.getMessage());
                 err.setGraphic(TaskStyleUtils.iconLabel("\u26A0", 12));
                 TaskStyleUtils.textColor(err, "#e74c3c");
                 content.getChildren().add(err);
+                return;
             }
+            onAdded.accept(refreshAfterChange());
         });
 
         HBox btnRow = new HBox(10, okBtn, cancelBtn);

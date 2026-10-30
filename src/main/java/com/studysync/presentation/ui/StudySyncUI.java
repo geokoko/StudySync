@@ -367,6 +367,12 @@ public class StudySyncUI {
     }
 
     private void processDelayedGoalsOnStartup() {
+        // Separate from the sweep: maintenance runs once, so a failed repair must not skip it.
+        try {
+            studyService.normalizeAchievedGoalChecklists();
+        } catch (Exception e) {
+            logger.error("Failed to normalize achieved goal checklists on startup", e);
+        }
         try {
             StudyService.GoalDelayProcessingResult result = studyService.processAllDelayedGoals();
             if (result.missedAttempts() > 0) {

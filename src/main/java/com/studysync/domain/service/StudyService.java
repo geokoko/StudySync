@@ -189,6 +189,7 @@ public class StudyService {
         StudyGoal goal = new StudyGoal(null, date, description, false, null, 0, false, 0, taskId);
         goal.setDoneCriteria(StudyGoal.criteriaFromLines(doneCriteriaLines, null));
         goal.save();
+        reconcileAchievementWithChecklist(goal, goal.getCriteria());
 
         // When a goal is created for an OPEN task, automatically transition it
         // to IN_PROGRESS to reflect that active work has been planned.
@@ -247,7 +248,23 @@ public class StudyService {
      * @param goalId ID of the goal to retry
      * @return {@code true} when a new pending retry attempt was created
      */
+    /**
+     * What a new attempt does with a checklist that has no open line left. Starting it pending
+     * with every line ticked would break the checklist rule, so retries and reopens of such a
+     * goal must choose; for a goal with open lines the choice is ignored.
+     */
+    public enum CompletedChecklist {
+        /** Clear every tick, so the new attempt has the whole checklist to do again. */
+        START_OVER,
+        /** The work is already done: plan the new attempt for today and achieve it. */
+        MARK_DONE
+    }
+
     public boolean replanGoalForToday(String goalId) {
+        return replanGoalForToday(goalId, null);
+    }
+
+    public boolean replanGoalForToday(String goalId, CompletedChecklist choice) {
         Optional<StudyGoal> goalOpt = StudyGoal.findById(goalId);
         if (goalOpt.isEmpty()) {
             logger.warn("Requested retry for study goal '{}' but it did not exist", goalId);
@@ -257,8 +274,10 @@ public class StudyService {
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED || goal.isAchieved()) {
             return false;
         }
+        requireChecklistChoice(goal, choice);
         boolean created = StudyGoal.createReplanAttempt(goalId, dateTimeService.getCurrentDate());
         if (created) {
+            applyChecklistChoice(goal, choice);
             markDirtyAndSaveLocally("study goal replan");
             logger.info("Created new attempt for goal '{}' on {}", goal.getDescription(), dateTimeService.getCurrentDate());
         }
@@ -266,6 +285,11 @@ public class StudyService {
     }
 
     public boolean planGoalAttempt(String goalId, LocalDate plannedForDate) {
+        return planGoalAttempt(goalId, plannedForDate, null);
+    }
+
+    /** {@link CompletedChecklist#MARK_DONE} plans the attempt for today, whatever date was picked. */
+    public boolean planGoalAttempt(String goalId, LocalDate plannedForDate, CompletedChecklist choice) {
         if (goalId == null || goalId.isBlank()) {
             throw ValidationException.requiredFieldMissing("goalId");
         }
@@ -285,10 +309,13 @@ public class StudyService {
         if (goal.getStatus() == StudyGoal.GoalStatus.ABANDONED || goal.isAchieved()) {
             return false;
         }
-        boolean created = StudyGoal.createReplanAttempt(goalId, plannedForDate);
+        requireChecklistChoice(goal, choice);
+        LocalDate attemptDate = attemptDate(goal, choice, plannedForDate);
+        boolean created = StudyGoal.createReplanAttempt(goalId, attemptDate);
         if (created) {
+            applyChecklistChoice(goal, choice);
             markDirtyAndSaveLocally("study goal retry planning");
-            logger.info("Created new attempt for goal '{}' on {}", goal.getDescription(), plannedForDate);
+            logger.info("Created new attempt for goal '{}' on {}", goal.getDescription(), attemptDate);
         }
         return created;
     }
@@ -321,25 +348,70 @@ public class StudyService {
         }
         String doneCriteria = doneCriteriaLines == null
                 ? goal.getDoneCriteria()
-                : StudyGoal.criteriaFromLines(doneCriteriaLines, goal.getDoneCriteria());
+                : StudyGoal.criteriaFromLines(doneCriteriaLines, goal.getDoneCriteria(), !checklistTicksLocked(goal));
         boolean updated = StudyGoal.updateDetails(goalId, description, pendingPlannedForDate, doneCriteria);
         if (updated) {
+            if (doneCriteriaLines != null) {
+                reconcileAchievementWithChecklist(goal, StudyGoal.parseCriteria(doneCriteria));
+            }
             markDirtyAndSaveLocally("study goal details update");
         }
         return updated;
     }
 
     /**
+     * Keeps "achieved exactly when the checklist is complete" on creation and checklist edits. A pending goal
+     * whose remaining open lines were removed is achieved; an achieved goal that gained an open line
+     * reopens. An achieved attempt from an earlier day is history: reopening it would leave a pending
+     * attempt in the past that the next refresh sweeps to missed, so its lines are ticked instead.
+     * Missed and dropped goals are left alone.
+     */
+    private void reconcileAchievementWithChecklist(StudyGoal goal, List<StudyGoal.Criterion> criteria) {
+        if (criteria.isEmpty() || checklistTicksLocked(goal)) {
+            return;
+        }
+        boolean complete = criteria.stream().allMatch(StudyGoal.Criterion::done);
+        if (complete && !goal.isAchieved()) {
+            applyAchievement(goal.getId(), true, null);
+        } else if (!complete && goal.isAchieved()) {
+            if (goal.isAchievedBefore(dateTimeService.getCurrentDate())) {
+                StudyGoal.setAllCriteriaDone(goal.getId(), true);
+            } else {
+                applyAchievement(goal.getId(), false, null);
+            }
+        }
+    }
+
+    private static boolean checklistTicksLocked(StudyGoal goal) {
+        return goal.isDropped() || goal.isDroppedAttempt()
+                || goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED;
+    }
+
+    /**
+     * Idempotent upgrade maintenance, called only after the startup Drive check permits mutations.
+     * Like the overdue sweep, this derived repair must checkpoint without setting the dirty flag,
+     * including when its transaction commits after the UI's maintenance wrapper has returned.
+     */
+    public int normalizeAchievedGoalChecklists() {
+        int changed = StudyGoal.normalizeAchievedChecklists();
+        if (changed > 0) {
+            saveLocallyWithoutDirtyFlag("achieved goal checklist normalization");
+        }
+        return changed;
+    }
+
+    /**
      * Ticks or unticks one line of a goal's checklist. Ticking the last open
      * line achieves the current attempt; unticking any line on an achieved
-     * goal reopens it, with exactly the semantics of the achieved checkbox.
-     * Ticking a line never reopens anything: a goal achieved by hand with
-     * open criteria stays achieved while the remaining lines are filled in.
-     * An unknown goal or index changes nothing, achievement included.
+     * goal reopens it and keeps the other ticks. Ticking a line never reopens
+     * anything. A missed or dropped goal, or an unknown goal or index, changes
+     * nothing; a retry continues from the ticks the missed attempt left.
+     * Unticking a line of an earlier day's achieved goal changes nothing either.
      */
     public void setGoalCriterionDone(String goalId, int index, boolean done) {
         Optional<StudyGoal> goal = StudyGoal.findById(goalId);
-        if (goal.isEmpty() || goal.get().isDropped() || goal.get().isDroppedAttempt()) {
+        if (goal.isEmpty() || checklistTicksLocked(goal.get())
+                || (!done && goal.get().isAchievedBefore(dateTimeService.getCurrentDate()))) {
             return;
         }
         Optional<List<StudyGoal.Criterion>> changed = StudyGoal.setCriterionDone(goalId, index, done);
@@ -355,17 +427,30 @@ public class StudyService {
         markDirtyAndSaveLocally("study goal criterion update");
     }
 
+    /**
+     * The goal checkbox. Its checklist mirrors it: achieving ticks every line
+     * and reopening clears them, so a goal is achieved exactly when its
+     * checklist is complete. A goal that cannot change (dropped, missed,
+     * not achieved, achieved on an earlier day) keeps its ticks.
+     */
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
         if (applyAchievement(goalId, achieved, reasonIfNot)) {
+            StudyGoal.setAllCriteriaDone(goalId, achieved);
             markDirtyAndSaveLocally("study goal achievement update");
         }
     }
 
-    /** The one place that flips a goal's current attempt between achieved and pending. */
+    /**
+     * The one place that flips a goal's current attempt between achieved and pending. It never
+     * reopens an earlier day's achievement ({@link StudyGoal#isAchievedBefore}).
+     */
     private boolean applyAchievement(String goalId, boolean achieved, String reasonIfNot) {
-        return achieved
-                ? StudyGoal.markCurrentAttemptAchieved(goalId, reasonIfNot)
-                : StudyGoal.reopenAchievedGoal(goalId);
+        if (achieved) {
+            return StudyGoal.markCurrentAttemptAchieved(goalId, reasonIfNot);
+        }
+        LocalDate today = dateTimeService.getCurrentDate();
+        return StudyGoal.findById(goalId).filter(goal -> !goal.isAchievedBefore(today)).isPresent()
+                && StudyGoal.reopenAchievedGoal(goalId);
     }
 
     /** A missed attempt stays retryable; it does not drop the goal. */
@@ -393,6 +478,11 @@ public class StudyService {
     }
 
     public boolean reopenDroppedGoal(String goalId, LocalDate plannedForDate) {
+        return reopenDroppedGoal(goalId, plannedForDate, null);
+    }
+
+    /** {@link CompletedChecklist#MARK_DONE} reopens the goal for today, whatever date was picked. */
+    public boolean reopenDroppedGoal(String goalId, LocalDate plannedForDate, CompletedChecklist choice) {
         if (goalId == null || goalId.isBlank()) {
             throw ValidationException.requiredFieldMissing("goalId");
         }
@@ -402,11 +492,41 @@ public class StudyService {
         if (plannedForDate.isBefore(dateTimeService.getCurrentDate())) {
             throw ValidationException.invalidDateRange(plannedForDate.toString(), "today or a future date");
         }
-        boolean changed = StudyGoal.reopenDroppedGoal(goalId, plannedForDate);
+        Optional<StudyGoal> goal = StudyGoal.findById(goalId);
+        if (goal.isEmpty()) {
+            return false;
+        }
+        requireChecklistChoice(goal.get(), choice);
+        boolean changed = StudyGoal.reopenDroppedGoal(goalId, attemptDate(goal.get(), choice, plannedForDate));
         if (changed) {
+            applyChecklistChoice(goal.get(), choice);
             markDirtyAndSaveLocally("study goal reopened");
         }
         return changed;
+    }
+
+    private static void requireChecklistChoice(StudyGoal goal, CompletedChecklist choice) {
+        if (choice == null && goal.isChecklistComplete()) {
+            throw new ValidationException("Every checklist item is already ticked. Choose whether to start the "
+                    + "checklist over or mark the goal done.", ValidationException.INVALID_INPUT);
+        }
+    }
+
+    private LocalDate attemptDate(StudyGoal goal, CompletedChecklist choice, LocalDate plannedForDate) {
+        return choice == CompletedChecklist.MARK_DONE && goal.isChecklistComplete()
+                ? dateTimeService.getCurrentDate() : plannedForDate;
+    }
+
+    /** Runs in the caller's transaction, right after the new attempt was created. */
+    private void applyChecklistChoice(StudyGoal goal, CompletedChecklist choice) {
+        if (choice == null || !goal.isChecklistComplete()) {
+            return;
+        }
+        if (choice == CompletedChecklist.START_OVER) {
+            StudyGoal.setAllCriteriaDone(goal.getId(), false);
+        } else {
+            applyAchievement(goal.getId(), true, null);
+        }
     }
 
     /**
