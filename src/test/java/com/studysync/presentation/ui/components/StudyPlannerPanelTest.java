@@ -397,6 +397,43 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void planningAParentCanPlanTheGoalForOneOfItsActiveSubtasks() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                fixture.parent.setDeadline(TODAY.minusDays(2));
+                Task later = Fixture.task("later", "Later subtask", TODAY.plusDays(4));
+                later.setParentId(fixture.parent.getId());
+                Task done = Fixture.task("done", "Done subtask", TODAY.plusDays(1));
+                done.setParentId(fixture.parent.getId());
+                done.setStatus(TaskStatus.COMPLETED);
+                when(fixture.tasks.getTasks()).thenReturn(List.of(fixture.parent, later, done, fixture.child));
+                StudyPlannerPanel panel = fixture.panel();
+
+                planningTile(panel, "Parent").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+                ComboBox<?> target = nodes(fixture.modal).stream().filter(ComboBox.class::isInstance)
+                        .map(node -> (ComboBox<?>) node).findFirst().orElseThrow();
+                assertEquals(List.of(fixture.parent, fixture.child, later), target.getItems());
+                assertEquals(fixture.parent, target.getValue());
+                assertTrue(labelTexts(fixture.modal).contains("Add goal for: Parent"));
+
+                target.getSelectionModel().select(target.getItems().indexOf(fixture.child));
+                assertTrue(labelTexts(fixture.modal).contains("Add goal for: Parent / Subtask"));
+                nodes(fixture.modal).stream().filter(TextArea.class::isInstance).map(TextArea.class::cast)
+                        .findFirst().orElseThrow().setText("Solve problem 1");
+                button(fixture.modal, "Add Goal").fire();
+                verify(fixture.study).addStudyGoal("Solve problem 1", TODAY, fixture.child.getId(), "");
+
+                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+                assertTrue(nodes(fixture.modal).stream().noneMatch(ComboBox.class::isInstance),
+                        "a subtask has no subtasks to choose from");
+            }
+        });
+    }
+
+    @Test
     void planningOneRetryLeavesTheOtherRetryAndNewGoalActionAvailable() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {
