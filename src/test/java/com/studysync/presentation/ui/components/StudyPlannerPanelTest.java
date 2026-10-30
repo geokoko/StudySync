@@ -725,6 +725,37 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void anEarlierDaysAchievedGoalIsReadOnlyInThePlanner() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                LocalDate yesterday = TODAY.minusDays(1);
+                fixture.attempts.clear();
+                fixture.goal.setDate(yesterday);
+                fixture.goal.setDoneCriteria("[x] Read\n[x] Notes");
+                fixture.goal.setAchieved(true);
+                when(fixture.study.getAllGoalsForDate(yesterday)).thenReturn(List.of(fixture.goal));
+                StudyPlannerPanel panel = fixture.panel();
+
+                nodes(panel).stream().filter(Button.class::isInstance).map(Button.class::cast)
+                        .filter(button -> button.getGraphic() instanceof Label icon && "◀".equals(icon.getText()))
+                        .findFirst().orElseThrow().fire();
+
+                List<CheckBox> checks = nodes(goalsCard(panel)).stream().filter(CheckBox.class::isInstance)
+                        .map(CheckBox.class::cast).toList();
+                CheckBox achieved = checks.stream()
+                        .filter(check -> "Achieve goal: Read chapter".equals(check.getAccessibleText()))
+                        .findFirst().orElseThrow();
+                assertTrue(achieved.isSelected());
+                assertTrue(achieved.isDisabled());
+                List<CheckBox> lines = checks.stream().filter(check -> check != achieved).toList();
+                assertEquals(2, lines.size());
+                assertTrue(lines.stream().allMatch(line -> line.isSelected() && line.isMouseTransparent()
+                        && line.getOnAction() == null));
+            }
+        });
+    }
+
+    @Test
     void closingTheRetryDialogReturnsFocusToItsRebuiltTile() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {

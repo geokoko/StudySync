@@ -235,6 +235,14 @@ public class StudyGoal {
         }
     }
 
+    /**
+     * Achieved on a day before {@code today}. That achievement is history: reopening it would leave a
+     * pending attempt in the past that the next refresh sweeps to missed, so nothing reopens it.
+     */
+    public boolean isAchievedBefore(LocalDate today) {
+        return achieved && date != null && date.isBefore(today);
+    }
+
     public String getReasonIfNotAchieved() { return reasonIfNotAchieved; }
     public void setReasonIfNotAchieved(String reasonIfNotAchieved) {
         this.reasonIfNotAchieved = reasonIfNotAchieved;

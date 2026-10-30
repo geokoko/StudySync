@@ -983,6 +983,25 @@ class StudyServicePersistenceTest {
     }
 
     @Test
+    void anEarlierDaysAchievedGoalCannotBeUntickedBackToPending() {
+        StudyGoal goal = new StudyGoal("Yesterday's problems");
+        goal.setDate(LocalDate.of(2026, 3, 27));
+        goal.setDoneCriteria("[ ] Problem 1\n[ ] Problem 2");
+        goal.save();
+        studyService.updateStudyGoalAchievement(goal.getId(), true, null);
+        reset(googleDriveService);
+
+        studyService.setGoalCriterionDone(goal.getId(), 0, false);
+        studyService.updateStudyGoalAchievement(goal.getId(), false, null);
+
+        StudyGoal stored = StudyGoal.findById(goal.getId()).orElseThrow();
+        assertTrue(stored.isAchieved());
+        assertEquals(StudyGoal.AttemptOutcome.ACHIEVED, stored.getAttemptOutcome());
+        assertTrue(stored.getCriteria().stream().allMatch(StudyGoal.Criterion::done));
+        verify(googleDriveService, never()).markLocalDbDirty();
+    }
+
+    @Test
     void aMissedAttemptCannotBeAchievedOrTickedUntilItIsRetried() {
         StudyGoal missed = missedGoal("Missed reading", null, LocalDate.of(2026, 3, 27));
         jdbcTemplate.update("UPDATE study_goals SET done_criteria = ? WHERE id = ?", "[ ] Read\n[x] Notes",

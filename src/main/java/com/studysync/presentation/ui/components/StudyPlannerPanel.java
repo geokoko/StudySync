@@ -1129,10 +1129,12 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             bgColor = goal.getDelayColorIntensity() < 0.5 ? "#fff3cd" : "#f8d7da";
         }
         row.setStyle("-fx-background-color: " + bgColor + ";");
+        // StudyService would refuse these: a missed goal waits for a retry, and an earlier day's achievement stays.
+        boolean locked = missed || goal.isAchievedBefore(dateTimeService.getCurrentDate());
 
         CheckBox check = new CheckBox();
         check.setSelected(goal.isAchieved());
-        check.setDisable(missed);
+        check.setDisable(locked);
         check.setAccessibleText("Achieve goal: " + goal.getDescription());
         check.setOnAction(e -> {
             try {
@@ -1177,7 +1179,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         }
         if (!goal.getCriteria().isEmpty()) {
             textBox.getChildren().add(TaskStyleUtils.criteriaChecklist(goal.getCriteria(),
-                    missed ? null : criterionToggle(goal)));
+                    locked ? null : criterionToggle(goal)));
         }
 
         Label attemptLabel = new Label(formatAttemptSummary(goal));

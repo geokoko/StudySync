@@ -192,9 +192,11 @@ Syncs the whole H2 file. OAuth client credentials live in
   achieves the current attempt and unticking one reopens it, keeping the other
   ticks (`StudyService.setGoalCriterionDone`). Ticking the checkbox ticks every
   line and unticking it clears them (`updateStudyGoalAchievement`); a goal it
-  cannot change keeps its ticks. A checklist edit re-applies the rule, except
-  that an earlier day's achieved goal stays achieved with its lines ticked
-  (reopening would leave a past pending attempt that is swept to missed). A
+  cannot change keeps its ticks. A checklist edit re-applies the rule. An
+  earlier day's achieved goal stays achieved with its lines ticked
+  (`StudyGoal.isAchievedBefore`): reopening it would leave a past pending
+  attempt that is swept to missed, so unticking it changes nothing, the planner
+  shows it read-only, and a checklist edit ticks its new lines instead. A
   missed or dropped attempt can be neither achieved nor ticked; a retry
   continues from its ticks. When those ticks are already complete, a retry or
   reopen must say what to do (`StudyService.CompletedChecklist`): start the

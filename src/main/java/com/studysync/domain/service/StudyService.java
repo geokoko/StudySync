@@ -374,7 +374,7 @@ public class StudyService {
         if (complete && !goal.isAchieved()) {
             applyAchievement(goal.getId(), true, null);
         } else if (!complete && goal.isAchieved()) {
-            if (goal.getDate() != null && goal.getDate().isBefore(dateTimeService.getCurrentDate())) {
+            if (goal.isAchievedBefore(dateTimeService.getCurrentDate())) {
                 StudyGoal.setAllCriteriaDone(goal.getId(), true);
             } else {
                 applyAchievement(goal.getId(), false, null);
@@ -406,10 +406,12 @@ public class StudyService {
      * goal reopens it and keeps the other ticks. Ticking a line never reopens
      * anything. A missed or dropped goal, or an unknown goal or index, changes
      * nothing; a retry continues from the ticks the missed attempt left.
+     * Unticking a line of an earlier day's achieved goal changes nothing either.
      */
     public void setGoalCriterionDone(String goalId, int index, boolean done) {
         Optional<StudyGoal> goal = StudyGoal.findById(goalId);
-        if (goal.isEmpty() || checklistTicksLocked(goal.get())) {
+        if (goal.isEmpty() || checklistTicksLocked(goal.get())
+                || (!done && goal.get().isAchievedBefore(dateTimeService.getCurrentDate()))) {
             return;
         }
         Optional<List<StudyGoal.Criterion>> changed = StudyGoal.setCriterionDone(goalId, index, done);
@@ -429,7 +431,7 @@ public class StudyService {
      * The goal checkbox. Its checklist mirrors it: achieving ticks every line
      * and reopening clears them, so a goal is achieved exactly when its
      * checklist is complete. A goal that cannot change (dropped, missed,
-     * not achieved) keeps its ticks.
+     * not achieved, achieved on an earlier day) keeps its ticks.
      */
     public void updateStudyGoalAchievement(String goalId, boolean achieved, String reasonIfNot) {
         if (applyAchievement(goalId, achieved, reasonIfNot)) {
@@ -438,11 +440,17 @@ public class StudyService {
         }
     }
 
-    /** The one place that flips a goal's current attempt between achieved and pending. */
+    /**
+     * The one place that flips a goal's current attempt between achieved and pending. It never
+     * reopens an earlier day's achievement ({@link StudyGoal#isAchievedBefore}).
+     */
     private boolean applyAchievement(String goalId, boolean achieved, String reasonIfNot) {
-        return achieved
-                ? StudyGoal.markCurrentAttemptAchieved(goalId, reasonIfNot)
-                : StudyGoal.reopenAchievedGoal(goalId);
+        if (achieved) {
+            return StudyGoal.markCurrentAttemptAchieved(goalId, reasonIfNot);
+        }
+        LocalDate today = dateTimeService.getCurrentDate();
+        return StudyGoal.findById(goalId).filter(goal -> !goal.isAchievedBefore(today)).isPresent()
+                && StudyGoal.reopenAchievedGoal(goalId);
     }
 
     /** A missed attempt stays retryable; it does not drop the goal. */
