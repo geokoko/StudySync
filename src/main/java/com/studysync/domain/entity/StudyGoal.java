@@ -856,7 +856,29 @@ public class StudyGoal {
         String stored = jdbcTemplate.query("""
             SELECT done_criteria FROM study_goals WHERE id = ?
             """, rs -> rs.next() ? rs.getString("done_criteria") : null, goalId);
-        List<Criterion> criteria = parseCriteria(stored);
+        return markAllCriteria(goalId, parseCriteria(stored), done);
+    }
+
+    /**
+     * Repairs pre-mirroring achieved goals without changing their outcome or completion history.
+     * Runs at every startup, so it reads all achieved checklists at once and writes only the rows
+     * that still have an open line.
+     */
+    public static int normalizeAchievedChecklists() {
+        requireJdbcTemplate();
+        List<Map.Entry<String, String>> checklists = jdbcTemplate.query("""
+            SELECT id, done_criteria FROM study_goals WHERE status = 'ACHIEVED' AND done_criteria IS NOT NULL
+            """, (rs, row) -> Map.entry(rs.getString("id"), rs.getString("done_criteria")));
+        int changed = 0;
+        for (Map.Entry<String, String> checklist : checklists) {
+            if (markAllCriteria(checklist.getKey(), parseCriteria(checklist.getValue()), true)) {
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    private static boolean markAllCriteria(String goalId, List<Criterion> criteria, boolean done) {
         if (criteria.isEmpty() || criteria.stream().allMatch(criterion -> criterion.done() == done)) {
             return false;
         }
@@ -866,21 +888,6 @@ public class StudyGoal {
             WHERE id = ?
             """, serializeCriteria(criteria.stream().map(criterion -> new Criterion(criterion.text(), done))
                 .toList()), goalId) > 0;
-    }
-
-    /** Repairs pre-mirroring achieved goals without changing their outcome or completion history. */
-    public static int normalizeAchievedChecklists() {
-        requireJdbcTemplate();
-        List<String> goalIds = jdbcTemplate.queryForList("""
-            SELECT id FROM study_goals WHERE status = 'ACHIEVED' AND done_criteria IS NOT NULL
-            """, String.class);
-        int changed = 0;
-        for (String goalId : goalIds) {
-            if (setAllCriteriaDone(goalId, true)) {
-                changed++;
-            }
-        }
-        return changed;
     }
 
     public static boolean markCurrentAttemptAchieved(String goalId, String reasonIfNot) {

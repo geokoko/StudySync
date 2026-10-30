@@ -35,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javafx.animation.Timeline;
 import javafx.animation.KeyFrame;
@@ -594,7 +595,10 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
                     refreshError -> showAfterRefresh("Added a new goal.", false, refreshError), this::reopen));
             Button done = new Button("Done");
             done.getStyleClass().add("btn-primary");
-            done.setOnAction(event -> closeModal.run());
+            done.setOnAction(event -> {
+                closeModal.run();
+                focusPlanningTile(entry.key());
+            });
             Region spacer = new Region();
             HBox.setHgrow(spacer, Priority.ALWAYS);
 
@@ -670,6 +674,17 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             showPlannerError(message);
             return message;
         }
+    }
+
+    /**
+     * Opening the retry dialog rebuilds the planning tiles, so the one it was opened from has lost
+     * keyboard focus; give it to that entry's new tile, if it is still listed.
+     */
+    private void focusPlanningTile(String key) {
+        Stream.of(needsPlanContainer, unlinkedRetriesContainer)
+                .flatMap(container -> container.lookupAll(".plan-tile").stream())
+                .filter(tile -> key.equals(tile.getProperties().get(PlanningRow.KEY)))
+                .findFirst().ifPresent(Node::requestFocus);
     }
 
     private void installPlanningDropTarget(VBox goals) {

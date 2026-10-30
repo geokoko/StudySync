@@ -66,6 +66,8 @@ class StudyPlannerPanelTest {
     @BeforeAll
     static void startJavaFx() throws Exception {
         SessionVisibilityTest.startJavaFx();
+        // The focus test shows and closes a window; closing the last one must not stop JavaFX.
+        Platform.setImplicitExit(false);
     }
 
     @Test
@@ -718,6 +720,37 @@ class StudyPlannerPanelTest {
                         StudyService.CompletedChecklist.START_OVER);
                 assertTrue(labelTexts(fixture.modal).contains(
                         "Planned “Read chapter” for today with its checklist cleared."));
+            }
+        });
+    }
+
+    @Test
+    void closingTheRetryDialogReturnsFocusToItsRebuiltTile() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                fixture.child.setDeadline(TODAY.plusDays(5));
+                fixture.goal.setDate(TODAY.minusDays(1));
+                fixture.goal.setFailed(true);
+                fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
+                StudyPlannerPanel panel = fixture.panel();
+                Scene scene = new Scene(panel, 1100, 800);
+                // A scene only tracks keyboard focus once it is in a window.
+                javafx.stage.Stage stage = new javafx.stage.Stage();
+                stage.setScene(scene);
+                stage.show();
+                Node opened = planningTile(panel, "Parent / Subtask");
+                opened.requestFocus();
+                opened.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+                Node rebuilt = planningTile(panel, "Parent / Subtask");
+                assertFalse(opened == rebuilt, "opening the dialog rebuilds the planning tiles");
+
+                button(fixture.modal, "Done").fire();
+
+                assertNull(fixture.modal);
+                assertEquals(rebuilt, scene.getFocusOwner());
+                stage.close();
             }
         });
     }
