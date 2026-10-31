@@ -53,7 +53,7 @@ final class TaskListAgenda {
         }
     }
 
-    private static final Comparator<Task> TASK_ORDER = Comparator
+    static final Comparator<Task> TASK_ORDER = Comparator
             .comparing(Task::getDeadline, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparingInt(task -> task.getPriority() == null ? 0 : -task.getPriority().stars())
             .thenComparing(Task::getTitle, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))

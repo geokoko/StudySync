@@ -1771,35 +1771,50 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         TextArea criteriaArea = TaskStyleUtils.criteriaArea(null);
         Label criteriaLabel = new Label(TaskStyleUtils.CRITERIA_LABEL);
 
-        // Task selector (only when no task pre-linked)
+        // The goal's task: any active task when none is pre-linked; otherwise the linked task,
+        // or one of its active subtasks, so a parent's planning tile can plan a subtask's work.
         ComboBox<Task> taskCombo = new ComboBox<>();
-        VBox taskSection = new VBox(4);
+        taskCombo.setMaxWidth(Double.MAX_VALUE);
+        taskCombo.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(Task item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "None" : taskTitle(item));
+            }
+        });
+        taskCombo.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(Task item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "None" : taskTitle(item));
+            }
+        });
         if (linkedTask == null) {
             Label taskLabel = new Label("Link to task (optional):");
             TaskStyleUtils.fontBold(taskLabel, 12);
             taskCombo.setPromptText("None");
-            taskCombo.setMaxWidth(Double.MAX_VALUE);
             taskCombo.getItems().add(null);
             taskCombo.getItems().addAll(taskService.getActiveTasks());
-            taskCombo.setCellFactory(lv -> new ListCell<>() {
-                @Override
-                protected void updateItem(Task item, boolean empty) {
-                    super.updateItem(item, empty);
-                    setText(empty || item == null ? "None" : taskTitle(item));
-                }
-            });
-            taskCombo.setButtonCell(new ListCell<>() {
-                @Override
-                protected void updateItem(Task item, boolean empty) {
-                    super.updateItem(item, empty);
-                    setText(empty || item == null ? "None" : taskTitle(item));
-                }
-            });
-            taskSection.getChildren().addAll(taskLabel, taskCombo);
-            content.getChildren().addAll(headerLabel, dateRow,
-                    new Label("Description:"), descArea, criteriaLabel, criteriaArea, taskSection);
+            content.getChildren().addAll(headerLabel, dateRow, new Label("Description:"), descArea,
+                    criteriaLabel, criteriaArea, new VBox(4, taskLabel, taskCombo));
         } else {
-            content.getChildren().addAll(headerLabel, dateRow,
+            List<Task> subtasks = tasksById.values().stream()
+                    .filter(task -> linkedTask.getId().equals(task.getParentId()) && isActivePlannerTask(task))
+                    .sorted(TaskListAgenda.TASK_ORDER).toList();
+            taskCombo.getItems().add(linkedTask);
+            taskCombo.getItems().addAll(subtasks);
+            taskCombo.setValue(linkedTask);
+            content.getChildren().add(headerLabel);
+            if (!subtasks.isEmpty()) {
+                taskCombo.setAccessibleText("Plan this goal for");
+                taskCombo.valueProperty().addListener((obs, old, task) ->
+                        headerLabel.setText("Add goal for: " + taskTitle(task)));
+                HBox forRow = new HBox(8, new Label("For:"), taskCombo);
+                forRow.setAlignment(Pos.CENTER_LEFT);
+                HBox.setHgrow(taskCombo, Priority.ALWAYS);
+                content.getChildren().add(forRow);
+            }
+            content.getChildren().addAll(dateRow,
                     new Label("Description:"), descArea, criteriaLabel, criteriaArea);
         }
 
@@ -1816,8 +1831,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             String desc = descArea.getText().trim();
             if (desc.isEmpty()) return;
             LocalDate date = datePicker.getValue() != null ? datePicker.getValue() : displayDate;
-            String taskId = linkedTask != null ? linkedTask.getId()
-                    : (taskCombo.getValue() != null ? taskCombo.getValue().getId() : null);
+            String taskId = taskCombo.getValue() != null ? taskCombo.getValue().getId() : null;
             try {
                 studyService.addStudyGoal(desc, date, taskId, criteriaArea.getText());
             } catch (Exception ex) {
