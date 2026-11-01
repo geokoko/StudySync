@@ -86,10 +86,12 @@ class StartupSyncResolutionTest {
         order.verify(drive).runStartupMaintenanceWithoutDirtyTracking(any());
         order.verify(study).releaseOverdueSweep();
         order.verify(tasks).markDelayedTasks();
+        order.verify(study).normalizeAchievedGoalChecklists();
         order.verify(study).processAllDelayedGoals();
         order.verify(panel).updateDisplay();
         verify(study).releaseOverdueSweep();
         verify(study).processAllDelayedGoals();
+        verify(study).normalizeAchievedGoalChecklists();
         verify(tasks).markDelayedTasks();
         verify(panel).updateDisplay();
         verify(drive, never()).markLocalDbDirty();
@@ -104,6 +106,7 @@ class StartupSyncResolutionTest {
         refresh(SyncStatus.DRIVE_NEWER);
         refresh(status);
         verify(study, never()).releaseOverdueSweep();
+        verify(study, never()).normalizeAchievedGoalChecklists();
         verify(drive, never()).runStartupMaintenanceWithoutDirtyTracking(any());
     }
 
@@ -113,15 +116,18 @@ class StartupSyncResolutionTest {
         when(drive.hasPendingDownload()).thenReturn(true);
         refresh(status);
         verify(study, never()).releaseOverdueSweep();
+        verify(study, never()).normalizeAchievedGoalChecklists();
 
         when(drive.hasPendingDownload()).thenReturn(false);
         when(drive.hasFailedPendingDownload()).thenReturn(true);
         refresh(status);
         verify(study, never()).releaseOverdueSweep();
+        verify(study, never()).normalizeAchievedGoalChecklists();
 
         when(drive.hasFailedPendingDownload()).thenReturn(false);
         refresh(status);
         verify(study).releaseOverdueSweep();
+        verify(study).normalizeAchievedGoalChecklists();
     }
 
     @Test

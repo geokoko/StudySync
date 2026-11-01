@@ -235,6 +235,14 @@ public class StudyGoal {
         }
     }
 
+    /**
+     * Achieved on a day before {@code today}. That achievement is history: reopening it would leave a
+     * pending attempt in the past that the next refresh sweeps to missed, so nothing reopens it.
+     */
+    public boolean isAchievedBefore(LocalDate today) {
+        return achieved && date != null && date.isBefore(today);
+    }
+
     public String getReasonIfNotAchieved() { return reasonIfNotAchieved; }
     public void setReasonIfNotAchieved(String reasonIfNotAchieved) {
         this.reasonIfNotAchieved = reasonIfNotAchieved;
@@ -284,6 +292,12 @@ public class StudyGoal {
     /** The checklist behind {@link #getDoneCriteria()}; empty when none was written. */
     public List<Criterion> getCriteria() { return parseCriteria(doneCriteria); }
 
+    /** True when the goal has a checklist and every line of it is ticked. */
+    public boolean isChecklistComplete() {
+        List<Criterion> criteria = getCriteria();
+        return !criteria.isEmpty() && criteria.stream().allMatch(Criterion::done);
+    }
+
     // ponytail: checklist stored as "[x] line" text on the parent goal, not a
     // table - move to a study_goal_criteria table only if criteria ever need
     // ids or history.
@@ -321,6 +335,11 @@ public class StudyGoal {
     // ponytail: ticks re-matched by exact trimmed text; a reworded done
     // criterion comes back unticked.
     public static String criteriaFromLines(String plainLines, String previousStored) {
+        return criteriaFromLines(plainLines, previousStored, true);
+    }
+
+    /** When typed ticks are disallowed, only matching previously stored ticks survive an edit. */
+    public static String criteriaFromLines(String plainLines, String previousStored, boolean allowTypedTicks) {
         if (plainLines == null) {
             return null;
         }
@@ -334,7 +353,7 @@ public class StudyGoal {
             // Always consume the matching previous tick, even when the typed line
             // is already "[x]", or it would leak to the next duplicate line.
             boolean previouslyDone = ticks != null && !ticks.isEmpty() && ticks.poll();
-            out.add(new Criterion(typed.text(), typed.done() || previouslyDone));
+            out.add(new Criterion(typed.text(), (allowTypedTicks && typed.done()) || previouslyDone));
         }
         return serializeCriteria(out);
     }
@@ -837,13 +856,57 @@ public class StudyGoal {
         return Optional.of(criteria);
     }
 
+    /** Ticks or clears every checklist line; returns whether the stored checklist changed. */
+    public static boolean setAllCriteriaDone(String goalId, boolean done) {
+        if (jdbcTemplate == null || goalId == null || goalId.isBlank()) {
+            return false;
+        }
+        String stored = jdbcTemplate.query("""
+            SELECT done_criteria FROM study_goals WHERE id = ?
+            """, rs -> rs.next() ? rs.getString("done_criteria") : null, goalId);
+        return markAllCriteria(goalId, parseCriteria(stored), done);
+    }
+
+    /**
+     * Repairs pre-mirroring achieved goals without changing their outcome or completion history.
+     * Runs at every startup, so it reads all achieved checklists at once and writes only the rows
+     * that still have an open line.
+     */
+    public static int normalizeAchievedChecklists() {
+        requireJdbcTemplate();
+        List<Map.Entry<String, String>> checklists = jdbcTemplate.query("""
+            SELECT id, done_criteria FROM study_goals WHERE status = 'ACHIEVED' AND done_criteria IS NOT NULL
+            """, (rs, row) -> Map.entry(rs.getString("id"), rs.getString("done_criteria")));
+        int changed = 0;
+        for (Map.Entry<String, String> checklist : checklists) {
+            if (markAllCriteria(checklist.getKey(), parseCriteria(checklist.getValue()), true)) {
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    private static boolean markAllCriteria(String goalId, List<Criterion> criteria, boolean done) {
+        if (criteria.isEmpty() || criteria.stream().allMatch(criterion -> criterion.done() == done)) {
+            return false;
+        }
+        return jdbcTemplate.update("""
+            UPDATE study_goals
+            SET done_criteria = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, serializeCriteria(criteria.stream().map(criterion -> new Criterion(criterion.text(), done))
+                .toList()), goalId) > 0;
+    }
+
     public static boolean markCurrentAttemptAchieved(String goalId, String reasonIfNot) {
         Optional<StudyGoal> goalOpt = findById(goalId);
         if (goalOpt.isEmpty()) {
             return false;
         }
         StudyGoal goal = goalOpt.get();
-        if (goal.attemptId == null || goal.isDropped() || goal.isDroppedAttempt()) {
+        // A missed attempt is history; achieving the goal means planning a retry first.
+        if (goal.attemptId == null || goal.isDropped() || goal.isDroppedAttempt()
+                || goal.attemptOutcome == AttemptOutcome.MISSED) {
             return false;
         }
         jdbcTemplate.update("""

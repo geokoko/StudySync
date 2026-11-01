@@ -111,6 +111,13 @@
     -fx-text-fill: #2c3e50;
 }
 
+/* The dot is drawn in -fx-mark-color, which .root sets to white; fill the circle as for checkboxes. */
+.radio-button:selected > .radio {
+    -fx-background-color: #3498db;
+    -fx-border-color: #2980b9;
+    -fx-border-radius: 1em;
+}
+
 /* The inner text node also carries .text, which the rule above turns dark */
 .hyperlink,
 .hyperlink .text {
@@ -590,6 +597,15 @@
     -fx-background-radius: 4;
 }
 
+/* Modena pads a menu button's label and arrow too; drop it so small menus match small buttons. */
+.menu-button.btn-small > .label {
+    -fx-padding: 0;
+}
+
+.menu-button.btn-small > .arrow-button {
+    -fx-padding: 0 0 0 6;
+}
+
 .planner-view-toggle {
     -fx-background-color: #ecf0f1;
     -fx-text-fill: #2c3e50;
@@ -760,6 +776,37 @@
 .planner-goal-row {
     -fx-padding: 8 10 8 10;
     -fx-background-radius: 6;
+}
+
+/* A heading in the goal list when it is grouped by task or status */
+.planner-goal-group-header {
+    -fx-padding: 0 2 4 2;
+    -fx-border-color: transparent transparent #e5e8eb transparent;
+}
+
+/* Keep task summaries visible in the native disclosure header when its goals are collapsed. */
+.planner-task-goals > .title {
+    -fx-padding: 8 10;
+}
+
+.planner-task-goals > .title .planner-goal-group-header {
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+}
+
+.planner-task-goals > .content {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 8 0 0 0;
+}
+
+/* A missed goal waiting for a retry (TaskStyleUtils.retryBackgroundColor) */
+.planner-retry-row {
+    -fx-background-color: #fff3e0;
+    -fx-background-radius: 6;
+    -fx-border-color: #f8d1a8;
+    -fx-border-radius: 6;
+    -fx-padding: 8 10 8 10;
 }
 
 /* Planning tiles (Needs a plan): size comes from their TilePane */

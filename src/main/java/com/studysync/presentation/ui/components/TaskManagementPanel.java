@@ -764,6 +764,7 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
 
         DatePicker datePicker = new DatePicker(LocalDate.now());
         datePicker.setMaxWidth(Double.MAX_VALUE);
+        GoalActions.ChecklistChoice checklist = GoalActions.ChecklistChoice.forGoal(goal, datePicker, LocalDate.now());
 
         Button planBtn = new Button("Plan Goal");
         planBtn.getStyleClass().add("btn-orange");
@@ -778,7 +779,8 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
                 return;
             }
             try {
-                boolean created = studyService.planGoalAttempt(goal.getId(), plannedDate);
+                boolean created = studyService.planGoalAttempt(goal.getId(), plannedDate,
+                        checklist == null ? null : checklist.value());
                 if (!created) {
                     showInlineError(form, "This goal already has a pending attempt or cannot be replanned.");
                     return;
@@ -793,8 +795,11 @@ public class TaskManagementPanel extends BorderPane implements RefreshablePanel 
         HBox buttons = new HBox(10, planBtn, cancelBtn);
         buttons.setAlignment(Pos.CENTER_RIGHT);
 
-        form.getChildren().addAll(title, new Label("Goal:"), description,
-                new Label("Date:"), datePicker, buttons);
+        form.getChildren().addAll(title, new Label("Goal:"), description, new Label("Date:"), datePicker);
+        if (checklist != null) {
+            form.getChildren().add(checklist.view);
+        }
+        form.getChildren().add(buttons);
         showModal.accept(wrapGoalModal(form));
     }
 

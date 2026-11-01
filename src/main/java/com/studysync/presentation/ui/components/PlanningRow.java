@@ -17,6 +17,9 @@ import javafx.scene.layout.VBox;
 /** Shared task-to-goal interaction for the calendar and daily planner. */
 final class PlanningRow {
 
+    /** Node property holding the item's planning key, so a closed dialog can return focus to it. */
+    static final String KEY = "studysync.planning-key";
+
     private PlanningRow() {
     }
 
@@ -68,6 +71,7 @@ final class PlanningRow {
     private static void install(Region item, String title, String reason, String hint,
                                 DataFormat format, String id, Runnable plan) {
         item.getStyleClass().add("cal-plan-item");
+        item.getProperties().put(KEY, id);
         item.setFocusTraversable(true);
         item.setAccessibleText(title + ". " + reason + ". " + hint);
         Tooltip.install(item, new Tooltip(title + "\n" + reason + "\n\n" + hint));
