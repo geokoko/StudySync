@@ -378,7 +378,7 @@ class StudyPlannerPanelTest {
                 StudyPlannerPanel panel = fixture.panel();
 
                 for (String description : List.of("Read chapter", "Write summary")) {
-                    Node row = planningTile(panel, "Parent / Subtask");
+                    Node row = planningTile(panel, "Subtask");
                     assertNotNull(row.getOnDragDetected());
                     row.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER,
                             false, false, false, false));
@@ -391,7 +391,12 @@ class StudyPlannerPanelTest {
 
                 assertEquals(2, fixture.attempts.size());
                 assertTrue(labelTexts(panel).containsAll(List.of("Read chapter", "Write summary")));
-                assertTrue(labelTexts(planningTile(panel, "Parent / Subtask")).contains("due today · work planned"));
+                assertTrue(labelTexts(planningTile(panel, "Subtask")).contains("due today · work planned"));
+                Node family = nodes(panel).stream().filter(node -> node.getStyleClass().contains("plan-family"))
+                        .findFirst().orElseThrow();
+                assertEquals("Parent", labelTexts(family).getFirst());
+                assertTrue(nodes(family).contains(planningTile(panel, "Subtask")));
+                assertFalse(labelTexts(family).contains("Parent / Subtask"));
             }
         });
     }
@@ -425,7 +430,7 @@ class StudyPlannerPanelTest {
                 button(fixture.modal, "Add Goal").fire();
                 verify(fixture.study).addStudyGoal("Solve problem 1", TODAY, fixture.child.getId(), "");
 
-                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
                 assertTrue(nodes(fixture.modal).stream().noneMatch(ComboBox.class::isInstance),
                         "a subtask has no subtasks to choose from");
@@ -457,7 +462,7 @@ class StudyPlannerPanelTest {
                 StudyPlannerPanel panel = fixture.panel();
 
                 for (StudyGoal retry : List.of(fixture.goal, second)) {
-                    planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                    planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                             "", "", KeyCode.ENTER, false, false, false, false));
                     assertTrue(labelTexts(fixture.modal).contains(retry.getDescription()));
                     assertNotNull(button(fixture.modal, "+ New goal"));
@@ -465,7 +470,7 @@ class StudyPlannerPanelTest {
                     verify(fixture.study).replanGoalForToday(retry.getId(), null);
                 }
 
-                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
                 assertTrue(labelTexts(fixture.modal).contains("Add goal for: Parent / Subtask"));
                 assertNotNull(button(fixture.modal, "Add Goal"));
@@ -492,7 +497,7 @@ class StudyPlannerPanelTest {
                     return true;
                 });
                 StudyPlannerPanel panel = fixture.panel();
-                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
 
                 button(fixture.modal, "Plan retry today").fire();
@@ -544,7 +549,7 @@ class StudyPlannerPanelTest {
                 fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
                 when(fixture.study.replanGoalForToday(fixture.goal.getId(), null)).thenReturn(true);
                 StudyPlannerPanel panel = fixture.panel();
-                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
                 when(fixture.tasks.getTasks()).thenThrow(new IllegalStateException("reload failed"));
                 button(fixture.modal, "Plan retry today").fire();
@@ -572,7 +577,7 @@ class StudyPlannerPanelTest {
                 fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
                 when(fixture.study.replanGoalForToday(fixture.goal.getId(), null)).thenReturn(true);
                 StudyPlannerPanel panel = fixture.panel();
-                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
                 if (action.equals("edit")) {
                     button(fixture.modal, "Edit").fire();
@@ -712,7 +717,7 @@ class StudyPlannerPanelTest {
                 fixture.goal.setFailed(true);
                 fixture.goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(fixture.goal));
                 StudyPlannerPanel panel = fixture.panel();
-                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
                 Scene scene = new Scene(new javafx.scene.layout.StackPane(fixture.modal), 300, 600);
                 scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
@@ -742,7 +747,7 @@ class StudyPlannerPanelTest {
                 when(fixture.study.replanGoalForToday(fixture.goal.getId(),
                         StudyService.CompletedChecklist.START_OVER)).thenReturn(true);
                 StudyPlannerPanel panel = fixture.panel();
-                planningTile(panel, "Parent / Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
 
                 button(fixture.modal, "Plan retry today").fire();
@@ -811,11 +816,11 @@ class StudyPlannerPanelTest {
                 javafx.stage.Stage stage = new javafx.stage.Stage();
                 stage.setScene(scene);
                 stage.show();
-                Node opened = planningTile(panel, "Parent / Subtask");
+                Node opened = planningTile(panel, "Subtask");
                 opened.requestFocus();
                 opened.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
                         "", "", KeyCode.ENTER, false, false, false, false));
-                Node rebuilt = planningTile(panel, "Parent / Subtask");
+                Node rebuilt = planningTile(panel, "Subtask");
                 assertFalse(opened == rebuilt, "opening the dialog rebuilds the planning tiles");
 
                 button(fixture.modal, "Done").fire();

@@ -29,11 +29,23 @@ import java.util.stream.Collectors;
  * missed goals are moot. Retry candidates and unhandled occurrences come from the
  * existing domain queries so goal history
  * (including achieved retries) remains the source of truth.</p>
+ *
+ * <p>Tasks are laid out by family ({@link Plan}). A listed subtask joins a {@link Block}
+ * headed by its parent's title, with the parent's tile first when the parent is listed and
+ * the subtasks after it in {@link TaskListAgenda#TASK_ORDER}. When a parent is listed, each
+ * of its active subtasks without a reason of its own joins the block as a {@link Kind#SUBTASK}
+ * ("due Fri" within seven days of the selected date, "due Nov 11" later, or "no deadline"),
+ * so the family can be planned from one place. Blocks come first, ordered by their most urgent
+ * member, then one block of standalone tasks. A block goes under "Coming up" only when every
+ * member listed for its own reason is a {@link Kind#REMINDER}; standalone reminders go there
+ * too. Missed goals without a task stay apart in {@link Plan#taskless()}.</p>
  */
 final class PlannerAgenda {
 
     enum Kind {
-        OVERDUE, DUE, MISSED, RETRY, RECURRING, OPEN, REMINDER, PLANNED
+        OVERDUE, DUE, MISSED, RETRY, RECURRING, OPEN, REMINDER, PLANNED,
+        /** An active subtask listed only because its parent is. */
+        SUBTASK
     }
 
     record Entry(Kind kind, String title, String reason, Task task, List<StudyGoal> retries,
@@ -41,9 +53,34 @@ final class PlannerAgenda {
         String key() {
             return task == null ? "goal:" + retries.getFirst().getId() : "task:" + task.getId();
         }
+
+        /** The tile's title: inside a family block the parent's title is the block's heading. */
+        String tileTitle() {
+            return task == null ? title : task.getTitle();
+        }
+    }
+
+    /**
+     * Tiles shown together. A family block has a {@code parent} (listed or not) and lists the
+     * parent's entry first, if any; the standalone block has no parent.
+     */
+    record Block(Task parent, List<Entry> entries) {
+        boolean isFamily() {
+            return parent != null;
+        }
+    }
+
+    /**
+     * The planner's layout: {@code entries} holds every entry in urgency order; {@code taskless}
+     * the missed goals without a task; {@code needed} and {@code comingUp} the task blocks,
+     * families first and then at most one standalone block.
+     */
+    record Plan(List<Entry> entries, List<Entry> taskless, List<Block> needed, List<Block> comingUp) {
     }
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE");
+    private static final DateTimeFormatter MONTH_DAY = DateTimeFormatter.ofPattern("MMM d");
+    private static final int WEEK = 7;
     private static final Comparator<StudyGoal> RETRY_ORDER = Comparator.comparing(StudyGoal::getDate)
             .thenComparing(StudyGoal::getDescription, String.CASE_INSENSITIVE_ORDER)
             .thenComparing(StudyGoal::getId);
@@ -57,7 +94,7 @@ final class PlannerAgenda {
     private PlannerAgenda() {
     }
 
-    static List<Entry> build(LocalDate date, LocalDate today, List<Task> tasks,
+    static Plan build(LocalDate date, LocalDate today, List<Task> tasks,
                              List<StudyGoal> attempts, List<StudyGoal> retryable,
                              List<MissedOccurrence> missed, BiPredicate<Task, LocalDate> isOccurrence) {
         Map<String, Task> tasksById = new LinkedHashMap<>();
@@ -150,6 +187,71 @@ final class PlannerAgenda {
                         String.join(" · ", reasons), task, List.copyOf(retries), relevantDate));
             }
         }
-        return entries.stream().sorted(ORDER).toList();
+        addUnplannedSubtasks(date, entries, tasksById);
+        return layout(entries.stream().sorted(ORDER).toList(), tasksById);
+    }
+
+    /** A listed parent brings along its active subtasks that have no reason of their own. */
+    private static void addUnplannedSubtasks(LocalDate date, List<Entry> entries, Map<String, Task> tasksById) {
+        Set<String> listed = entries.stream().filter(entry -> entry.task() != null)
+                .map(entry -> entry.task().getId()).collect(Collectors.toSet());
+        for (Task child : tasksById.values()) {
+            if (child.getParentId() != null && listed.contains(child.getParentId())
+                    && !listed.contains(child.getId()) && CalendarAgenda.isActive(child.getStatus())) {
+                entries.add(new Entry(Kind.SUBTASK, CalendarAgenda.taskTitle(child, tasksById),
+                        dueText(child.getDeadline(), date), child, List.of(), child.getDeadline()));
+            }
+        }
+    }
+
+    private static String dueText(LocalDate deadline, LocalDate date) {
+        if (deadline == null) {
+            return "no deadline";
+        }
+        boolean thisWeek = deadline.isAfter(date) && !deadline.isAfter(date.plusDays(WEEK));
+        return "due " + deadline.format(thisWeek ? DAY : MONTH_DAY);
+    }
+
+    private static Plan layout(List<Entry> entries, Map<String, Task> tasksById) {
+        List<Entry> taskless = entries.stream().filter(entry -> entry.task() == null).toList();
+        Map<String, List<Entry>> byFamily = new LinkedHashMap<>();
+        entries.stream().filter(entry -> entry.task() != null).forEach(entry -> byFamily
+                .computeIfAbsent(familyKey(entry.task(), tasksById), key -> new ArrayList<>()).add(entry));
+        List<Block> needed = new ArrayList<>();
+        List<Block> comingUp = new ArrayList<>();
+        List<Entry> standaloneNeeded = new ArrayList<>();
+        List<Entry> standaloneComingUp = new ArrayList<>();
+        for (Map.Entry<String, List<Entry>> family : byFamily.entrySet()) {
+            List<Entry> members = family.getValue();
+            Task parent = tasksById.get(family.getKey());
+            boolean hasSubtask = members.stream().anyMatch(entry -> entry.task() != parent);
+            boolean reminder = members.stream().filter(entry -> entry.kind() != Kind.SUBTASK)
+                    .allMatch(entry -> entry.kind() == Kind.REMINDER);
+            if (!hasSubtask) {
+                (reminder ? standaloneComingUp : standaloneNeeded).addAll(members);
+                continue;
+            }
+            List<Entry> ordered = members.stream().sorted(Comparator
+                    .comparing((Entry entry) -> entry.task() != parent)
+                    .thenComparing(Entry::task, TaskListAgenda.TASK_ORDER)).toList();
+            (reminder ? comingUp : needed).add(new Block(parent, ordered));
+        }
+        Comparator<Block> urgency = Comparator.comparing(
+                block -> block.entries().stream().min(ORDER).orElseThrow(), ORDER);
+        needed.sort(urgency);
+        comingUp.sort(urgency);
+        if (!standaloneNeeded.isEmpty()) {
+            needed.add(new Block(null, List.copyOf(standaloneNeeded)));
+        }
+        if (!standaloneComingUp.isEmpty()) {
+            comingUp.add(new Block(null, List.copyOf(standaloneComingUp)));
+        }
+        return new Plan(entries, taskless, List.copyOf(needed), List.copyOf(comingUp));
+    }
+
+    /** A subtask belongs to its parent's family; a task whose parent is not loaded stands alone. */
+    private static String familyKey(Task task, Map<String, Task> tasksById) {
+        return task.getParentId() != null && tasksById.containsKey(task.getParentId())
+                ? task.getParentId() : task.getId();
     }
 }

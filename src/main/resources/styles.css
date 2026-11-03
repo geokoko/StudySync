@@ -814,6 +814,13 @@
     -fx-padding: 8 10 8 10;
 }
 
+/* A parent and its subtasks in Needs a plan: heading, then their tiles */
+.plan-family {
+    -fx-border-color: transparent transparent transparent #d5dbe1;
+    -fx-border-width: 0 0 0 3;
+    -fx-padding: 2 0 4 8;
+}
+
 .planner-progress {
     -fx-accent: #27ae60;
 }

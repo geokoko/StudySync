@@ -6,14 +6,18 @@ import com.studysync.domain.service.MissedOccurrence;
 import com.studysync.domain.service.TaskService;
 import com.studysync.domain.valueobject.TaskPriority;
 import com.studysync.domain.valueobject.TaskStatus;
+import com.studysync.presentation.ui.components.PlannerAgenda.Block;
 import com.studysync.presentation.ui.components.PlannerAgenda.Entry;
 import com.studysync.presentation.ui.components.PlannerAgenda.Kind;
+import com.studysync.presentation.ui.components.PlannerAgenda.Plan;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -357,9 +361,154 @@ class PlannerAgendaTest {
                 Kind.RECURRING, Kind.OPEN, Kind.REMINDER), kinds(entries));
     }
 
+    @Test
+    void aParentAndItsListedSubtasksFormOneBlockWithTheParentFirst() {
+        Task parent = task("Parent", TODAY);
+        Task later = child("Alpha", parent, TODAY);
+        Task sooner = child("Zed", parent, TODAY.minusDays(1));
+        Task other = task("Other", TODAY.minusDays(2));
+        Plan plan = plan(TODAY, List.of(later, other, parent, sooner));
+        assertEquals(2, plan.needed().size());
+        Block family = plan.needed().getFirst();
+        assertTrue(family.isFamily());
+        assertEquals(parent, family.parent());
+        assertEquals(List.of(parent, sooner, later), tasks(family));
+        assertEquals(List.of("Parent", "Zed", "Alpha"), family.entries().stream().map(Entry::tileTitle).toList());
+        assertEquals("Parent / Zed", family.entries().get(1).title());
+        assertFalse(plan.needed().get(1).isFamily());
+        assertEquals(List.of(other), tasks(plan.needed().get(1)));
+        assertTrue(plan.comingUp().isEmpty());
+        assertEquals(4, plan.entries().size());
+    }
+
+    @Test
+    void blocksAreOrderedByTheirMostUrgentMemberAndStandaloneTasksComeLast() {
+        Task calm = task("Calm", null);
+        Task lateChild = child("Late child", calm, TODAY.minusDays(5));
+        Task due = task("Due", TODAY);
+        Task dueChild = child("Due child", due, TODAY);
+        Task veryLate = task("Very late", TODAY.minusDays(10));
+        Task open = task("Open", null);
+        Plan plan = plan(TODAY, List.of(open, due, dueChild, veryLate, calm, lateChild));
+        assertEquals(List.of(calm, due), plan.needed().stream().filter(Block::isFamily).map(Block::parent).toList());
+        Block standalone = plan.needed().getLast();
+        assertFalse(standalone.isFamily());
+        assertEquals(List.of(veryLate, open), tasks(standalone));
+    }
+
+    @Test
+    void aListedParentBringsItsActiveSubtasksWithoutAReasonOfTheirOwn() {
+        Task parent = task("Parent", TODAY);
+        Task friday = child("Friday", parent, TODAY.plusDays(3));
+        Task weekEdge = child("Week edge", parent, TODAY.plusDays(7));
+        Task november = child("November", parent, TODAY.plusDays(22));
+        Task repeating = child("Repeating", parent, null);
+        repeating.setRecurringPattern("1:3");
+        repeating.setStartDate(TODAY.minusWeeks(1));
+        Task undated = child("Undated", parent, null);
+        Plan plan = plan(TODAY, List.of(parent, friday, weekEdge, november, repeating, undated));
+        assertEquals(1, plan.needed().size());
+        Block family = plan.needed().getFirst();
+        assertEquals(List.of(parent, friday, weekEdge, november, repeating, undated), tasks(family));
+        assertEquals(List.of(Kind.DUE, Kind.SUBTASK, Kind.SUBTASK, Kind.SUBTASK, Kind.SUBTASK, Kind.OPEN),
+                kinds(family.entries()));
+        assertEquals(List.of("due today", "due Fri", "due Tue", "due Nov 11", "no deadline", "no deadline"),
+                family.entries().stream().map(Entry::reason).toList());
+        // Every tile is plannable: its entry is listed, after all work with a reason of its own.
+        assertEquals(List.of(Kind.DUE, Kind.OPEN, Kind.SUBTASK, Kind.SUBTASK, Kind.SUBTASK, Kind.SUBTASK),
+                kinds(plan.entries()));
+        assertEquals(6, plan.entries().stream().map(Entry::key).distinct().count());
+    }
+
+    @Test
+    void aListedSubtaskWithoutAListedParentGetsABlockWithoutAParentTile() {
+        Task parent = task("Parent", TODAY.plusDays(10));
+        Task due = child("Due", parent, TODAY);
+        Task later = child("Later", parent, TODAY.plusDays(3));
+        Plan plan = plan(TODAY, List.of(parent, due, later));
+        assertEquals(1, plan.needed().size());
+        Block family = plan.needed().getFirst();
+        assertEquals(parent, family.parent());
+        assertEquals(List.of(due), tasks(family));
+        assertEquals("Due", family.entries().getFirst().tileTitle());
+    }
+
+    @Test
+    void aBlockIsComingUpOnlyWhenEveryMemberListedForItsOwnReasonIsAReminder() {
+        Task reminding = task("Reminding", TODAY.plusDays(2));
+        reminding.setRemindDaysBefore(3);
+        Task quiet = child("Quiet", reminding, TODAY.plusDays(4));
+        Task urgent = task("Urgent parent", TODAY.plusDays(2));
+        urgent.setRemindDaysBefore(3);
+        Task dueChild = child("Due child", urgent, TODAY);
+        Task hidden = task("Hidden parent", TODAY.plusDays(20));
+        Task remindedChild = child("Reminded child", hidden, TODAY.plusDays(1));
+        remindedChild.setRemindDaysBefore(1);
+        Task lone = task("Lone reminder", TODAY.plusDays(1));
+        lone.setRemindDaysBefore(1);
+        Plan plan = plan(TODAY, List.of(lone, reminding, quiet, urgent, dueChild, hidden, remindedChild));
+        assertEquals(List.of(urgent), plan.needed().stream().map(Block::parent).toList());
+        assertEquals(List.of(urgent, dueChild), tasks(plan.needed().getFirst()));
+        assertEquals(3, plan.comingUp().size());
+        assertEquals(List.of(hidden, reminding), plan.comingUp().subList(0, 2).stream().map(Block::parent).toList());
+        assertEquals(List.of(remindedChild), tasks(plan.comingUp().getFirst()));
+        assertEquals(List.of(reminding, quiet), tasks(plan.comingUp().get(1)));
+        assertEquals(Kind.SUBTASK, plan.comingUp().get(1).entries().get(1).kind());
+        assertFalse(plan.comingUp().getLast().isFamily());
+        assertEquals(List.of(lone), tasks(plan.comingUp().getLast()));
+    }
+
+    @Test
+    void inactiveSubtasksAreNotBroughtAlongAndTheParentStandsAlone() {
+        Task parent = task("Parent", TODAY);
+        List<Task> tasks = new ArrayList<>(List.of(parent));
+        for (TaskStatus status : List.of(TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.POSTPONED)) {
+            Task closed = child(status.name(), parent, TODAY.plusDays(3));
+            closed.setStatus(status);
+            tasks.add(closed);
+        }
+        Plan plan = plan(TODAY, tasks);
+        assertEquals(List.of(parent), plan.entries().stream().map(Entry::task).toList());
+        assertEquals(1, plan.needed().size());
+        assertFalse(plan.needed().getFirst().isFamily());
+    }
+
+    @Test
+    void standaloneTasksKeepTheUrgencyOrderAndTasklessRetriesStayApart() {
+        Task due = task("due", TODAY);
+        Task old = task("old", TODAY.minusDays(5));
+        Task a = task("A", TODAY.minusDays(2));
+        Task z = task("Z", TODAY.minusDays(2));
+        z.setPriority(new TaskPriority(5));
+        Task open = task("open", null);
+        StudyGoal unlinked = missed("unlinked", null, TODAY.minusDays(1));
+        Plan plan = PlannerAgenda.build(TODAY, TODAY, List.of(open, due, a, old, z), List.of(),
+                List.of(unlinked), List.of(), recurrence::isRecurringOccurrence);
+        assertEquals(1, plan.needed().size());
+        assertEquals(List.of(old, z, a, due, open), tasks(plan.needed().getFirst()));
+        assertEquals(List.of(unlinked), plan.taskless().getFirst().retries());
+        assertEquals(1, plan.taskless().size());
+    }
+
     private List<Entry> build(LocalDate date, List<Task> tasks, List<StudyGoal> attempts,
                               List<StudyGoal> retries, List<MissedOccurrence> missed) {
-        return PlannerAgenda.build(date, TODAY, tasks, attempts, retries, missed, recurrence::isRecurringOccurrence);
+        return PlannerAgenda.build(date, TODAY, tasks, attempts, retries, missed, recurrence::isRecurringOccurrence)
+                .entries();
+    }
+
+    private Plan plan(LocalDate date, List<Task> tasks) {
+        return PlannerAgenda.build(date, TODAY, tasks, List.of(), List.of(), List.of(),
+                recurrence::isRecurringOccurrence);
+    }
+
+    private static List<Task> tasks(Block block) {
+        return block.entries().stream().map(Entry::task).toList();
+    }
+
+    private static Task child(String title, Task parent, LocalDate deadline) {
+        Task child = task(title, deadline);
+        child.setParentId(parent.getId());
+        return child;
     }
 
     private static List<Kind> kinds(List<Entry> entries) {
