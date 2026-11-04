@@ -62,6 +62,27 @@ final class PlanningRow {
         return tile;
     }
 
+    /**
+     * A family block's heading that is also the listed parent's plannable item: the title
+     * in bold over its reason, styled as a heading until it is hovered or focused.
+     */
+    static HBox header(String title, String reason, String color, String hint,
+                       DataFormat format, String id, Runnable plan) {
+        Label name = new Label(title);
+        TaskStyleUtils.fontBold(name, 13);
+        name.setWrapText(true);
+        name.setMinWidth(0);
+        name.setMaxWidth(Double.MAX_VALUE);
+        VBox text = new VBox(2, name, reasonLabel(reason, color));
+        text.setMinWidth(0);
+        HBox.setHgrow(text, Priority.ALWAYS);
+        HBox row = new HBox(text);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("plan-family-header");
+        install(row, title, reason, hint, format, id, plan);
+        return row;
+    }
+
     private static Label reasonLabel(String reason, String color) {
         Label detail = new Label(reason);
         TaskStyleUtils.fontNormal(detail, 11);

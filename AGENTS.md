@@ -153,7 +153,8 @@ Syncs the whole H2 file. OAuth client credentials live in
   tasks stay available for additional goals after planning; a subtask's goal also
   marks its parent as planned. Missed goals remain individually retryable only
   while their task is active. It also decides the layout (`PlannerAgenda.Plan`):
-  a parent and its listed subtasks form one block (parent tile first), a listed
+  a parent and its listed subtasks form one block headed by the listed parent's
+  own plannable row (`Block.header()`, else its title alone), a listed
   parent brings along its active subtasks that have no reason of their own
   (`Kind.SUBTASK`), blocks precede standalone tasks, and a block is "Coming up"
   only when all its own-reason members are reminders. `StudyPlannerPanel` only

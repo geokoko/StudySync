@@ -399,6 +399,13 @@ class StudyPlannerPanelTest {
                 assertFalse(labelTexts(family).contains("Parent / Subtask"));
                 // The heading is not read with the tile, so its name keeps the parent's title.
                 assertTrue(planningTile(panel, "Subtask").getAccessibleText().startsWith("Parent / Subtask. "));
+                // The listed parent plans from the block's heading, not from a second tile.
+                Node header = planningTile(family, "Parent");
+                assertTrue(header.getStyleClass().contains("plan-family-header"));
+                assertEquals(List.of("Parent", "work planned"), labelTexts(header));
+                assertNotNull(header.getOnDragDetected());
+                assertEquals(1, nodes(family).stream().filter(node -> node.getStyleClass().contains("cal-plan-item")
+                        && labelTexts(node).contains("Parent")).count());
             }
         });
     }
@@ -961,7 +968,8 @@ class StudyPlannerPanelTest {
     }
 
     private static Node planningTile(final Node root, final String title) {
-        return nodes(root).stream().filter(node -> node.getStyleClass().contains("plan-tile")
+        // Tiles and the family header rows a listed parent plans from.
+        return nodes(root).stream().filter(node -> node.getStyleClass().contains("cal-plan-item")
                 && labelTexts(node).contains(title)).findFirst().orElseThrow();
     }
 
