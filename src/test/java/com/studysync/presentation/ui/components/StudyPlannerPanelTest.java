@@ -397,6 +397,8 @@ class StudyPlannerPanelTest {
                 assertEquals("Parent", labelTexts(family).getFirst());
                 assertTrue(nodes(family).contains(planningTile(panel, "Subtask")));
                 assertFalse(labelTexts(family).contains("Parent / Subtask"));
+                // The heading is not read with the tile, so its name keeps the parent's title.
+                assertTrue(planningTile(panel, "Subtask").getAccessibleText().startsWith("Parent / Subtask. "));
             }
         });
     }

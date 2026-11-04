@@ -41,9 +41,11 @@ final class PlanningRow {
 
     /**
      * The same item as a fixed-size tile, for a grid: the title takes up to three
-     * lines and the reason sits at the bottom, so tiles in a row line up.
+     * lines and the reason sits at the bottom, so tiles in a row line up. A tile under
+     * a heading can show a shorter {@code title}; {@code fullTitle} keeps that context
+     * in its tooltip and accessible name.
      */
-    static VBox tile(String title, String reason, String color, String hint,
+    static VBox tile(String title, String fullTitle, String reason, String color, String hint,
                      DataFormat format, String id, Runnable plan) {
         Label name = new Label(title);
         TaskStyleUtils.fontSemiBold(name, 12);
@@ -56,7 +58,7 @@ final class PlanningRow {
         detail.setMinHeight(Region.USE_PREF_SIZE);
         VBox tile = new VBox(6, name, detail);
         tile.getStyleClass().add("plan-tile");
-        install(tile, title, reason, hint, format, id, plan);
+        install(tile, fullTitle, reason, hint, format, id, plan);
         return tile;
     }
 

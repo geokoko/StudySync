@@ -181,7 +181,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         TaskStyleUtils.fontBold(title, 18);
         needsPlanHint = mutedLabel("");
         needsPlanHint.setMinHeight(Region.USE_PREF_SIZE);
-        needsPlanContainer = new VBox(8);
+        needsPlanContainer = new VBox(14);
         needsPlan.getChildren().addAll(title, needsPlanHint, needsPlanContainer);
         sidebar.getChildren().add(needsPlan);
         createSessionSection(sidebar);
@@ -516,7 +516,12 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         }
         plan.needed().forEach(block -> needsPlanContainer.getChildren().add(buildPlanningBlock(block, taskHint)));
         if (!plan.comingUp().isEmpty()) {
-            needsPlanContainer.getChildren().add(mutedLabel("Coming up"));
+            Label comingUp = new Label("Coming up");
+            comingUp.setMaxWidth(Double.MAX_VALUE);
+            comingUp.getStyleClass().add("plan-section-heading");
+            TaskStyleUtils.fontBold(comingUp, 14);
+            TaskStyleUtils.textColor(comingUp, TaskStyleUtils.COLOR_MUTED);
+            needsPlanContainer.getChildren().add(comingUp);
             plan.comingUp().forEach(block ->
                     needsPlanContainer.getChildren().add(buildPlanningBlock(block, taskHint)));
         }
@@ -560,7 +565,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             case REMINDER -> TaskStyleUtils.REMINDER_COLOR;
             default -> TaskStyleUtils.COLOR_MUTED;
         };
-        return PlanningRow.tile(entry.tileTitle(), entry.reason(), color, hint, dragFormat, entry.key(),
+        return PlanningRow.tile(entry.tileTitle(), entry.title(), entry.reason(), color, hint, dragFormat, entry.key(),
                 () -> planEntry(entry));
     }
 
