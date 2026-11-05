@@ -938,6 +938,54 @@ class StudyPlannerPanelTest {
         });
     }
 
+    @Test
+    void theDaysScheduledRecurringTasksShowUnderTheDateAndPlanFromTheirChip() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.attempts.clear();
+                Task gym = Fixture.task("gym", "Gym", null);
+                gym.setRecurringPattern("1:2");
+                Task anki = Fixture.task("anki", "Anki", null);
+                anki.setRecurringPattern("1:2");
+                StudyGoal deck = fixture.goal("Review deck", anki, TODAY);
+                deck.setAchieved(true);
+                fixture.attempts.add(deck);
+                when(fixture.tasks.getTasks()).thenReturn(List.of(fixture.parent, fixture.child, gym, anki));
+                when(fixture.tasks.isRecurringOccurrence(any(), eq(TODAY)))
+                        .thenAnswer(invocation -> ((Task) invocation.getArgument(0)).isRecurring());
+                StudyPlannerPanel panel = fixture.panel();
+                Scene scene = new Scene(panel, 1100, 800);
+                scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+                panel.applyCss();
+                panel.layout();
+
+                Node strip = nodes(panel).stream().filter(node -> node.getStyleClass().contains("plan-scheduled"))
+                        .findFirst().orElseThrow();
+                GoalActionsTest.snapshot(panel, "planner-scheduled.png");
+                List<String> texts = labelTexts(strip);
+                assertEquals(List.of("Scheduled today:", "\u25CB", "Gym", "not planned", "\u2713", "Anki", "done"),
+                        texts.stream().filter(text -> !text.equals("\uD83D\uDD01")).toList());
+                Node chip = planningTile(strip, "Gym");
+                assertNotNull(chip.getOnDragDetected());
+                chip.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER,
+                        false, false, false, false));
+                assertTrue(labelTexts(fixture.modal).contains("Add goal for: Gym"));
+            }
+        });
+    }
+
+    @Test
+    void aDayWithNothingScheduledSaysSo() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                StudyPlannerPanel panel = fixture.panel();
+                Node strip = nodes(panel).stream().filter(node -> node.getStyleClass().contains("plan-scheduled"))
+                        .findFirst().orElseThrow();
+                assertTrue(labelTexts(strip).contains("no recurring tasks"));
+            }
+        });
+    }
+
     private static void onFx(Runnable action) throws Exception {
         FutureTask<Void> task = new FutureTask<>(() -> {
             action.run();

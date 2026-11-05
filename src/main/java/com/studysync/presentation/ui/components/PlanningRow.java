@@ -83,6 +83,35 @@ final class PlanningRow {
         return row;
     }
 
+    /**
+     * A compact pill for a day's scheduled occurrence: a status mark, the title and how it
+     * stands. With a {@code plan} action it is plannable like a tile; without one it only reports.
+     */
+    static HBox chip(String mark, String title, String state, String color, String hint,
+                     DataFormat format, String id, Runnable plan) {
+        Label icon = TaskStyleUtils.iconLabel(mark, 12);
+        TaskStyleUtils.textColor(icon, color);
+        Label name = new Label(title);
+        TaskStyleUtils.fontSemiBold(name, 12);
+        name.setMinWidth(0);
+        Label detail = new Label(state);
+        TaskStyleUtils.fontNormal(detail, 11);
+        TaskStyleUtils.textColor(detail, color);
+        detail.setMinWidth(Region.USE_PREF_SIZE);
+        HBox chip = new HBox(6, icon, name, detail);
+        chip.setAlignment(Pos.CENTER_LEFT);
+        chip.setMinWidth(0);
+        chip.getStyleClass().add("plan-scheduled-chip");
+        if (plan != null) {
+            install(chip, title, state, hint, format, id, plan);
+        } else {
+            chip.getProperties().put(KEY, id);
+            chip.setAccessibleText(title + ". " + state + ".");
+            Tooltip.install(chip, new Tooltip(title + "\n" + state));
+        }
+        return chip;
+    }
+
     private static Label reasonLabel(String reason, String color) {
         Label detail = new Label(reason);
         TaskStyleUtils.fontNormal(detail, 11);
