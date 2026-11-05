@@ -495,38 +495,30 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
 
         LocalDate today = dateTimeService.getCurrentDate();
         retryableGoals = displayDate.equals(today) ? StudyGoal.findDelayedAndNotReplanned() : List.of();
-        List<PlannerAgenda.Entry> entries = PlannerAgenda.build(displayDate, today,
+        PlannerAgenda.Plan plan = PlannerAgenda.build(displayDate, today,
                 new ArrayList<>(tasksById.values()), displayDateAttempts,
                 retryableGoals,
                 displayDate.equals(today) ? taskService.getMissedRecurringOccurrences(today) : List.of(),
                 taskService::isRecurringOccurrence);
         planningEntries = new LinkedHashMap<>();
+        plan.entries().forEach(entry -> planningEntries.put(entry.key(), entry));
         needsPlanContainer.getChildren().clear();
         unlinkedRetriesContainer.getChildren().clear();
         String taskHint = "Drag a task into " + goalsTitle.getText() + ", or double-click it, to plan it.";
         needsPlanHint.setText(taskHint + " Tasks stay here so you can plan more goals.");
-        TilePane retries = planTiles();
-        TilePane needed = planTiles();
-        TilePane comingUp = planTiles();
-        for (PlannerAgenda.Entry entry : entries) {
-            planningEntries.put(entry.key(), entry);
-            if (entry.task() == null) {
-                // Already in the goals column, so there is nowhere to drag it.
-                retries.getChildren().add(buildPlanningTile(entry, "Double-click or press Enter to plan a retry.", null));
-            } else {
-                (entry.kind() == PlannerAgenda.Kind.REMINDER ? comingUp : needed).getChildren()
-                        .add(buildPlanningTile(entry, taskHint, PLAN_DRAG));
-            }
-        }
-        if (!retries.getChildren().isEmpty()) {
+        if (!plan.taskless().isEmpty()) {
+            TilePane retries = planTiles();
+            // Already in the goals column, so there is nowhere to drag it.
+            plan.taskless().forEach(entry -> retries.getChildren().add(
+                    buildPlanningTile(entry, "Double-click or press Enter to plan a retry.", null)));
             unlinkedRetriesContainer.getChildren().addAll(
                     mutedLabel("Missed goals without a task · ready to retry"), retries);
         }
-        if (!needed.getChildren().isEmpty()) {
-            needsPlanContainer.getChildren().add(needed);
-        }
-        if (!comingUp.getChildren().isEmpty()) {
-            needsPlanContainer.getChildren().addAll(mutedLabel("Coming up"), comingUp);
+        plan.needed().forEach(block -> needsPlanContainer.getChildren().add(buildPlanningBlock(block, taskHint)));
+        if (!plan.comingUp().isEmpty()) {
+            needsPlanContainer.getChildren().add(mutedLabel("Coming up"));
+            plan.comingUp().forEach(block ->
+                    needsPlanContainer.getChildren().add(buildPlanningBlock(block, taskHint)));
         }
         if (needsPlanContainer.getChildren().isEmpty()) {
             needsPlanContainer.getChildren().add(mutedLabel("No tasks to plan for this day."));
@@ -545,6 +537,21 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         return tiles;
     }
 
+    /** A family block is headed by its parent's title; the standalone block is a bare grid. */
+    private Node buildPlanningBlock(PlannerAgenda.Block block, String hint) {
+        TilePane tiles = planTiles();
+        block.entries().forEach(entry -> tiles.getChildren().add(buildPlanningTile(entry, hint, PLAN_DRAG)));
+        if (!block.isFamily()) {
+            return tiles;
+        }
+        Label heading = new Label(block.parent().getTitle());
+        heading.setWrapText(true);
+        TaskStyleUtils.fontBold(heading, 13);
+        VBox family = new VBox(6, heading, tiles);
+        family.getStyleClass().add("plan-family");
+        return family;
+    }
+
     private Node buildPlanningTile(PlannerAgenda.Entry entry, String hint, DataFormat dragFormat) {
         String color = switch (entry.kind()) {
             case OVERDUE, MISSED -> TaskStyleUtils.OVERDUE_COLOR;
@@ -553,7 +560,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             case REMINDER -> TaskStyleUtils.REMINDER_COLOR;
             default -> TaskStyleUtils.COLOR_MUTED;
         };
-        return PlanningRow.tile(entry.title(), entry.reason(), color, hint, dragFormat, entry.key(),
+        return PlanningRow.tile(entry.tileTitle(), entry.reason(), color, hint, dragFormat, entry.key(),
                 () -> planEntry(entry));
     }
 
