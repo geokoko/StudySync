@@ -10,7 +10,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![JavaFX](https://img.shields.io/badge/JavaFX-25-blue.svg)](https://openjfx.io/)
 [![H2 Database](https://img.shields.io/badge/Database-H2-blue.svg)](https://www.h2database.com/)
-[![Version](https://img.shields.io/badge/Version-0.1.9-red.svg)](https://github.com/geokoko/StudySync/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.10-red.svg)](https://github.com/geokoko/StudySync/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
@@ -19,7 +19,7 @@ StudySync is a comprehensive Study Management System built with modern Java tech
 
 Perfect for students who want to integrate their academic calendar with task management and study tracking! 📚✨
 
-> **Version 0.1.9** adds separate resume dates for postponed tasks and missed, dropped, and reopened goal outcomes. Please report issues and provide feedback!
+> **Version 0.1.10** shows under the planner's date which recurring tasks are scheduled that day and whether each is planned or done, and groups each task with its subtasks in the Needs a plan list. Please report issues and provide feedback!
 
 ## Key Features
 
