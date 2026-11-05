@@ -274,7 +274,13 @@ final class PlannerAgenda {
     }
 
     private static Scheduled occurrence(Task task, String title, List<StudyGoal> goals, boolean past) {
-        List<StudyGoal> kept = goals.stream().filter(goal -> !goal.isDroppedAttempt()).toList();
+        // One entry per goal: a goal missed and retried on the same day has two attempts that day,
+        // and it counts as its best outcome there (achieved, else pending, else missed).
+        Map<String, StudyGoal> byGoal = new LinkedHashMap<>();
+        goals.stream().filter(goal -> !goal.isDroppedAttempt()).forEach(goal ->
+                byGoal.merge(goal.getId(), goal, (first, second) ->
+                        outcomeRank(second) < outcomeRank(first) ? second : first));
+        List<StudyGoal> kept = List.copyOf(byGoal.values());
         if (kept.isEmpty()) {
             return !goals.isEmpty() ? new Scheduled(task, title, Occurrence.DROPPED, "dropped")
                     : past ? new Scheduled(task, title, Occurrence.MISSED, "not done")
@@ -291,6 +297,11 @@ final class PlannerAgenda {
             return new Scheduled(task, title, Occurrence.DONE, done == kept.size() ? "done" : progress);
         }
         return new Scheduled(task, title, Occurrence.MISSED, kept.size() == 1 ? "goal missed" : kept.size() + " goals missed");
+    }
+
+    private static int outcomeRank(StudyGoal attempt) {
+        StudyGoal.AttemptOutcome outcome = attempt.getAttemptOutcome();
+        return outcome == StudyGoal.AttemptOutcome.ACHIEVED ? 0 : outcome == StudyGoal.AttemptOutcome.PENDING ? 1 : 2;
     }
 
     private static String dueText(LocalDate deadline, LocalDate date) {

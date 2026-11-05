@@ -554,6 +554,18 @@ class PlannerAgendaTest {
     }
 
     @Test
+    void aGoalMissedAndRetriedTheSameDayCountsOnceByItsBestAttempt() {
+        Task task = recurring("Gym", "1:2");
+        StudyGoal missed = new StudyGoal("legs", TODAY, "Legs", false, null, 0, false, 0, task.getId());
+        missed.setFailed(true);
+        StudyGoal retry = new StudyGoal("legs", TODAY, "Legs", false, null, 0, false, 0, task.getId());
+        assertState(task, List.of(retry, missed), Occurrence.PLANNED, "planned");
+        retry.setAchieved(true);
+        assertState(task, List.of(retry, missed), Occurrence.DONE, "done");
+        assertState(task, List.of(missed, retry), Occurrence.DONE, "done");
+    }
+
+    @Test
     void aPastOccurrenceWithoutAGoalIsNotDone() {
         Task task = recurring("Gym", "1:2");
         Scheduled past = scheduled(TODAY.minusWeeks(1), List.of(task), List.of()).getFirst();

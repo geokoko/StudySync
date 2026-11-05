@@ -975,6 +975,31 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void aLongScheduledTitleIsCutShortSoTheChipCannotWidenThePlanner() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                String title = "Revise every lecture of the advanced distributed systems course ".repeat(3).trim();
+                Task task = Fixture.task("long", title, null);
+                task.setRecurringPattern("1:2");
+                when(fixture.tasks.getTasks()).thenReturn(List.of(fixture.parent, fixture.child, task));
+                when(fixture.tasks.isRecurringOccurrence(any(), eq(TODAY)))
+                        .thenAnswer(invocation -> ((Task) invocation.getArgument(0)).isRecurring());
+                StudyPlannerPanel panel = fixture.panel();
+                Scene scene = new Scene(panel, 900, 700);
+                scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+                panel.applyCss();
+                panel.layout();
+                Node strip = nodes(panel).stream().filter(node -> node.getStyleClass().contains("plan-scheduled"))
+                        .findFirst().orElseThrow();
+                Node chip = planningTile(strip, title);
+                assertTrue(chip.prefWidth(-1) < 400, "chip width " + chip.prefWidth(-1));
+                assertTrue(strip.minWidth(-1) < 600, "row min width " + strip.minWidth(-1));
+                assertTrue(chip.getAccessibleText().startsWith(title));
+            }
+        });
+    }
+
+    @Test
     void aDayWithNothingScheduledSaysSo() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {

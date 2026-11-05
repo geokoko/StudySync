@@ -19,6 +19,8 @@ final class PlanningRow {
 
     /** Node property holding the item's planning key, so a closed dialog can return focus to it. */
     static final String KEY = "studysync.planning-key";
+    /** The widest a scheduled chip's title is shown before it is cut short. */
+    static final double CHIP_TITLE_WIDTH = 240;
 
     private PlanningRow() {
     }
@@ -94,6 +96,9 @@ final class PlanningRow {
         Label name = new Label(title);
         TaskStyleUtils.fontSemiBold(name, 12);
         name.setMinWidth(0);
+        // A long title is cut short with an ellipsis (the tooltip keeps it whole), so one chip
+        // cannot make its row, and with it the planner, wider than the window.
+        name.setMaxWidth(CHIP_TITLE_WIDTH);
         Label detail = new Label(state);
         TaskStyleUtils.fontNormal(detail, 11);
         TaskStyleUtils.textColor(detail, color);
