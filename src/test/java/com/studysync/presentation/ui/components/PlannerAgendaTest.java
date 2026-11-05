@@ -9,7 +9,9 @@ import com.studysync.domain.valueobject.TaskStatus;
 import com.studysync.presentation.ui.components.PlannerAgenda.Block;
 import com.studysync.presentation.ui.components.PlannerAgenda.Entry;
 import com.studysync.presentation.ui.components.PlannerAgenda.Kind;
+import com.studysync.presentation.ui.components.PlannerAgenda.Occurrence;
 import com.studysync.presentation.ui.components.PlannerAgenda.Plan;
+import com.studysync.presentation.ui.components.PlannerAgenda.Scheduled;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -493,6 +495,126 @@ class PlannerAgendaTest {
         assertEquals(List.of(old, z, a, due, open), tasks(plan.needed().getFirst()));
         assertEquals(List.of(unlinked), plan.taskless().getFirst().retries());
         assertEquals(1, plan.taskless().size());
+    }
+
+    @Test
+    void scheduledListsTheRecurringTasksWhoseScheduleLandsOnTheDay() {
+        Task tuesday = recurring("Gym", "1:2");
+        Task wednesday = recurring("Spanish", "1:3");
+        Task due = task("Essay", TODAY);
+        List<Task> tasks = List.of(tuesday, wednesday, due);
+        assertEquals(List.of(tuesday), scheduledTasks(TODAY, tasks, List.of()));
+        assertEquals(List.of(wednesday), scheduledTasks(TODAY.plusDays(1), tasks, List.of()));
+        assertEquals(List.of(tuesday), scheduledTasks(TODAY.plusWeeks(1), tasks, List.of()));
+        Scheduled gym = scheduled(TODAY, tasks, List.of()).getFirst();
+        assertEquals(Occurrence.NOT_PLANNED, gym.state());
+        assertEquals("not planned", gym.detail());
+        assertEquals("task:" + tuesday.getId(), gym.key());
+    }
+
+    @Test
+    void scheduledFollowsTheScheduleRatherThanDeadlinesOrLateness() {
+        Task late = recurring("Gym", "1:2");
+        late.setDeadline(TODAY.minusDays(3));
+        late.setStatus(TaskStatus.DELAYED);
+        assertEquals(List.of(late), scheduledTasks(TODAY, List.of(late), List.of()));
+        assertTrue(scheduled(TODAY.plusDays(1), List.of(late), List.of()).isEmpty(),
+                "a late task is in Needs a plan every day, but scheduled only on its schedule");
+        late.setRecurrenceEndDate(TODAY.minusDays(1));
+        assertTrue(scheduled(TODAY, List.of(late), List.of()).isEmpty());
+    }
+
+    @Test
+    void anOccurrenceIsJudgedByItsOwnGoalsDatedThatDay() {
+        Task task = recurring("Gym", "1:2");
+        StudyGoal pending = goal("Legs", task, TODAY);
+        StudyGoal achieved = goal("Arms", task, TODAY);
+        achieved.setAchieved(true);
+        StudyGoal missed = missed("Run", task, TODAY);
+        assertState(task, List.of(pending), Occurrence.PLANNED, "planned");
+        assertState(task, List.of(pending, goal("Core", task, TODAY)), Occurrence.PLANNED, "2 goals planned");
+        assertState(task, List.of(pending, achieved), Occurrence.PLANNED, "1 of 2 done");
+        assertState(task, List.of(achieved), Occurrence.DONE, "done");
+        assertState(task, List.of(achieved, missed), Occurrence.DONE, "1 of 2 done");
+        assertState(task, List.of(missed), Occurrence.MISSED, "goal missed");
+        assertState(task, List.of(goal("Earlier", task, TODAY.minusWeeks(1))), Occurrence.NOT_PLANNED, "not planned");
+
+        Task child = child("Warm-up", task, null);
+        assertEquals(Occurrence.NOT_PLANNED, scheduled(TODAY, List.of(task, child),
+                List.of(goal("Stretch", child, TODAY))).getFirst().state(),
+                "a subtask's goal is not the parent's occurrence");
+
+        StudyGoal dropped = mock(StudyGoal.class);
+        when(dropped.getTaskId()).thenReturn(task.getId());
+        when(dropped.getDate()).thenReturn(TODAY);
+        when(dropped.isDroppedAttempt()).thenReturn(true);
+        when(dropped.getAttemptOutcome()).thenReturn(StudyGoal.AttemptOutcome.DROPPED);
+        assertState(task, List.of(dropped), Occurrence.DROPPED, "dropped");
+        assertState(task, List.of(dropped, pending), Occurrence.PLANNED, "planned");
+    }
+
+    @Test
+    void aGoalMissedAndRetriedTheSameDayCountsOnceByItsBestAttempt() {
+        Task task = recurring("Gym", "1:2");
+        StudyGoal missed = new StudyGoal("legs", TODAY, "Legs", false, null, 0, false, 0, task.getId());
+        missed.setFailed(true);
+        StudyGoal retry = new StudyGoal("legs", TODAY, "Legs", false, null, 0, false, 0, task.getId());
+        assertState(task, List.of(retry, missed), Occurrence.PLANNED, "planned");
+        retry.setAchieved(true);
+        assertState(task, List.of(retry, missed), Occurrence.DONE, "done");
+        assertState(task, List.of(missed, retry), Occurrence.DONE, "done");
+    }
+
+    @Test
+    void aPastOccurrenceWithoutAGoalIsNotDone() {
+        Task task = recurring("Gym", "1:2");
+        Scheduled past = scheduled(TODAY.minusWeeks(1), List.of(task), List.of()).getFirst();
+        assertEquals(Occurrence.MISSED, past.state());
+        assertEquals("not done", past.detail());
+    }
+
+    @Test
+    void anInactiveTaskIsScheduledOnlyWhereItHasAGoalThatDay() {
+        Task task = recurring("Gym", "1:2");
+        for (TaskStatus status : List.of(TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.POSTPONED)) {
+            task.setStatus(status);
+            assertTrue(scheduled(TODAY, List.of(task), List.of()).isEmpty());
+        }
+        task.setStatus(TaskStatus.COMPLETED);
+        StudyGoal achieved = goal("Legs", task, TODAY.minusWeeks(1));
+        achieved.setAchieved(true);
+        Scheduled past = scheduled(TODAY.minusWeeks(1), List.of(task), List.of(achieved)).getFirst();
+        assertEquals(Occurrence.DONE, past.state());
+    }
+
+    @Test
+    void scheduledPutsOpenWorkFirstThenOrdersByTitleAndShowsTheParent() {
+        Task parent = task("Course", null);
+        Task done = recurring("Anki", "1:2");
+        Task planned = recurring("Reading", "1:2");
+        Task open = recurring("Zumba", "1:2");
+        Task alsoOpen = recurring("Drills", "1:2");
+        alsoOpen.setParentId(parent.getId());
+        StudyGoal achieved = goal("Deck", done, TODAY);
+        achieved.setAchieved(true);
+        List<Scheduled> scheduled = scheduled(TODAY, List.of(parent, done, planned, open, alsoOpen),
+                List.of(achieved, goal("Chapter", planned, TODAY)));
+        assertEquals(List.of("Course / Drills", "Zumba", "Reading", "Anki"),
+                scheduled.stream().map(Scheduled::title).toList());
+    }
+
+    private void assertState(Task task, List<StudyGoal> attempts, Occurrence state, String detail) {
+        Scheduled scheduled = scheduled(TODAY, List.of(task), attempts).getFirst();
+        assertEquals(state, scheduled.state());
+        assertEquals(detail, scheduled.detail());
+    }
+
+    private List<Scheduled> scheduled(LocalDate date, List<Task> tasks, List<StudyGoal> attempts) {
+        return PlannerAgenda.scheduled(date, TODAY, tasks, attempts, recurrence::isRecurringOccurrence);
+    }
+
+    private List<Task> scheduledTasks(LocalDate date, List<Task> tasks, List<StudyGoal> attempts) {
+        return scheduled(date, tasks, attempts).stream().map(Scheduled::task).toList();
     }
 
     private List<Entry> build(LocalDate date, List<Task> tasks, List<StudyGoal> attempts,

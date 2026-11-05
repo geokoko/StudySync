@@ -160,6 +160,11 @@ Syncs the whole H2 file. OAuth client credentials live in
   only when all its own-reason members are reminders. `StudyPlannerPanel` only
   renders it. The calendar's "To plan" list excludes planned work,
   applying the same parent rule through `CalendarAgenda.withParents`.
+- The planner's "Scheduled" strip under the date is `PlannerAgenda.scheduled`:
+  the recurring tasks whose schedule lands on the selected day (never deadlines
+  or lateness), each judged only by its own task's goals dated that day, like
+  `StudyGoal.hasHandledGoalForTaskOccurrence` (a subtask's goal does not handle
+  its parent's occurrence).
 
 ### Subtasks and task notes
 

@@ -77,6 +77,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
     // UI containers that get rebuilt on navigation
     private VBox tasksContainer;
     private FlowPane attemptOverviewContainer;
+    private FlowPane scheduledContainer;
     private VBox goalsContainer;
     private VBox needsPlanContainer;
     private Label needsPlanHint;
@@ -236,6 +237,10 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
 
         navRow.getChildren().addAll(prevBtn, dateNavLabel, nextBtn, todayBtn);
 
+        scheduledContainer = new FlowPane(8, 6);
+        scheduledContainer.setAlignment(Pos.CENTER);
+        scheduledContainer.getStyleClass().add("plan-scheduled");
+
         dailyProgressBar = new ProgressBar(0);
         dailyProgressBar.setPrefWidth(300);
         dailyProgressBar.getStyleClass().add("planner-progress");
@@ -250,7 +255,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         TaskStyleUtils.textColor(plannerError, TaskStyleUtils.COLOR_DANGER);
         plannerError.setVisible(false);
         plannerError.setManaged(false);
-        header.getChildren().addAll(navRow, dailyProgressBar, progressLabel, attemptOverviewContainer, plannerError);
+        header.getChildren().addAll(navRow, scheduledContainer, dailyProgressBar, progressLabel, attemptOverviewContainer, plannerError);
         mainContent.getChildren().add(header);
     }
 
@@ -528,8 +533,57 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         if (needsPlanContainer.getChildren().isEmpty()) {
             needsPlanContainer.getChildren().add(mutedLabel("No tasks to plan for this day."));
         }
+        updateScheduled(today, taskHint);
         updateTaskBrowser();
         syncSessionControls();
+    }
+
+    /**
+     * The recurring tasks scheduled on the selected day, under the date: each one's chip says
+     * whether that day's occurrence is planned, done or still open; the rules are in
+     * {@link PlannerAgenda#scheduled}. An active task's chip plans it like its Needs a plan tile.
+     */
+    private void updateScheduled(LocalDate today, String hint) {
+        List<PlannerAgenda.Scheduled> scheduled = PlannerAgenda.scheduled(displayDate, today,
+                new ArrayList<>(tasksById.values()), displayDateAttempts, taskService::isRecurringOccurrence);
+        Label heading = new Label((displayDate.equals(today) ? "Scheduled today" : "Scheduled") + ":");
+        heading.setGraphic(TaskStyleUtils.iconLabel("\uD83D\uDD01", 13));
+        TaskStyleUtils.fontBold(heading, 13);
+        scheduledContainer.getChildren().setAll(heading);
+        if (scheduled.isEmpty()) {
+            Label none = mutedLabel("no recurring tasks");
+            scheduledContainer.getChildren().add(none);
+            return;
+        }
+        for (PlannerAgenda.Scheduled item : scheduled) {
+            Task task = item.task();
+            PlannerAgenda.Entry entry = planningEntries.get(item.key());
+            Runnable plan = !CalendarAgenda.isActive(task.getStatus()) ? null
+                    : entry != null ? () -> planEntry(entry) : () -> showAddGoalDialog(task);
+            scheduledContainer.getChildren().add(PlanningRow.chip(scheduledMark(item.state()), item.title(),
+                    item.detail(), scheduledColor(item.state()), hint, entry != null ? PLAN_DRAG : null,
+                    item.key(), plan));
+        }
+    }
+
+    private static String scheduledMark(PlannerAgenda.Occurrence state) {
+        return switch (state) {
+            case NOT_PLANNED -> "\u25CB";
+            case PLANNED -> "\u25D0";
+            case DONE -> "\u2713";
+            case MISSED -> "\u2717";
+            case DROPPED -> "\u2013";
+        };
+    }
+
+    private static String scheduledColor(PlannerAgenda.Occurrence state) {
+        return switch (state) {
+            case NOT_PLANNED -> TaskStyleUtils.DUE_TODAY_COLOR;
+            case PLANNED -> TaskStyleUtils.COLOR_PRIMARY;
+            case DONE -> TaskStyleUtils.COLOR_SUCCESS;
+            case MISSED -> TaskStyleUtils.COLOR_DANGER;
+            case DROPPED -> TaskStyleUtils.COLOR_MUTED;
+        };
     }
 
     /** A grid of same-size planning tiles; it wraps to the column's width. */

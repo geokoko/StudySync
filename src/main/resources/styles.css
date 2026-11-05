@@ -809,6 +809,26 @@
     -fx-padding: 8 10 8 10;
 }
 
+/* The day's scheduled recurring tasks, under the planner's date */
+.plan-scheduled {
+    -fx-padding: 2 0 2 0;
+}
+
+.plan-scheduled-chip {
+    -fx-background-color: white;
+    -fx-background-radius: 14;
+    -fx-border-color: #dfe4ea;
+    -fx-border-radius: 14;
+    -fx-padding: 4 10 4 10;
+}
+
+.cal-plan-item.plan-scheduled-chip,
+.cal-plan-item.plan-scheduled-chip:focused {
+    -fx-background-radius: 14;
+    -fx-border-radius: 14;
+    -fx-padding: 4 10 4 10;
+}
+
 /* Planning tiles (Needs a plan): size comes from their TilePane */
 .plan-tile {
     -fx-padding: 8 10 8 10;

@@ -40,6 +40,10 @@ import java.util.stream.Collectors;
  * member, then one block of standalone tasks. A block goes under "Coming up" only when every
  * member listed for its own reason is a {@link Kind#REMINDER}; standalone reminders go there
  * too. Missed goals without a task stay apart in {@link Plan#taskless()}.</p>
+ *
+ * <p>Separately, {@link #scheduled} answers "which recurring tasks are on this day", on any
+ * day: the schedule decides, never deadlines, lateness or carry-forward, and each occurrence
+ * is judged only by its own task's goals dated that day.</p>
  */
 final class PlannerAgenda {
 
@@ -88,6 +92,32 @@ final class PlannerAgenda {
      * families first and then at most one standalone block.
      */
     record Plan(List<Entry> entries, List<Entry> taskless, List<Block> needed, List<Block> comingUp) {
+    }
+
+    /** Where a scheduled occurrence stands on its day, declared in display order. */
+    enum Occurrence {
+        /** No goal for it yet, today or later. */
+        NOT_PLANNED,
+        /** A past day with no goal for it, or only missed goals. */
+        MISSED,
+        /** At least one goal still pending. */
+        PLANNED,
+        /** No goal pending and at least one achieved. */
+        DONE,
+        /** Its only goals that day were dropped. */
+        DROPPED
+    }
+
+    /**
+     * A recurring task whose schedule lands on the selected day, judged by its own goals dated
+     * that day (as {@code StudyGoal.hasHandledGoalForTaskOccurrence} judges an occurrence).
+     *
+     * @param detail what that day's goals amount to, such as "planned" or "1 of 2 done"
+     */
+    record Scheduled(Task task, String title, Occurrence state, String detail) {
+        String key() {
+            return "task:" + task.getId();
+        }
     }
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE");
@@ -214,6 +244,64 @@ final class PlannerAgenda {
                         dueText(child.getDeadline(), date), child, List.of(), child.getDeadline()));
             }
         }
+    }
+
+    /**
+     * The recurring tasks scheduled on {@code date}: every active one whose schedule lands there,
+     * plus any other with its own goal dated that day, so a past day keeps work done on a task
+     * since completed. Ordered by {@link Occurrence}, then title.
+     */
+    static List<Scheduled> scheduled(LocalDate date, LocalDate today, List<Task> tasks,
+                                     List<StudyGoal> attempts, BiPredicate<Task, LocalDate> isOccurrence) {
+        Map<String, Task> tasksById = new LinkedHashMap<>();
+        tasks.forEach(task -> tasksById.putIfAbsent(task.getId(), task));
+        Map<String, List<StudyGoal>> goalsByTask = attempts.stream()
+                .filter(goal -> date.equals(goal.getDate()) && goal.getTaskId() != null)
+                .collect(Collectors.groupingBy(StudyGoal::getTaskId));
+        List<Scheduled> scheduled = new ArrayList<>();
+        for (Task task : tasksById.values()) {
+            List<StudyGoal> goals = goalsByTask.getOrDefault(task.getId(), List.of());
+            if (!task.isRecurring() || !isOccurrence.test(task, date)
+                    || !CalendarAgenda.isActive(task.getStatus()) && goals.isEmpty()) {
+                continue;
+            }
+            scheduled.add(occurrence(task, CalendarAgenda.taskTitle(task, tasksById), goals, date.isBefore(today)));
+        }
+        scheduled.sort(Comparator.comparing(Scheduled::state)
+                .thenComparing(Scheduled::title, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(Scheduled::key));
+        return List.copyOf(scheduled);
+    }
+
+    private static Scheduled occurrence(Task task, String title, List<StudyGoal> goals, boolean past) {
+        // One entry per goal: a goal missed and retried on the same day has two attempts that day,
+        // and it counts as its best outcome there (achieved, else pending, else missed).
+        Map<String, StudyGoal> byGoal = new LinkedHashMap<>();
+        goals.stream().filter(goal -> !goal.isDroppedAttempt()).forEach(goal ->
+                byGoal.merge(goal.getId(), goal, (first, second) ->
+                        outcomeRank(second) < outcomeRank(first) ? second : first));
+        List<StudyGoal> kept = List.copyOf(byGoal.values());
+        if (kept.isEmpty()) {
+            return !goals.isEmpty() ? new Scheduled(task, title, Occurrence.DROPPED, "dropped")
+                    : past ? new Scheduled(task, title, Occurrence.MISSED, "not done")
+                    : new Scheduled(task, title, Occurrence.NOT_PLANNED, "not planned");
+        }
+        long done = kept.stream().filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.ACHIEVED).count();
+        long pending = kept.stream().filter(goal -> goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING).count();
+        String progress = done + " of " + kept.size() + " done";
+        if (pending > 0) {
+            return new Scheduled(task, title, Occurrence.PLANNED,
+                    done > 0 ? progress : kept.size() == 1 ? "planned" : kept.size() + " goals planned");
+        }
+        if (done > 0) {
+            return new Scheduled(task, title, Occurrence.DONE, done == kept.size() ? "done" : progress);
+        }
+        return new Scheduled(task, title, Occurrence.MISSED, kept.size() == 1 ? "goal missed" : kept.size() + " goals missed");
+    }
+
+    private static int outcomeRank(StudyGoal attempt) {
+        StudyGoal.AttemptOutcome outcome = attempt.getAttemptOutcome();
+        return outcome == StudyGoal.AttemptOutcome.ACHIEVED ? 0 : outcome == StudyGoal.AttemptOutcome.PENDING ? 1 : 2;
     }
 
     private static String dueText(LocalDate deadline, LocalDate date) {
