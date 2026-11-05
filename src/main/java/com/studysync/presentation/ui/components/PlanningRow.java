@@ -41,9 +41,11 @@ final class PlanningRow {
 
     /**
      * The same item as a fixed-size tile, for a grid: the title takes up to three
-     * lines and the reason sits at the bottom, so tiles in a row line up.
+     * lines and the reason sits at the bottom, so tiles in a row line up. A tile under
+     * a heading can show a shorter {@code title}; {@code fullTitle} keeps that context
+     * in its tooltip and accessible name.
      */
-    static VBox tile(String title, String reason, String color, String hint,
+    static VBox tile(String title, String fullTitle, String reason, String color, String hint,
                      DataFormat format, String id, Runnable plan) {
         Label name = new Label(title);
         TaskStyleUtils.fontSemiBold(name, 12);
@@ -56,8 +58,29 @@ final class PlanningRow {
         detail.setMinHeight(Region.USE_PREF_SIZE);
         VBox tile = new VBox(6, name, detail);
         tile.getStyleClass().add("plan-tile");
-        install(tile, title, reason, hint, format, id, plan);
+        install(tile, fullTitle, reason, hint, format, id, plan);
         return tile;
+    }
+
+    /**
+     * A family block's heading that is also the listed parent's plannable item: the title
+     * in bold over its reason, styled as a heading until it is hovered or focused.
+     */
+    static HBox header(String title, String reason, String color, String hint,
+                       DataFormat format, String id, Runnable plan) {
+        Label name = new Label(title);
+        TaskStyleUtils.fontBold(name, 13);
+        name.setWrapText(true);
+        name.setMinWidth(0);
+        name.setMaxWidth(Double.MAX_VALUE);
+        VBox text = new VBox(2, name, reasonLabel(reason, color));
+        text.setMinWidth(0);
+        HBox.setHgrow(text, Priority.ALWAYS);
+        HBox row = new HBox(text);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("plan-family-header");
+        install(row, title, reason, hint, format, id, plan);
+        return row;
     }
 
     private static Label reasonLabel(String reason, String color) {

@@ -375,6 +375,9 @@ class PlannerAgendaTest {
         assertEquals(List.of(parent, sooner, later), tasks(family));
         assertEquals(List.of("Parent", "Zed", "Alpha"), family.entries().stream().map(Entry::tileTitle).toList());
         assertEquals("Parent / Zed", family.entries().get(1).title());
+        assertEquals(parent, family.header().task());
+        assertEquals(List.of(sooner, later), family.tiles().stream().map(Entry::task).toList());
+        assertNull(plan.needed().get(1).header());
         assertFalse(plan.needed().get(1).isFamily());
         assertEquals(List.of(other), tasks(plan.needed().get(1)));
         assertTrue(plan.comingUp().isEmpty());
@@ -431,6 +434,8 @@ class PlannerAgendaTest {
         assertEquals(parent, family.parent());
         assertEquals(List.of(due), tasks(family));
         assertEquals("Due", family.entries().getFirst().tileTitle());
+        assertNull(family.header());
+        assertEquals(family.entries(), family.tiles());
     }
 
     @Test

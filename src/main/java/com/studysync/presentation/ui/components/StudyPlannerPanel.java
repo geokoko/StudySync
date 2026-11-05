@@ -181,7 +181,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         TaskStyleUtils.fontBold(title, 18);
         needsPlanHint = mutedLabel("");
         needsPlanHint.setMinHeight(Region.USE_PREF_SIZE);
-        needsPlanContainer = new VBox(8);
+        needsPlanContainer = new VBox(14);
         needsPlan.getChildren().addAll(title, needsPlanHint, needsPlanContainer);
         sidebar.getChildren().add(needsPlan);
         createSessionSection(sidebar);
@@ -516,7 +516,12 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         }
         plan.needed().forEach(block -> needsPlanContainer.getChildren().add(buildPlanningBlock(block, taskHint)));
         if (!plan.comingUp().isEmpty()) {
-            needsPlanContainer.getChildren().add(mutedLabel("Coming up"));
+            Label comingUp = new Label("Coming up");
+            comingUp.setMaxWidth(Double.MAX_VALUE);
+            comingUp.getStyleClass().add("plan-section-heading");
+            TaskStyleUtils.fontBold(comingUp, 14);
+            TaskStyleUtils.textColor(comingUp, TaskStyleUtils.COLOR_MUTED);
+            needsPlanContainer.getChildren().add(comingUp);
             plan.comingUp().forEach(block ->
                     needsPlanContainer.getChildren().add(buildPlanningBlock(block, taskHint)));
         }
@@ -537,31 +542,46 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         return tiles;
     }
 
-    /** A family block is headed by its parent's title; the standalone block is a bare grid. */
+    /**
+     * A family block is headed by its listed parent's plannable row, or by the parent's title
+     * when only subtasks are listed; the standalone block is a bare grid.
+     */
     private Node buildPlanningBlock(PlannerAgenda.Block block, String hint) {
         TilePane tiles = planTiles();
-        block.entries().forEach(entry -> tiles.getChildren().add(buildPlanningTile(entry, hint, PLAN_DRAG)));
+        block.tiles().forEach(entry -> tiles.getChildren().add(buildPlanningTile(entry, hint, PLAN_DRAG)));
         if (!block.isFamily()) {
             return tiles;
         }
-        Label heading = new Label(block.parent().getTitle());
-        heading.setWrapText(true);
-        TaskStyleUtils.fontBold(heading, 13);
+        PlannerAgenda.Entry parent = block.header();
+        Node heading;
+        if (parent != null) {
+            heading = PlanningRow.header(parent.tileTitle(), parent.reason(), reasonColor(parent), hint,
+                    PLAN_DRAG, parent.key(), () -> planEntry(parent));
+        } else {
+            Label title = new Label(block.parent().getTitle());
+            title.setWrapText(true);
+            title.getStyleClass().add("plan-family-title");
+            TaskStyleUtils.fontBold(title, 13);
+            heading = title;
+        }
         VBox family = new VBox(6, heading, tiles);
         family.getStyleClass().add("plan-family");
         return family;
     }
 
     private Node buildPlanningTile(PlannerAgenda.Entry entry, String hint, DataFormat dragFormat) {
-        String color = switch (entry.kind()) {
+        return PlanningRow.tile(entry.tileTitle(), entry.title(), entry.reason(), reasonColor(entry), hint,
+                dragFormat, entry.key(), () -> planEntry(entry));
+    }
+
+    private static String reasonColor(PlannerAgenda.Entry entry) {
+        return switch (entry.kind()) {
             case OVERDUE, MISSED -> TaskStyleUtils.OVERDUE_COLOR;
             case DUE -> TaskStyleUtils.DUE_TODAY_COLOR;
             case RETRY -> TaskStyleUtils.retryTextColor();
             case REMINDER -> TaskStyleUtils.REMINDER_COLOR;
             default -> TaskStyleUtils.COLOR_MUTED;
         };
-        return PlanningRow.tile(entry.tileTitle(), entry.reason(), color, hint, dragFormat, entry.key(),
-                () -> planEntry(entry));
     }
 
     private void planEntry(PlannerAgenda.Entry entry) {
@@ -689,7 +709,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
      */
     private void focusPlanningTile(String key) {
         Stream.of(needsPlanContainer, unlinkedRetriesContainer)
-                .flatMap(container -> container.lookupAll(".plan-tile").stream())
+                .flatMap(container -> container.lookupAll(".cal-plan-item").stream())
                 .filter(tile -> key.equals(tile.getProperties().get(PlanningRow.KEY)))
                 .findFirst().ifPresent(Node::requestFocus);
     }

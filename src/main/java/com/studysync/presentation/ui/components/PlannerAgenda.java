@@ -31,8 +31,9 @@ import java.util.stream.Collectors;
  * (including achieved retries) remains the source of truth.</p>
  *
  * <p>Tasks are laid out by family ({@link Plan}). A listed subtask joins a {@link Block}
- * headed by its parent's title, with the parent's tile first when the parent is listed and
- * the subtasks after it in {@link TaskListAgenda#TASK_ORDER}. When a parent is listed, each
+ * headed by its parent: by the parent's own plannable entry when the parent is listed
+ * ({@link Block#header()}), otherwise by its title alone; the subtasks follow in
+ * {@link TaskListAgenda#TASK_ORDER}. When a parent is listed, each
  * of its active subtasks without a reason of its own joins the block as a {@link Kind#SUBTASK}
  * ("due Fri" within seven days of the selected date, "due Nov 11" later, or "no deadline"),
  * so the family can be planned from one place. Blocks come first, ordered by their most urgent
@@ -61,12 +62,23 @@ final class PlannerAgenda {
     }
 
     /**
-     * Tiles shown together. A family block has a {@code parent} (listed or not) and lists the
+     * Entries shown together. A family block has a {@code parent} (listed or not) and lists the
      * parent's entry first, if any; the standalone block has no parent.
      */
     record Block(Task parent, List<Entry> entries) {
         boolean isFamily() {
             return parent != null;
+        }
+
+        /** The listed parent's own entry, which heads its family block; null otherwise. */
+        Entry header() {
+            return isFamily() && !entries.isEmpty() && entries.getFirst().task() == parent
+                    ? entries.getFirst() : null;
+        }
+
+        /** The block's tiles: every entry but the {@link #header()}. */
+        List<Entry> tiles() {
+            return header() == null ? entries : entries.subList(1, entries.size());
         }
     }
 

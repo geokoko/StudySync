@@ -814,6 +814,34 @@
     -fx-padding: 8 10 8 10;
 }
 
+/* A section of Needs a plan after the main list, such as Coming up */
+.plan-section-heading {
+    -fx-border-color: #e3e7eb transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 12 0 0 0;
+}
+
+/* A listed parent heading its family: reads as a heading until hovered or focused */
+.cal-plan-item.plan-family-header {
+    -fx-background-color: #f4f6f8;
+    -fx-border-color: transparent;
+    -fx-padding: 6 8 6 8;
+}
+
+.cal-plan-item.plan-family-header:hover {
+    -fx-background-color: #faf5fc;
+    -fx-border-color: #9b59b6;
+}
+
+.cal-plan-item.plan-family-header:focused {
+    -fx-border-color: #9b59b6;
+}
+
+/* A parent that is not listed: its title alone, aligned with the header rows' text */
+.plan-family-title {
+    -fx-padding: 0 9 0 9;
+}
+
 /* A parent and its subtasks in Needs a plan: heading, then their tiles */
 .plan-family {
     -fx-border-color: transparent transparent transparent #d5dbe1;
