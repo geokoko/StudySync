@@ -16,6 +16,7 @@ import com.studysync.presentation.ui.components.CalendarAgenda.Kind;
 import javafx.application.Platform;
 import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
+import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.input.DataFormat;
@@ -879,27 +880,129 @@ public class CalendarViewPanel extends BorderPane implements RefreshablePanel {
 
     private Node createTaskLine(Entry entry, LocalDate date, LocalDate today) {
         Label icon = TaskStyleUtils.iconLabel(entryIcon(entry.kind()), 12);
-        icon.setMinWidth(Region.USE_PREF_SIZE);
         TaskStyleUtils.textColor(icon, entryColor(entry.kind(), date, today));
-
         Label name = new Label(entry.title());
         TaskStyleUtils.fontSemiBold(name, 12);
-        wrap(name);
-        name.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(name, Priority.ALWAYS);
-
         Label kind = new Label(entry.kind() == Kind.OVERDUE ? entry.detail() : entryLabel(entry, date, today));
         TaskStyleUtils.fontNormal(kind, 11);
         TaskStyleUtils.textColor(kind, entryColor(entry.kind(), date, today));
-        kind.setMinWidth(Region.USE_PREF_SIZE);
 
-        HBox line = new HBox(6, icon, name, kind);
-        line.setAlignment(Pos.CENTER_LEFT);
-        line.getStyleClass().add("cal-task-line");
+        DayTaskLine line = new DayTaskLine(icon, name, kind);
+        String tooltip = entry.title();
         if (entry.task() != null && entry.task().getCategory() != null && !entry.task().getCategory().isBlank()) {
-            Tooltip.install(line, new Tooltip(entry.title() + "\nCategory: " + entry.task().getCategory()));
+            tooltip += "\nCategory: " + entry.task().getCategory();
         }
+        // Also the full title when one word is too wide for the panel and the name is cut short.
+        Tooltip.install(line, new Tooltip(tooltip));
         return line;
+    }
+
+    /**
+     * A day-panel task line: icon, name, then its status. The status sits at the right while every
+     * word of the name still fits beside it; otherwise it goes under the name and wraps there, so a
+     * long status (a recurring schedule) cannot squeeze the name down to a letter per line. The name
+     * wraps between words, or is cut short with an ellipsis when one word is wider than its column.
+     *
+     * <p>The placement is computed from the width in both the height calculation and the layout, so
+     * they always agree. Moving the status between parents from a width listener instead runs during
+     * the enclosing layout pass, after the parent has sized the line, and leaves its height stale.</p>
+     */
+    static final class DayTaskLine extends Region {
+        private static final double GAP = 6;
+        private static final double ROW_GAP = 2;
+        private final Label icon;
+        private final Label name;
+        private final Label status;
+
+        DayTaskLine(Label icon, Label name, Label status) {
+            this.icon = icon;
+            this.name = name;
+            this.status = status;
+            status.setWrapText(true);
+            getChildren().addAll(icon, name, status);
+            getStyleClass().add("cal-task-line");
+        }
+
+        /** Whether the status goes beside the name at this width of the whole line. */
+        boolean statusBesideAt(double width) {
+            return wordsFit(name, nameWidth(width, true));
+        }
+
+        private double nameWidth(double width, boolean beside) {
+            double nameWidth = width - snappedLeftInset() - snappedRightInset() - icon.prefWidth(-1) - GAP;
+            return Math.max(0, beside ? nameWidth - GAP - status.prefWidth(-1) : nameWidth);
+        }
+
+        /** Wraps the name between words, or cuts it short when a word is wider than {@code width}. */
+        private double nameHeight(double width) {
+            name.setWrapText(wordsFit(name, width));
+            return name.prefHeight(width);
+        }
+
+        /** Its height depends on its width, so parents must ask for it with the width they give. */
+        @Override
+        public Orientation getContentBias() {
+            return Orientation.HORIZONTAL;
+        }
+
+        @Override
+        protected double computeMinWidth(double height) {
+            // As narrow as the panel needs: the status moves under the name and the name wraps.
+            return snappedLeftInset() + snappedRightInset() + icon.prefWidth(-1) + GAP;
+        }
+
+        @Override
+        protected double computePrefWidth(double height) {
+            return snappedLeftInset() + snappedRightInset() + icon.prefWidth(-1) + GAP
+                    + name.prefWidth(-1) + GAP + status.prefWidth(-1);
+        }
+
+        @Override
+        protected double computeMinHeight(double width) {
+            return computePrefHeight(width);
+        }
+
+        @Override
+        protected double computePrefHeight(double width) {
+            double lineWidth = width < 0 ? computePrefWidth(-1) : width;
+            boolean beside = statusBesideAt(lineWidth);
+            double nameWidth = nameWidth(lineWidth, beside);
+            double nameHeight = nameHeight(nameWidth);
+            double height = beside
+                    ? Math.max(icon.prefHeight(-1), Math.max(nameHeight, status.prefHeight(-1)))
+                    : Math.max(icon.prefHeight(-1), nameHeight + ROW_GAP + status.prefHeight(nameWidth));
+            return snappedTopInset() + snappedBottomInset() + height;
+        }
+
+        @Override
+        protected void layoutChildren() {
+            double left = snappedLeftInset();
+            double top = snappedTopInset();
+            double right = snapPositionX(getWidth() - snappedRightInset());
+            boolean beside = statusBesideAt(getWidth());
+            double nameWidth = nameWidth(getWidth(), beside);
+            double nameHeight = nameHeight(nameWidth);
+            double iconWidth = icon.prefWidth(-1);
+            double iconHeight = icon.prefHeight(-1);
+            double nameX = left + iconWidth + GAP;
+            if (beside) {
+                // Snapped first, so rounding cannot push it past the right edge.
+                double statusWidth = snapSizeX(status.prefWidth(-1));
+                double statusHeight = status.prefHeight(-1);
+                double height = Math.max(iconHeight, Math.max(nameHeight, statusHeight));
+                place(icon, left, top + (height - iconHeight) / 2, iconWidth, iconHeight);
+                place(name, nameX, top + (height - nameHeight) / 2, nameWidth, nameHeight);
+                place(status, right - statusWidth, top + (height - statusHeight) / 2, statusWidth, statusHeight);
+            } else {
+                place(icon, left, top, iconWidth, iconHeight);
+                place(name, nameX, top, nameWidth, nameHeight);
+                place(status, nameX, top + nameHeight + ROW_GAP, nameWidth, status.prefHeight(nameWidth));
+            }
+        }
+
+        private void place(Label label, double x, double y, double width, double height) {
+            label.resizeRelocate(snapPositionX(x), snapPositionY(y), snapSizeX(width), snapSizeY(height));
+        }
     }
 
     private Node createSessionsSection(LocalDate date) {
