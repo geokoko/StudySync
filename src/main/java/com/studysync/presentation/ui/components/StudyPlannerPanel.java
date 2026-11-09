@@ -499,7 +499,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         }
 
         LocalDate today = dateTimeService.getCurrentDate();
-        retryableGoals = displayDate.equals(today) ? StudyGoal.findDelayedAndNotReplanned() : List.of();
+        // Missed goals can be retried on today or any later day, never on a past one.
+        retryableGoals = displayDate.isBefore(today) ? List.of() : StudyGoal.findDelayedAndNotReplanned();
         PlannerAgenda.Plan plan = PlannerAgenda.build(displayDate, today,
                 new ArrayList<>(tasksById.values()), displayDateAttempts,
                 retryableGoals,
@@ -653,6 +654,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
      */
     private final class RetryDialog {
         private final PlannerAgenda.Entry entry;
+        /** The day its retries are planned for, fixed when it opens so a midnight date change cannot move them. */
+        private final LocalDate target = displayDate;
         private final Label notice = new Label();
         private final VBox rows = new VBox(12);
         private final ScrollPane wrapper;
@@ -684,8 +687,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             HBox.setHgrow(spacer, Priority.ALWAYS);
 
             content.getChildren().addAll(title, mutedLabel(entry.task() != null
-                            ? "Try a missed goal again today, or add a new goal for this task."
-                            : "Try this missed goal again today, or add a new goal."),
+                            ? "Try a missed goal again " + retryDay(target) + ", or add a new goal for this task."
+                            : "Try this missed goal again " + retryDay(target) + ", or add a new goal."),
                     notice, rows, new HBox(10, newGoal, spacer, done));
             wrapper = new ScrollPane(content);
             wrapper.setFitToWidth(true);
@@ -1057,6 +1060,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
      * null) they just refresh the planner.
      */
     private VBox buildTaskRetryRow(StudyGoal goal, RetryDialog dialog) {
+        // The day the row advertises is the day it saves to, even if the planner's date changes later.
+        LocalDate target = dialog != null ? dialog.target : displayDate;
         VBox row = new VBox(4);
         row.getStyleClass().add("planner-retry-row");
 
@@ -1068,7 +1073,7 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         TaskStyleUtils.textColor(attemptLabel, TaskStyleUtils.retryTextColor());
         attemptLabel.setWrapText(true);
 
-        Button replanBtn = new Button("Plan retry today");
+        Button replanBtn = new Button("Plan retry " + retryDay(target));
         replanBtn.setGraphic(TaskStyleUtils.iconLabel("\u21BA", 12));
         replanBtn.getStyleClass().addAll("btn-orange", "btn-small");
         Button editBtn = editGoalButton(goal);
@@ -1084,9 +1089,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         actions.getChildren().forEach(node -> ((Region) node).setMinWidth(Region.USE_PREF_SIZE));
         replanBtn.setOnAction(e -> {
             if (goal.isChecklistComplete()) {
-                askCompletedChecklist(goal, dialog, actions);
+                askCompletedChecklist(goal, dialog, actions, target);
             } else {
-                retryToday(goal, dialog, null);
+                planRetry(goal, dialog, null, target);
             }
         });
 
@@ -1098,15 +1103,16 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
      * Every checklist line is already ticked, so a retry would start pending with nothing left to do.
      * Ask in the row itself, replacing its actions until the user answers or cancels.
      */
-    private void askCompletedChecklist(StudyGoal goal, RetryDialog dialog, FlowPane actions) {
+    private void askCompletedChecklist(StudyGoal goal, RetryDialog dialog, FlowPane actions, LocalDate target) {
         List<Node> original = List.copyOf(actions.getChildren());
         Label prompt = mutedLabel("Every checklist item is already ticked.");
         Button startOver = new Button("Start over");
         startOver.getStyleClass().addAll("btn-orange", "btn-small");
-        startOver.setOnAction(e -> retryToday(goal, dialog, StudyService.CompletedChecklist.START_OVER));
-        Button markDone = new Button("Mark done");
+        startOver.setOnAction(e -> planRetry(goal, dialog, StudyService.CompletedChecklist.START_OVER, target));
+        // Marking done always records today's attempt, so say so when the planner shows another day.
+        Button markDone = new Button(isToday(target) ? "Mark done" : "Mark done today");
         markDone.getStyleClass().addAll("btn-success", "btn-small");
-        markDone.setOnAction(e -> retryToday(goal, dialog, StudyService.CompletedChecklist.MARK_DONE));
+        markDone.setOnAction(e -> planRetry(goal, dialog, StudyService.CompletedChecklist.MARK_DONE, target));
         Button cancel = new Button("Cancel");
         cancel.getStyleClass().addAll("btn-gray", "btn-small");
         cancel.setOnAction(e -> actions.getChildren().setAll(original));
@@ -1114,24 +1120,54 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         actions.getChildren().setAll(prompt, startOver, markDone, cancel);
     }
 
-    /** Plan the goal's retry for today; {@code choice} answers a complete checklist, else null. */
-    private void retryToday(StudyGoal goal, RetryDialog dialog, StudyService.CompletedChecklist choice) {
+    private boolean isToday(LocalDate date) {
+        return date.equals(dateTimeService.getCurrentDate());
+    }
+
+    /** "today", or the later day where the planner's retry actions put the new attempt. */
+    private String retryDayName(LocalDate target) {
+        return isToday(target) ? "today" : target.format(DateTimeFormatter.ofPattern("EEE, MMM d"));
+    }
+
+    /** {@link #retryDayName} after a verb: "today" or "for Tue, Nov 10". */
+    private String retryDay(LocalDate target) {
+        return isToday(target) ? "today" : "for " + retryDayName(target);
+    }
+
+    /**
+     * Plan the goal's retry for {@code target}, the day its row advertised; {@code choice} answers a
+     * complete checklist, else null. A day that has passed since (the row stayed open across
+     * midnight) is refused rather than planned on a different day than the one shown.
+     */
+    private void planRetry(StudyGoal goal, RetryDialog dialog, StudyService.CompletedChecklist choice,
+                           LocalDate target) {
+        boolean wasToday = isToday(target);
+        String day = retryDayName(target);
         String error = null;
-        try {
-            if (!studyService.replanGoalForToday(goal.getId(), choice)) {
-                error = dialog != null
-                        ? "This goal is no longer ready to retry. The list has been updated."
-                        : "This goal is no longer ready to retry. Refresh the planner and try again.";
+        if (target.isBefore(dateTimeService.getCurrentDate())) {
+            error = "This retry was for a day that has now passed, so it was not planned. "
+                    + (dialog != null ? "The list has been updated." : "Refresh the planner and try again.");
+        } else {
+            try {
+                boolean planned = wasToday
+                        ? studyService.replanGoalForToday(goal.getId(), choice)
+                        : studyService.planGoalAttempt(goal.getId(), target, choice);
+                if (!planned) {
+                    error = dialog != null
+                            ? "This goal is no longer ready to retry. The list has been updated."
+                            : "This goal is no longer ready to retry. Refresh the planner and try again.";
+                }
+            } catch (Exception ex) {
+                error = "Could not plan retry: " + ex.getMessage();
             }
-        } catch (Exception ex) {
-            error = "Could not plan retry: " + ex.getMessage();
         }
         if (dialog != null) {
             String name = "“" + goal.getDescription() + "”";
-            String done = choice == StudyService.CompletedChecklist.MARK_DONE ? "Marked " + name + " done."
+            String done = choice == StudyService.CompletedChecklist.MARK_DONE
+                    ? "Marked " + name + (wasToday ? " done." : " done today.")
                     : choice == StudyService.CompletedChecklist.START_OVER
-                    ? "Planned " + name + " for today with its checklist cleared."
-                    : "Planned " + name + " for today.";
+                    ? "Planned " + name + " for " + day + " with its checklist cleared."
+                    : "Planned " + name + " for " + day + ".";
             dialog.refresh(error != null ? error : done, error != null);
         } else {
             refreshAfterChange();

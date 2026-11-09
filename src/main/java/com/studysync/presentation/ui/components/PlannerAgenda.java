@@ -19,7 +19,8 @@ import java.util.stream.Collectors;
 /**
  * The planner's available work, evaluated against an explicit today. Unlike the
  * calendar, overdue work stays visible on every selected day after its deadline.
- * Carry-forward, reminders, retries and undated tasks are today-only.
+ * Carry-forward, reminders and undated tasks are today-only; missed goals can be retried on
+ * today or any later day.
  *
  * <p>A dated attempt marks its own task and its parent as planned (work on a subtask
  * is work on the family), never its siblings. Active tasks remain available for more
@@ -149,10 +150,11 @@ final class PlannerAgenda {
                 .map(StudyGoal::getId).collect(Collectors.toSet());
         Map<String, List<StudyGoal>> retriesByTask = new LinkedHashMap<>();
         List<Entry> entries = new ArrayList<>();
-        if (date.equals(today)) {
+        if (!date.isBefore(today)) {
             retryable.stream().filter(goal -> goal.getStatus() == StudyGoal.GoalStatus.ACTIVE
                             && goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.MISSED
-                            && goal.getDate().isBefore(today) && !plannedGoals.contains(goal.getId()))
+                            // Missed before the planned day: on a later day that includes today's misses.
+                            && goal.getDate().isBefore(date) && !plannedGoals.contains(goal.getId()))
                     .sorted(RETRY_ORDER).forEach(goal -> {
                         if (!tasksById.containsKey(goal.getTaskId())) {
                             entries.add(new Entry(Kind.RETRY, goal.getDescription(), "retry", null,
