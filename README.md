@@ -28,6 +28,7 @@ StudySync provides comprehensive academic management with three main modules:
 ## 📚 Study Planner Features, with Daily Reflections Logging
 * **Study Sessions**: Track study time with built-in timer and focus level monitoring
 * **Study Goals**: Set and manage daily study objectives with future date planning, each with an optional checklist of what "done" means — tick the last item and the goal is achieved
+* **Complete tasks from the planner**: With goals grouped by task, a task heading's **Complete task** button finishes the task (and its unfinished subtasks, or the parent it was the last unfinished subtask of). If any of them still has pending goals, choose whether to mark today's done and drop later ones, drop them all, or leave them pending.
 * **Goal outcomes**: Use a goal's **More** menu to mark an attempt as missed and retry it, or **Drop goal** when it is no longer achievable or relevant. Dropping adds no failure penalty or completion credit, preserves earlier missed attempts and study time, and accepts an optional reason. Dropped goals stay in history and can be reopened for a new date; the planner groups them under **Dropped**.
 * **Future Goal Planning**: Navigate to any future date and plan goals ahead via DatePicker
 * **Recurring Tasks**: Define repeating task schedules (e.g. every week on Mon/Wed/Fri). Under the date, the planner shows which recurring tasks are scheduled on the selected day and whether each is not planned, planned, done or missed; double-click or drag one to plan it

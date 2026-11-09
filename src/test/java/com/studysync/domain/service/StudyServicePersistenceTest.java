@@ -15,15 +15,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.interceptor.TransactionProxyFactoryBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -72,8 +77,8 @@ class StudyServicePersistenceTest {
         dateTimeService = mock(DateTimeService.class);
         when(dateTimeService.getCurrentDate()).thenReturn(LocalDate.of(2026, 3, 28));
 
-        studyService = new StudyService(googleDriveService, dateTimeService);
         taskService = new TaskService(mock(CategoryService.class), googleDriveService, dateTimeService);
+        studyService = new StudyService(googleDriveService, dateTimeService, taskService);
     }
 
     @AfterEach
@@ -1079,6 +1084,201 @@ class StudyServicePersistenceTest {
         StudyGoal reopened = StudyGoal.findById(goal.getId()).orElseThrow();
         assertTrue(reopened.isAchieved());
         assertEquals(today, reopened.getDate());
+    }
+
+    @Test
+    void completingATaskMarksTodaysPendingGoalsDoneAndDropsLaterOnesForItAndItsSubtasks() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        Task parent = completionFamily();
+        studyService.addStudyGoal("Read chapter", today, parent.getId(), "Read\nNotes");
+        studyService.addStudyGoal("Revise", today.plusDays(2), "child", null);
+        studyService.addStudyGoal("Done child work", today, "done-child", null);
+        studyService.addStudyGoal("Other task", today, "other", null);
+        StudyGoal missed = missedGoal("Yesterday", parent.getId(), today.minusDays(1));
+
+        StudyService.PendingTaskGoals pending = studyService.previewPendingGoalsForCompletion(parent);
+        assertEquals(List.of("Read chapter"), pending.today().stream().map(StudyGoal::getDescription).toList());
+        assertEquals(List.of("Revise"), pending.later().stream().map(StudyGoal::getDescription).toList());
+
+        complete(parent, StudyService.PendingGoalChoice.MARK_TODAY_DONE);
+
+        StudyGoal read = goalNamed("Read chapter");
+        assertTrue(read.isAchieved());
+        assertTrue(read.isChecklistComplete());
+        StudyGoal revise = goalNamed("Revise");
+        assertTrue(revise.isDropped());
+        assertEquals("Task completed", revise.getDropReason());
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, goalNamed("Done child work").getAttemptOutcome());
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, goalNamed("Other task").getAttemptOutcome());
+        assertEquals(StudyGoal.AttemptOutcome.MISSED,
+                StudyGoal.findById(missed.getId()).orElseThrow().getAttemptOutcome());
+        for (String id : List.of("parent", "child")) {
+            Task stored = Task.findById(id).orElseThrow();
+            assertEquals(TaskStatus.COMPLETED, stored.getStatus(), id);
+            assertEquals(today, stored.getCompletedAt(), id);
+        }
+    }
+
+    @Test
+    void completingATaskCanDropOrLeaveItsPendingGoals() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        Task parent = completionFamily();
+        studyService.addStudyGoal("Read chapter", today, parent.getId(), null);
+        complete(parent, StudyService.PendingGoalChoice.DROP);
+        StudyGoal dropped = goalNamed("Read chapter");
+        assertTrue(dropped.isDropped());
+        assertFalse(dropped.isAchieved());
+
+        Task other = new Task("solo", "Solo", "", "Study", new TaskPriority(1), null, TaskStatus.OPEN, 0).save();
+        studyService.addStudyGoal("Solo goal", today, other.getId(), null);
+        complete(other, StudyService.PendingGoalChoice.LEAVE);
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, goalNamed("Solo goal").getAttemptOutcome());
+        assertEquals(TaskStatus.COMPLETED, Task.findById("solo").orElseThrow().getStatus());
+    }
+
+    @Test
+    void completingRefusesAPreviewFromAnEarlierDayAndChangesNothing() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        Task parent = completionFamily();
+        studyService.addStudyGoal("Read chapter", today, parent.getId(), null);
+        studyService.addStudyGoal("Revise", today.plusDays(1), parent.getId(), null);
+        StudyService.PendingTaskGoals shown = studyService.previewPendingGoalsForCompletion(parent);
+        TaskStatus before = Task.findById("parent").orElseThrow().getStatus();
+
+        // Past midnight "Revise" is today's goal: marking today's done would achieve it instead of dropping it.
+        when(dateTimeService.getCurrentDate()).thenReturn(today.plusDays(1));
+        assertThrows(ValidationException.class,
+                () -> studyService.completeTask(parent, shown, StudyService.PendingGoalChoice.MARK_TODAY_DONE));
+
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, goalNamed("Revise").getAttemptOutcome());
+        assertFalse(goalNamed("Revise").isDropped());
+        assertEquals(before, Task.findById("parent").orElseThrow().getStatus());
+        assertNotEquals(TaskStatus.COMPLETED, before);
+        assertEquals(List.of("Revise"), studyService.previewPendingGoalsForCompletion(parent).today().stream()
+                .map(StudyGoal::getDescription).toList());
+    }
+
+    @Test
+    void completingTheLastUnfinishedSubtaskAlsoResolvesItsAutoCompletedParentsGoals() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        Task parent = completionFamily();
+        Task child = Task.findById("child").orElseThrow();
+        studyService.addStudyGoal("Parent today", today, parent.getId(), null);
+        studyService.addStudyGoal("Parent later", today.plusDays(3), parent.getId(), null);
+
+        StudyService.PendingTaskGoals pending = studyService.previewPendingGoalsForCompletion(child);
+        assertEquals("parent", pending.completedParent().getId());
+        assertEquals(List.of("Parent today"), pending.today().stream().map(StudyGoal::getDescription).toList());
+        assertEquals(List.of("Parent later"), pending.later().stream().map(StudyGoal::getDescription).toList());
+
+        studyService.completeTask(child, pending, StudyService.PendingGoalChoice.MARK_TODAY_DONE);
+
+        assertTrue(goalNamed("Parent today").isAchieved());
+        assertTrue(goalNamed("Parent later").isDropped());
+        assertEquals(TaskStatus.COMPLETED, Task.findById("parent").orElseThrow().getStatus());
+    }
+
+    @Test
+    void aSubtaskThatDoesNotCompleteItsParentLeavesTheParentsGoalsOut() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        Task parent = completionFamily();
+        studyService.addStudyGoal("Parent today", today, parent.getId(), null);
+        Task sibling = new Task("sibling", "Sibling", "", "Study", new TaskPriority(1), null, TaskStatus.OPEN, 0);
+        sibling.setParentId(parent.getId());
+        sibling.save();
+        Task child = Task.findById("child").orElseThrow();
+        assertNull(studyService.previewPendingGoalsForCompletion(child).completedParent());
+        assertTrue(studyService.previewPendingGoalsForCompletion(child).isEmpty());
+
+        // A recurring parent never auto-completes, even after its last subtask.
+        Task.findById("sibling").orElseThrow().delete();
+        Task recurringParent = Task.findById("parent").orElseThrow();
+        recurringParent.setRecurringPattern("1:1");
+        recurringParent.save();
+        StudyService.PendingTaskGoals pending = studyService.previewPendingGoalsForCompletion(child);
+        assertNull(pending.completedParent());
+        assertTrue(pending.isEmpty());
+
+        TaskStatus before = Task.findById("parent").orElseThrow().getStatus();
+        studyService.completeTask(child, pending, StudyService.PendingGoalChoice.DROP);
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, goalNamed("Parent today").getAttemptOutcome());
+        assertEquals(TaskStatus.COMPLETED, Task.findById("child").orElseThrow().getStatus());
+        assertEquals(before, Task.findById("parent").orElseThrow().getStatus());
+        assertNotEquals(TaskStatus.COMPLETED, before);
+    }
+
+    @Test
+    void aFailedCompletionRollsBackItsGoalChangesAndFlagsNothing() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        Task parent = completionFamily();
+        studyService.addStudyGoal("Read chapter", today, parent.getId(), "Read\nNotes");
+        studyService.addStudyGoal("Revise", today.plusDays(2), "child", null);
+        Map<String, TaskStatus> before = new HashMap<>();
+        List.of("parent", "child").forEach(id -> before.put(id, Task.findById(id).orElseThrow().getStatus()));
+        reset(googleDriveService);
+
+        // The task update runs, then fails, inside the same transaction as the goal changes.
+        TaskService failingTasks = org.mockito.Mockito.spy(
+                new TaskService(mock(CategoryService.class), googleDriveService, dateTimeService));
+        org.mockito.Mockito.doAnswer(invocation -> {
+            invocation.callRealMethod();
+            throw new IllegalStateException("disk full");
+        }).when(failingTasks).updateTaskStatus(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        TransactionProxyFactoryBean proxy = new TransactionProxyFactoryBean();
+        proxy.setTarget(new StudyService(googleDriveService, dateTimeService, failingTasks));
+        proxy.setTransactionManager(new DataSourceTransactionManager(dataSource));
+        Properties attributes = new Properties();
+        attributes.setProperty("*", "PROPAGATION_REQUIRED");
+        proxy.setTransactionAttributes(attributes);
+        proxy.afterPropertiesSet();
+        StudyService transactional = (StudyService) proxy.getObject();
+
+        StudyService.PendingTaskGoals pending = transactional.previewPendingGoalsForCompletion(parent);
+        assertThrows(IllegalStateException.class,
+                () -> transactional.completeTask(parent, pending, StudyService.PendingGoalChoice.MARK_TODAY_DONE));
+
+        StudyGoal read = goalNamed("Read chapter");
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, read.getAttemptOutcome());
+        assertFalse(read.isChecklistComplete());
+        assertTrue(read.getCriteria().stream().noneMatch(StudyGoal.Criterion::done));
+        StudyGoal revise = goalNamed("Revise");
+        assertFalse(revise.isDropped());
+        assertEquals(StudyGoal.AttemptOutcome.PENDING, revise.getAttemptOutcome());
+        for (String id : List.of("parent", "child")) {
+            Task stored = Task.findById(id).orElseThrow();
+            assertEquals(before.get(id), stored.getStatus(), id);
+            assertNotEquals(TaskStatus.COMPLETED, stored.getStatus(), id);
+            assertNull(stored.getCompletedAt(), id);
+        }
+        verify(googleDriveService, never()).markLocalDbDirty();
+        verify(googleDriveService, never()).saveLocally();
+    }
+
+    private void complete(Task task, StudyService.PendingGoalChoice choice) {
+        studyService.completeTask(task, studyService.previewPendingGoalsForCompletion(task), choice);
+    }
+
+    /** "parent" with an open "child" and an already completed "done-child". */
+    private Task completionFamily() {
+        LocalDate today = dateTimeService.getCurrentDate();
+        Task parent = new Task("parent", "Parent", "", "Study", new TaskPriority(1), today.plusDays(5),
+                TaskStatus.OPEN, 0).save();
+        Task child = new Task("child", "Child", "", "Study", new TaskPriority(1), null, TaskStatus.OPEN, 0);
+        child.setParentId(parent.getId());
+        child.save();
+        Task doneChild = new Task("done-child", "Done child", "", "Study", new TaskPriority(1), null,
+                TaskStatus.COMPLETED, 0);
+        doneChild.setParentId(parent.getId());
+        doneChild.setCompletedAt(today.minusDays(3));
+        doneChild.save();
+        new Task("other", "Other", "", "Study", new TaskPriority(1), null, TaskStatus.OPEN, 0).save();
+        return parent;
+    }
+
+    private static StudyGoal goalNamed(String description) {
+        return StudyGoal.findAll().stream().filter(goal -> description.equals(goal.getDescription()))
+                .findFirst().orElseThrow();
     }
 
     /** A missed goal whose only open line was edited away, as the checklist rule then leaves it. */

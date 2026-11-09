@@ -278,6 +278,28 @@ public class TaskService {
         return new TaskEstimates(stored.getEstimatedHours(), sum);
     }
 
+    /**
+     * The parent that completing {@code task} would auto-complete with it (it is the parent's last
+     * unfinished non-cancelled subtask and the parent does not repeat), as {@link #reconcileParent}
+     * then decides; empty otherwise.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Task> parentCompletedWith(Task task) {
+        Task stored = requireTask(task);
+        if (stored.getParentId() == null) return Optional.empty();
+        Task parent = Task.findById(stored.getParentId()).orElseThrow();
+        Task.Progress others = Task.progress(Task.findSubtasks(parent.getId()).stream()
+                .filter(child -> !child.getId().equals(stored.getId())).toList());
+        Task.Progress after = new Task.Progress(others.completed() + 1, others.total() + 1);
+        return autoCompletes(parent, after) ? Optional.of(parent) : Optional.empty();
+    }
+
+    /** A one-off parent completes once every non-cancelled subtask has; recurring parents never do. */
+    private static boolean autoCompletes(Task parent, Task.Progress progress) {
+        return !parent.isRecurring() && progress.total() > 0 && progress.completed() == progress.total()
+                && parent.getStatus() != TaskStatus.COMPLETED;
+    }
+
     private void reconcileParent(String parentId) {
         if (parentId == null) return;
         Task parent = Task.findById(parentId).orElseThrow();
@@ -286,8 +308,7 @@ public class TaskService {
         if (progress.completed() < progress.total() && parent.getStatus() == TaskStatus.COMPLETED) {
             parent.updateStatus(TaskStatus.OPEN);
             applyBusinessRules(parent).save();
-        } else if (!parent.isRecurring() && progress.total() > 0 && progress.completed() == progress.total()
-                && parent.getStatus() != TaskStatus.COMPLETED) {
+        } else if (autoCompletes(parent, progress)) {
             parent.updateStatus(TaskStatus.COMPLETED);
             parent.setCompletedAt(children.stream().filter(t -> t.getStatus() == TaskStatus.COMPLETED)
                     .map(Task::getCompletedAt).filter(Objects::nonNull).max(LocalDate::compareTo)

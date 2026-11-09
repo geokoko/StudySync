@@ -180,6 +180,13 @@ Syncs the whole H2 file. OAuth client credentials live in
   in one transaction; cancelled children and existing completion dates survive.
   The UI confirms the unfinished count and how many are recurring and will stop
   repeating, using `TaskService.previewTaskCompletion`.
+- Completing a task from the planner's task goal heading goes through
+  `StudyService.completeTask`, which in the same transaction resolves the goals
+  still pending for the task, the subtasks it completes, and the parent it
+  auto-completes as its last unfinished subtask (`TaskService.parentCompletedWith`):
+  today's can be achieved, later ones only dropped, or all left to be swept to
+  missed. `previewPendingGoalsForCompletion` lists them for the confirmation and
+  records its day; `completeTask` refuses a preview from an earlier day.
 - Parent deletion confirms the current child count (also for bulk deletion),
   checks it again in the transaction, and deletes children before parents.
   The parent FK deliberately does not cascade. Each deletion uses normal task
