@@ -578,6 +578,32 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void completingTheLastSubtaskAsksFirstEvenWhenNothingIsPending() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.goal.setAchieved(true);
+                StudyService.PendingTaskGoals pending =
+                        new StudyService.PendingTaskGoals(TODAY, fixture.parent, List.of(), List.of());
+                when(fixture.tasks.previewTaskCompletion(fixture.child)).thenReturn(new TaskService.CompletionPreview(0, 0));
+                when(fixture.study.previewPendingGoalsForCompletion(fixture.child)).thenReturn(pending);
+                StudyPlannerPanel panel = fixture.panel();
+
+                button(taskGoalGroup(panel, "Parent / Subtask").getGraphic(), "Complete task").fire();
+
+                verify(fixture.study, never()).completeTask(any(), any(), any());
+                List<String> texts = labelTexts(fixture.modal);
+                assertTrue(texts.contains("This also completes its parent \u201CParent\u201D, as its last unfinished subtask."),
+                        texts.toString());
+                assertTrue(nodes(fixture.modal).stream().noneMatch(RadioButton.class::isInstance));
+
+                button(fixture.modal, "Complete task").fire();
+                verify(fixture.study).completeTask(fixture.child, pending, StudyService.PendingGoalChoice.LEAVE);
+                assertNull(fixture.modal);
+            }
+        });
+    }
+
+    @Test
     void aDayChangeBeforeConfirmingShowsTheGoalsPendingNowAndAsksAgain() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {

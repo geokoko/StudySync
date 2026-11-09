@@ -1189,8 +1189,9 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
 
     /**
      * Completes a task from its goal heading. A plain task with nothing pending completes at once,
-     * as the task list's Done does; otherwise a dialog says what else changes and asks what to do
-     * with the goals still pending for it, which would otherwise be swept to missed.
+     * as the task list's Done does; otherwise (subtasks or a parent completing with it, a recurring
+     * task, or pending goals) a dialog says what else changes and asks what to do with the goals
+     * still pending, which would otherwise be swept to missed.
      */
     private void startTaskCompletion(Task task, String title) {
         startTaskCompletion(task, title, null);
@@ -1207,7 +1208,8 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             showPlannerError("Could not complete task: " + ex.getMessage());
             return;
         }
-        if (notice == null && subtasks.unfinishedSubtasks() == 0 && pending.isEmpty() && !task.isRecurring()) {
+        if (notice == null && subtasks.unfinishedSubtasks() == 0 && pending.isEmpty() && !task.isRecurring()
+                && pending.completedParent() == null) {
             try {
                 studyService.completeTask(task, pending, StudyService.PendingGoalChoice.LEAVE);
             } catch (Exception ex) {
