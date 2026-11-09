@@ -31,14 +31,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -863,15 +866,148 @@ class StudyPlannerPanelTest {
     }
 
     @Test
+    void aMissedGoalCanBePlannedForAFutureDayButNotFromAPastOne() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.missedYesterday();
+                LocalDate tomorrow = TODAY.plusDays(1);
+                when(fixture.study.planGoalAttempt(fixture.goal.getId(), tomorrow, null)).thenReturn(true);
+                StudyPlannerPanel panel = fixture.panel();
+                Button previous = dayButton(panel, "\u25C0");
+                Button next = dayButton(panel, "\u25B6");
+
+                previous.fire();
+                assertTrue(nodes(panel).stream().noneMatch(node -> node.getStyleClass().contains("cal-plan-item")
+                        && labelTexts(node).contains("Subtask")));
+
+                next.fire();
+                next.fire();
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+                String day = "for " + tomorrow.format(DateTimeFormatter.ofPattern("EEE, MMM d"));
+                assertTrue(labelTexts(fixture.modal).contains(
+                        "Try a missed goal again " + day + ", or add a new goal for this task."));
+                button(fixture.modal, "Plan retry " + day).fire();
+
+                verify(fixture.study).planGoalAttempt(fixture.goal.getId(), tomorrow, null);
+                verify(fixture.study, never()).replanGoalForToday(anyString(), any());
+                assertTrue(labelTexts(fixture.modal).contains("Planned \u201CRead chapter\u201D " + day + "."), day);
+            }
+        });
+    }
+
+    @Test
+    void aFutureDayRetryFromTheTaskBrowserPlansThatDay() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.missedYesterday();
+                LocalDate tomorrow = TODAY.plusDays(1);
+                when(fixture.study.planGoalAttempt(fixture.goal.getId(), tomorrow, null)).thenReturn(true);
+                StudyPlannerPanel panel = fixture.panel();
+                dayButton(panel, "\u25B6").fire();
+
+                Node browser = nodes(panel).stream().filter(TitledPane.class::isInstance)
+                        .filter(node -> "Browse tasks".equals(((TitledPane) node).getText())).findFirst().orElseThrow();
+                button(browser, "Plan retry " + retryDay(tomorrow)).fire();
+
+                verify(fixture.study).planGoalAttempt(fixture.goal.getId(), tomorrow, null);
+                verify(fixture.study, never()).replanGoalForToday(anyString(), any());
+                assertNull(fixture.modal);
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"START_OVER", "MARK_DONE"})
+    void bothChecklistChoicesOnAFutureDayKeepTheShownDay(String name) throws Exception {
+        StudyService.CompletedChecklist choice = StudyService.CompletedChecklist.valueOf(name);
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.missedYesterday();
+                fixture.goal.setDoneCriteria("[x] Read");
+                LocalDate tomorrow = TODAY.plusDays(1);
+                when(fixture.study.planGoalAttempt(fixture.goal.getId(), tomorrow, choice)).thenReturn(true);
+                StudyPlannerPanel panel = fixture.panel();
+                dayButton(panel, "\u25B6").fire();
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+
+                button(fixture.modal, "Plan retry " + retryDay(tomorrow)).fire();
+                assertTrue(labelTexts(fixture.modal).contains("Every checklist item is already ticked."));
+                button(fixture.modal, choice == StudyService.CompletedChecklist.START_OVER
+                        ? "Start over" : "Mark done today").fire();
+
+                verify(fixture.study).planGoalAttempt(fixture.goal.getId(), tomorrow, choice);
+                verify(fixture.study, never()).replanGoalForToday(anyString(), any());
+                assertTrue(labelTexts(fixture.modal).contains(choice == StudyService.CompletedChecklist.START_OVER
+                        ? "Planned \u201CRead chapter\u201D " + retryDay(tomorrow) + " with its checklist cleared."
+                        : "Marked \u201CRead chapter\u201D done today."), labelTexts(fixture.modal).toString());
+            }
+        });
+    }
+
+    @Test
+    void aRetryDialogLeftOpenAcrossMidnightSavesTheDayItShows() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.missedYesterday();
+                LocalDate shown = TODAY.plusDays(2);
+                when(fixture.study.planGoalAttempt(fixture.goal.getId(), shown, null)).thenReturn(true);
+                StudyPlannerPanel panel = fixture.panel();
+                dayButton(panel, "\u25B6").fire();
+                dayButton(panel, "\u25B6").fire();
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+                String label = "Plan retry " + retryDay(shown);
+
+                fixture.midnight(TODAY.plusDays(1));
+                button(fixture.modal, label).fire();
+
+                verify(fixture.study).planGoalAttempt(fixture.goal.getId(), shown, null);
+                verify(fixture.study, never()).replanGoalForToday(anyString(), any());
+            }
+        });
+    }
+
+    @Test
+    void aRetryForADayThatPassedWhileTheDialogWasOpenIsNotPlanned() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.missedYesterday();
+                StudyPlannerPanel panel = fixture.panel();
+                planningTile(panel, "Subtask").fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED,
+                        "", "", KeyCode.ENTER, false, false, false, false));
+
+                fixture.midnight(TODAY.plusDays(1));
+                // Built before midnight, the row still offers yesterday as "today".
+                button(fixture.modal, "Plan retry today").fire();
+
+                verify(fixture.study, never()).replanGoalForToday(anyString(), any());
+                verify(fixture.study, never()).planGoalAttempt(anyString(), any(), any());
+                assertTrue(labelTexts(fixture.modal).contains("This retry was for a day that has now passed, "
+                        + "so it was not planned. The list has been updated."), labelTexts(fixture.modal).toString());
+            }
+        });
+    }
+
+    /** The retry button's day as the planner words it before any date change: "for Wed, Oct 21". */
+    private static String retryDay(LocalDate day) {
+        return "for " + day.format(DateTimeFormatter.ofPattern("EEE, MMM d"));
+    }
+
+    private static Button dayButton(StudyPlannerPanel panel, String arrow) {
+        return nodes(panel).stream().filter(Button.class::isInstance).map(Button.class::cast)
+                .filter(button -> button.getGraphic() instanceof Label label && arrow.equals(label.getText()))
+                .findFirst().orElseThrow();
+    }
+
+    @Test
     void futureNavigationKeepsLiveSessionAndDefaultsNewGoalToShownDay() throws Exception {
         onFx(() -> {
             try (Fixture fixture = new Fixture()) {
                 StudyPlannerPanel panel = fixture.panel();
                 button(panel, "Start session").fire();
-                Button next = nodes(panel).stream().filter(Button.class::isInstance).map(Button.class::cast)
-                        .filter(button -> button.getGraphic() instanceof Label label
-                                && "\u25B6".equals(label.getText())).findFirst().orElseThrow();
-                next.fire();
+                dayButton(panel, "\u25B6").fire();
                 verify(fixture.study).getAllGoalsForFutureDate(TODAY.plusDays(1));
                 assertTrue(button(panel, "Stop").isVisible());
                 button(panel, "+ Add goal").fire();
@@ -1097,6 +1233,24 @@ class StudyPlannerPanelTest {
             panel = new StudyPlannerPanel(study, dates, tasks, mock(CategoryService.class),
                     content -> modal = content, () -> modal = null);
             return panel;
+        }
+
+        /** The goal's latest attempt was missed yesterday, so it is offered as a retry. */
+        void missedYesterday() {
+            attempts.clear();
+            child.setDeadline(TODAY.plusDays(5));
+            goal.setDate(TODAY.minusDays(1));
+            goal.setFailed(true);
+            goalQueries.when(StudyGoal::findDelayedAndNotReplanned).thenReturn(List.of(goal));
+        }
+
+        /** The clock passes midnight into {@code newToday}, as DateTimeService reports it to the planner. */
+        @SuppressWarnings("unchecked")
+        void midnight(LocalDate newToday) {
+            ArgumentCaptor<Consumer<LocalDate>> listener = ArgumentCaptor.forClass(Consumer.class);
+            verify(dates).addDateChangeListener(listener.capture());
+            when(dates.getCurrentDate()).thenReturn(newToday);
+            listener.getValue().accept(newToday);
         }
 
         StudyGoal goal(String description, Task task, LocalDate date) {

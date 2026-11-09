@@ -183,14 +183,46 @@ class PlannerAgendaTest {
     }
 
     @Test
-    void unlinkedRetriesRemainDistinctAndAreTodayOnly() {
+    void unlinkedRetriesRemainDistinctAndAreOfferedTodayAndLaterButNotOnPastDays() {
         StudyGoal first = missed("first", null, TODAY.minusDays(2));
         StudyGoal second = missed("second", null, TODAY.minusDays(1));
         List<Entry> entries = build(TODAY, List.of(), List.of(), List.of(second, first), List.of());
         assertEquals(List.of("first", "second"), entries.stream().map(Entry::title).toList());
         assertNull(entries.getFirst().task());
-        assertTrue(build(TODAY.plusDays(1), List.of(), List.of(), List.of(first), List.of()).isEmpty());
+        assertEquals(List.of("first"), build(TODAY.plusDays(3), List.of(), List.of(), List.of(first), List.of())
+                .stream().map(Entry::title).toList());
         assertTrue(build(TODAY.minusDays(1), List.of(), List.of(), List.of(first), List.of()).isEmpty());
+    }
+
+    @Test
+    void aTaskMissedGoalCanBeRetriedOnALaterDayUntilItIsPlannedThere() {
+        Task task = task("task", TODAY.plusDays(10));
+        StudyGoal retry = missed("retry", task, TODAY.minusDays(1));
+        LocalDate later = TODAY.plusDays(2);
+        Entry entry = build(later, List.of(task), List.of(), List.of(retry), List.of()).getFirst();
+        assertEquals(Kind.RETRY, entry.kind());
+        assertEquals(List.of(retry), entry.retries());
+        assertTrue(build(TODAY.minusDays(1), List.of(task), List.of(), List.of(retry), List.of()).isEmpty());
+
+        StudyGoal planned = goal("retry", task, later);
+        planned.setId(retry.getId());
+        assertEquals(List.of(), build(later, List.of(task), List.of(planned), List.of(retry), List.of())
+                .getFirst().retries());
+    }
+
+    @Test
+    void aGoalMissedTodayCanBeRetriedOnALaterDayButNotToday() {
+        Task task = task("task", TODAY.plusDays(10));
+        StudyGoal linked = missed("linked", task, TODAY);
+        StudyGoal unlinked = missed("unlinked", null, TODAY);
+        assertTrue(build(TODAY, List.of(task), List.of(), List.of(linked, unlinked), List.of()).isEmpty());
+
+        List<Entry> tomorrow = build(TODAY.plusDays(1), List.of(task), List.of(), List.of(linked, unlinked), List.of());
+        Entry unlinkedEntry = tomorrow.stream().filter(entry -> entry.task() == null).findFirst().orElseThrow();
+        assertEquals(List.of(unlinked), unlinkedEntry.retries());
+        Entry linkedEntry = tomorrow.stream().filter(entry -> entry.task() == task).findFirst().orElseThrow();
+        assertEquals(Kind.RETRY, linkedEntry.kind());
+        assertEquals(List.of(linked), linkedEntry.retries());
     }
 
     @Test
