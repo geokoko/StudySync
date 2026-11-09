@@ -1155,6 +1155,10 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
         Task task = tasksById.get(section.goals().getFirst().getTaskId());
         String taskId = task == null ? null : task.getId();
         HBox header = goalGroupHeader(section);
+        if (task != null && task.getStatus() != TaskStatus.COMPLETED && task.getStatus() != TaskStatus.CANCELLED
+                && !displayDate.isBefore(dateTimeService.getCurrentDate())) {
+            header.getChildren().add(completeTaskButton(task, section.title()));
+        }
         TitledPane pane = new TitledPane(section.title(), content);
         pane.setMinWidth(0);
         pane.getStyleClass().add("planner-task-goals");
@@ -1171,6 +1175,175 @@ public class StudyPlannerPanel extends BorderPane implements RefreshablePanel {
             }
         });
         return pane;
+    }
+
+    private Button completeTaskButton(Task task, String title) {
+        Button complete = new Button("Complete task");
+        complete.setGraphic(TaskStyleUtils.iconLabel("\u2713", 12));
+        complete.getStyleClass().addAll("btn-success", "btn-small");
+        complete.setMinWidth(Region.USE_PREF_SIZE);
+        complete.setAccessibleText("Complete task " + title);
+        complete.setOnAction(event -> startTaskCompletion(task, title));
+        return complete;
+    }
+
+    /**
+     * Completes a task from its goal heading. A plain task with nothing pending completes at once,
+     * as the task list's Done does; otherwise a dialog says what else changes and asks what to do
+     * with the goals still pending for it, which would otherwise be swept to missed.
+     */
+    private void startTaskCompletion(Task task, String title) {
+        startTaskCompletion(task, title, null);
+    }
+
+    /** {@code notice}, when set, explains why the dialog is shown again; it always shows the dialog. */
+    private void startTaskCompletion(Task task, String title, String notice) {
+        TaskService.CompletionPreview subtasks;
+        StudyService.PendingTaskGoals pending;
+        try {
+            subtasks = taskService.previewTaskCompletion(task);
+            pending = studyService.previewPendingGoalsForCompletion(task);
+        } catch (Exception ex) {
+            showPlannerError("Could not complete task: " + ex.getMessage());
+            return;
+        }
+        if (notice == null && subtasks.unfinishedSubtasks() == 0 && pending.isEmpty() && !task.isRecurring()) {
+            try {
+                studyService.completeTask(task, pending, StudyService.PendingGoalChoice.LEAVE);
+            } catch (Exception ex) {
+                showPlannerError("Could not complete task: " + ex.getMessage());
+                return;
+            }
+            refreshAfterChange();
+            return;
+        }
+        showCompleteTaskDialog(task, title, subtasks, pending, notice);
+    }
+
+    private void showCompleteTaskDialog(Task task, String title, TaskService.CompletionPreview subtasks,
+                                        StudyService.PendingTaskGoals pending, String notice) {
+        VBox content = new VBox(12);
+        content.setPadding(new Insets(20));
+        content.getStyleClass().add("modal-content");
+        content.setMaxWidth(480);
+        content.setMaxHeight(Region.USE_PREF_SIZE);
+        Label header = new Label("Complete \u201C" + title + "\u201D?");
+        header.setWrapText(true);
+        TaskStyleUtils.fontBold(header, 16);
+        content.getChildren().add(header);
+        if (notice != null) {
+            Label reloaded = new Label(notice);
+            reloaded.setWrapText(true);
+            TaskStyleUtils.fontNormal(reloaded, 12);
+            TaskStyleUtils.textColor(reloaded, TaskStyleUtils.DUE_TODAY_COLOR);
+            content.getChildren().add(reloaded);
+        }
+
+        if (subtasks.unfinishedSubtasks() > 0) {
+            String text = "This also completes " + count(subtasks.unfinishedSubtasks(), "unfinished subtask");
+            if (subtasks.recurringSubtasks() > 0) {
+                text += "; " + subtasks.recurringSubtasks() + " of them "
+                        + (subtasks.recurringSubtasks() == 1 ? "is" : "are") + " recurring and will stop repeating";
+            }
+            content.getChildren().add(mutedLabel(text + "."));
+        }
+        if (task.isRecurring()) {
+            content.getChildren().add(mutedLabel("It repeats: completing it ends all its future occurrences."));
+        }
+        Task parent = pending.completedParent();
+        if (parent != null) {
+            content.getChildren().add(mutedLabel("This also completes its parent \u201C" + parent.getTitle()
+                    + "\u201D, as its last unfinished subtask."));
+        }
+
+        ToggleGroup choices = new ToggleGroup();
+        if (!pending.isEmpty()) {
+            List<StudyGoal> goals = Stream.concat(pending.today().stream(), pending.later().stream()).toList();
+            Label intro = new Label(count(goals.size(), "goal") + " still pending:");
+            TaskStyleUtils.fontSemiBold(intro, 13);
+            VBox list = new VBox(2);
+            goals.forEach(goal -> list.getChildren().add(mutedLabel("\u2022 " + goal.getDescription()
+                    + otherTaskSuffix(goal, task, parent) + " \u00B7 "
+                    + (goal.getDate().equals(pending.date()) ? "today"
+                    : goal.getDate().format(DateTimeFormatter.ofPattern("EEE, MMM d"))))));
+            VBox options = new VBox(6);
+            if (!pending.today().isEmpty()) {
+                options.getChildren().add(choice(choices, StudyService.PendingGoalChoice.MARK_TODAY_DONE,
+                        pending.later().isEmpty() ? "Mark them done"
+                                : "Mark today's goals done and drop the later ones"));
+            }
+            options.getChildren().addAll(
+                    choice(choices, StudyService.PendingGoalChoice.DROP,
+                            (goals.size() == 1 ? "Drop it" : "Drop them") + " (no credit, no penalty)"),
+                    choice(choices, StudyService.PendingGoalChoice.LEAVE,
+                            "Leave " + (goals.size() == 1 ? "it" : "them") + " pending (missed if not done)"));
+            choices.selectToggle(choices.getToggles().getFirst());
+            content.getChildren().addAll(intro, list, options);
+        }
+
+        Label error = new Label();
+        error.setWrapText(true);
+        TaskStyleUtils.textColor(error, TaskStyleUtils.COLOR_DANGER);
+        error.setVisible(false);
+        error.setManaged(false);
+        Button complete = new Button("Complete task");
+        complete.getStyleClass().add("btn-success");
+        complete.setOnAction(event -> {
+            StudyService.PendingGoalChoice choice = choices.getSelectedToggle() == null
+                    ? StudyService.PendingGoalChoice.LEAVE
+                    : (StudyService.PendingGoalChoice) choices.getSelectedToggle().getUserData();
+            try {
+                studyService.completeTask(task, pending, choice);
+            } catch (Exception ex) {
+                if (!pending.date().equals(dateTimeService.getCurrentDate())) {
+                    // A new day: "today" and "later" moved, so show what is pending now and ask again.
+                    startTaskCompletion(task, title, ex.getMessage());
+                    return;
+                }
+                error.setText("Could not complete task: " + ex.getMessage());
+                error.setVisible(true);
+                error.setManaged(true);
+                return;
+            }
+            closeModal.run();
+            refreshAfterChange();
+        });
+        Button cancel = new Button("Cancel");
+        cancel.getStyleClass().add("btn-cancel");
+        cancel.setOnAction(event -> closeModal.run());
+        HBox buttons = new HBox(10, complete, cancel);
+        buttons.setAlignment(Pos.CENTER_RIGHT);
+        content.getChildren().addAll(error, buttons);
+
+        ScrollPane wrapper = new ScrollPane(content);
+        wrapper.setFitToWidth(true);
+        wrapper.getStyleClass().add("transparent-bg");
+        wrapper.setMaxWidth(500);
+        wrapper.setMaxHeight(600);
+        showModal.accept(wrapper);
+    }
+
+    /** " (Parent)" or " (Subtask)" for a goal of another task than the one being completed. */
+    private String otherTaskSuffix(StudyGoal goal, Task task, Task parent) {
+        if (task.getId().equals(goal.getTaskId())) {
+            return "";
+        }
+        Task owner = parent != null && parent.getId().equals(goal.getTaskId())
+                ? parent : tasksById.get(goal.getTaskId());
+        return owner == null ? "" : " (" + owner.getTitle() + ")";
+    }
+
+    private static RadioButton choice(ToggleGroup group, StudyService.PendingGoalChoice value, String text) {
+        RadioButton button = new RadioButton(text);
+        button.setWrapText(true);
+        button.setUserData(value);
+        button.setToggleGroup(group);
+        return button;
+    }
+
+    /** "1 subtask", "3 subtasks". */
+    private static String count(int n, String noun) {
+        return n + " " + noun + (n == 1 ? "" : "s");
     }
 
     /** A group heading with the task's planned/done summary, or a status's goal count. */

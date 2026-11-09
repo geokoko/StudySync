@@ -64,7 +64,7 @@ class ScoringServiceTest {
         DateTimeService dateTimeService = mock(DateTimeService.class);
         when(dateTimeService.getCurrentDate()).thenReturn(today);
 
-        studyService = new StudyService(googleDriveService, dateTimeService);
+        studyService = new StudyService(googleDriveService, dateTimeService, null);
         scoringService = new ScoringService(studyService, dateTimeService);
     }
 

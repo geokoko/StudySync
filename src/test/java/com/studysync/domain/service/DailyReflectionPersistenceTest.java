@@ -58,7 +58,7 @@ class DailyReflectionPersistenceTest {
         DateTimeService dateTimeService = mock(DateTimeService.class);
         when(dateTimeService.getCurrentDate()).thenReturn(DAY);
 
-        studyService = new StudyService(googleDriveService, dateTimeService);
+        studyService = new StudyService(googleDriveService, dateTimeService, null);
     }
 
     @AfterEach

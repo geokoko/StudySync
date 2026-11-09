@@ -18,6 +18,8 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,6 +37,7 @@ public class StudyService {
     
     private final GoogleDriveService googleDriveService;
     private final DateTimeService dateTimeService;
+    private final TaskService taskService;
 
     /** Guards processAllDelayedGoals() so the full scan runs at most once per calendar day. */
     private LocalDate lastDelayProcessingDate;
@@ -43,9 +46,11 @@ public class StudyService {
     private boolean overdueSweepHeld;
 
     @Autowired
-    public StudyService(GoogleDriveService googleDriveService, DateTimeService dateTimeService) {
+    public StudyService(GoogleDriveService googleDriveService, DateTimeService dateTimeService,
+                        TaskService taskService) {
         this.googleDriveService = googleDriveService;
         this.dateTimeService = dateTimeService;
+        this.taskService = taskService;
     }
 
     private void markDirtyAndSaveLocally(String operation) {
@@ -475,6 +480,95 @@ public class StudyService {
             markDirtyAndSaveLocally("study goal dropped");
         }
         return changed;
+    }
+
+    /**
+     * Pending goals that completing {@code task} would leave behind: its own, those of the
+     * unfinished subtasks it completes with it, and those of the parent it auto-completes as its
+     * last unfinished subtask. Left pending, they are swept to missed later.
+     *
+     * @param date            the day this was computed for; {@link #completeTask} refuses it on another day
+     * @param completedParent the parent that completing the task completes too, or null
+     * @param today           attempts planned for {@code date}, which can still be achieved
+     * @param later           attempts planned after {@code date}, which can only be dropped or left
+     */
+    public record PendingTaskGoals(LocalDate date, Task completedParent, List<StudyGoal> today,
+                                   List<StudyGoal> later) {
+        public boolean isEmpty() {
+            return today.isEmpty() && later.isEmpty();
+        }
+    }
+
+    /** What completing a task does with its {@link PendingTaskGoals}. */
+    public enum PendingGoalChoice {
+        /** Achieve today's attempts (ticking their checklists) and drop the later ones. */
+        MARK_TODAY_DONE,
+        /** Drop every pending goal: no credit and no failure. */
+        DROP,
+        /** Leave them pending; they will be swept to missed once their day has passed. */
+        LEAVE
+    }
+
+    static final String TASK_COMPLETED_DROP_REASON = "Task completed";
+
+    @Transactional(readOnly = true)
+    public PendingTaskGoals previewPendingGoalsForCompletion(Task task) {
+        if (task == null || task.getId() == null) {
+            throw ValidationException.requiredFieldMissing("task");
+        }
+        LocalDate today = dateTimeService.getCurrentDate();
+        List<String> taskIds = new ArrayList<>(List.of(task.getId()));
+        Task.findSubtasks(task.getId()).stream()
+                .filter(child -> child.getStatus() != TaskStatus.COMPLETED
+                        && child.getStatus() != TaskStatus.CANCELLED)
+                .map(Task::getId).forEach(taskIds::add);
+        Task completedParent = taskService.parentCompletedWith(task).orElse(null);
+        if (completedParent != null) {
+            taskIds.add(completedParent.getId());
+        }
+        List<StudyGoal> pending = taskIds.stream().flatMap(id -> StudyGoal.findByTaskId(id).stream())
+                .filter(goal -> goal.getStatus() != StudyGoal.GoalStatus.ABANDONED
+                        && goal.getAttemptOutcome() == StudyGoal.AttemptOutcome.PENDING
+                        && goal.getDate() != null && !goal.getDate().isBefore(today))
+                .sorted(Comparator.comparing(StudyGoal::getDate))
+                .toList();
+        return new PendingTaskGoals(today, completedParent,
+                pending.stream().filter(goal -> goal.getDate().equals(today)).toList(),
+                pending.stream().filter(goal -> goal.getDate().isAfter(today)).toList());
+    }
+
+    /**
+     * Completes the task through {@link TaskService#updateTaskStatus} (so its unfinished subtasks,
+     * and a parent it was the last unfinished subtask of, complete too) and resolves the pending
+     * goals it would leave behind, in one transaction. The goals are read again here, so the choice
+     * applies to what is pending now; {@code shown} is the preview the choice was made on, and a
+     * preview from an earlier day is refused, because "today" and "later" no longer mean what the
+     * user saw.
+     */
+    public void completeTask(Task task, PendingTaskGoals shown, PendingGoalChoice choice) {
+        if (shown == null || choice == null) {
+            throw ValidationException.requiredFieldMissing("pending goal choice");
+        }
+        if (!shown.date().equals(dateTimeService.getCurrentDate())) {
+            throw new ValidationException("The day changed since these goals were shown. Check the updated "
+                    + "list and confirm again.", ValidationException.INVALID_INPUT);
+        }
+        PendingTaskGoals pending = previewPendingGoalsForCompletion(task);
+        if (choice != PendingGoalChoice.LEAVE) {
+            for (StudyGoal goal : pending.today()) {
+                // As the goal checkbox does: achieving ticks the whole checklist.
+                if (choice == PendingGoalChoice.MARK_TODAY_DONE && applyAchievement(goal.getId(), true, null)) {
+                    StudyGoal.setAllCriteriaDone(goal.getId(), true);
+                } else if (choice == PendingGoalChoice.DROP) {
+                    StudyGoal.dropGoal(goal.getId(), TASK_COMPLETED_DROP_REASON);
+                }
+            }
+            pending.later().forEach(goal -> StudyGoal.dropGoal(goal.getId(), TASK_COMPLETED_DROP_REASON));
+            if (!pending.isEmpty()) {
+                markDirtyAndSaveLocally("pending goals resolved by task completion");
+            }
+        }
+        taskService.updateTaskStatus(task, TaskStatus.COMPLETED);
     }
 
     public boolean reopenDroppedGoal(String goalId, LocalDate plannedForDate) {

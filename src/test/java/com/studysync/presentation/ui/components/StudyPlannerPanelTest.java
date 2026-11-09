@@ -3,6 +3,7 @@ package com.studysync.presentation.ui.components;
 import com.studysync.domain.entity.StudyGoal;
 import com.studysync.domain.entity.StudySession;
 import com.studysync.domain.entity.Task;
+import com.studysync.domain.exception.ValidationException;
 import com.studysync.domain.service.CategoryService;
 import com.studysync.domain.service.DateTimeService;
 import com.studysync.domain.service.StudyService;
@@ -20,11 +21,14 @@ import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TitledPane;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.application.Platform;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -484,6 +488,150 @@ class StudyPlannerPanelTest {
                 assertTrue(labelTexts(fixture.modal).contains("Add goal for: Parent / Subtask"));
                 assertNotNull(button(fixture.modal, "Add Goal"));
                 verify(fixture.study, never()).addStudyGoal(anyString(), any(), any(), any());
+            }
+        });
+    }
+
+    @Test
+    void aTaskWithNothingPendingCompletesFromItsGoalHeadingWithoutTogglingIt() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.goal.setAchieved(true);
+                when(fixture.tasks.previewTaskCompletion(fixture.child)).thenReturn(new TaskService.CompletionPreview(0, 0));
+                when(fixture.study.previewPendingGoalsForCompletion(fixture.child))
+                        .thenReturn(new StudyService.PendingTaskGoals(TODAY, null, List.of(), List.of()));
+                StudyPlannerPanel panel = fixture.panel();
+                new Scene(panel, 1100, 800);
+                panel.applyCss();
+                panel.layout();
+                TitledPane group = taskGoalGroup(panel, "Parent / Subtask");
+                Button complete = button(group.getGraphic(), "Complete task");
+
+                for (javafx.event.EventType<MouseEvent> type : List.of(MouseEvent.MOUSE_PRESSED,
+                        MouseEvent.MOUSE_RELEASED, MouseEvent.MOUSE_CLICKED)) {
+                    javafx.event.Event.fireEvent(complete, new MouseEvent(type, 5, 5, 5, 5, MouseButton.PRIMARY, 1,
+                            false, false, false, false, true, false, false, true, false, true, null));
+                }
+
+                verify(fixture.study).completeTask(eq(fixture.child), any(), eq(StudyService.PendingGoalChoice.LEAVE));
+                assertNull(fixture.modal);
+                assertTrue(group.isExpanded());
+            }
+        });
+    }
+
+    @Test
+    void completingATaskAsksWhatToDoWithItsPendingGoals() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.child.setRecurringPattern("1:1");
+                StudyGoal later = fixture.goal("Revise", fixture.child, TODAY.plusDays(2));
+                when(fixture.tasks.previewTaskCompletion(fixture.child)).thenReturn(new TaskService.CompletionPreview(0, 0));
+                when(fixture.study.previewPendingGoalsForCompletion(fixture.child))
+                        .thenReturn(new StudyService.PendingTaskGoals(TODAY, null, List.of(fixture.goal), List.of(later)));
+                StudyPlannerPanel panel = fixture.panel();
+
+                button(taskGoalGroup(panel, "Parent / Subtask").getGraphic(), "Complete task").fire();
+
+                List<String> texts = labelTexts(fixture.modal);
+                assertTrue(texts.contains("Complete \u201CParent / Subtask\u201D?"), texts.toString());
+                assertTrue(texts.contains("It repeats: completing it ends all its future occurrences."));
+                assertTrue(texts.contains("2 goals still pending:"));
+                assertTrue(texts.contains("\u2022 Read chapter \u00B7 today"));
+                List<RadioButton> choices = nodes(fixture.modal).stream().filter(RadioButton.class::isInstance)
+                        .map(RadioButton.class::cast).toList();
+                assertEquals(List.of("Mark today's goals done and drop the later ones",
+                        "Drop them (no credit, no penalty)", "Leave them pending (missed if not done)"),
+                        choices.stream().map(RadioButton::getText).toList());
+                assertTrue(choices.getFirst().isSelected());
+                verify(fixture.study, never()).completeTask(any(), any(), any());
+
+                choices.get(1).fire();
+                button(fixture.modal, "Complete task").fire();
+
+                verify(fixture.study).completeTask(eq(fixture.child), any(), eq(StudyService.PendingGoalChoice.DROP));
+                assertNull(fixture.modal);
+            }
+        });
+    }
+
+    @Test
+    void completingTheLastSubtaskNamesTheParentItCompletesAndListsItsGoals() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                fixture.goal.setAchieved(true);
+                StudyGoal parentGoal = fixture.goal("Outline report", fixture.parent, TODAY);
+                when(fixture.tasks.previewTaskCompletion(fixture.child)).thenReturn(new TaskService.CompletionPreview(0, 0));
+                when(fixture.study.previewPendingGoalsForCompletion(fixture.child)).thenReturn(
+                        new StudyService.PendingTaskGoals(TODAY, fixture.parent, List.of(parentGoal), List.of()));
+                StudyPlannerPanel panel = fixture.panel();
+
+                button(taskGoalGroup(panel, "Parent / Subtask").getGraphic(), "Complete task").fire();
+
+                List<String> texts = labelTexts(fixture.modal);
+                assertTrue(texts.contains("This also completes its parent \u201CParent\u201D, as its last unfinished subtask."),
+                        texts.toString());
+                assertTrue(texts.contains("\u2022 Outline report (Parent) \u00B7 today"), texts.toString());
+                verify(fixture.study, never()).completeTask(any(), any(), any());
+            }
+        });
+    }
+
+    @Test
+    void aDayChangeBeforeConfirmingShowsTheGoalsPendingNowAndAsksAgain() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                StudyGoal later = fixture.goal("Revise", fixture.child, TODAY.plusDays(1));
+                StudyService.PendingTaskGoals shown =
+                        new StudyService.PendingTaskGoals(TODAY, null, List.of(fixture.goal), List.of(later));
+                StudyService.PendingTaskGoals fresh =
+                        new StudyService.PendingTaskGoals(TODAY.plusDays(1), null, List.of(later), List.of());
+                when(fixture.tasks.previewTaskCompletion(fixture.child)).thenReturn(new TaskService.CompletionPreview(0, 0));
+                when(fixture.study.previewPendingGoalsForCompletion(fixture.child)).thenReturn(shown, fresh);
+                doAnswer(invocation -> {
+                    when(fixture.dates.getCurrentDate()).thenReturn(TODAY.plusDays(1));
+                    throw new ValidationException("The day changed since these goals were shown. Check the "
+                            + "updated list and confirm again.", ValidationException.INVALID_INPUT);
+                }).when(fixture.study).completeTask(fixture.child, shown,
+                        StudyService.PendingGoalChoice.MARK_TODAY_DONE);
+                StudyPlannerPanel panel = fixture.panel();
+
+                button(taskGoalGroup(panel, "Parent / Subtask").getGraphic(), "Complete task").fire();
+                button(fixture.modal, "Complete task").fire();
+
+                List<String> texts = labelTexts(fixture.modal);
+                assertTrue(texts.contains("The day changed since these goals were shown. Check the updated list "
+                        + "and confirm again."), texts.toString());
+                assertTrue(texts.contains("1 goal still pending:"), texts.toString());
+                assertTrue(texts.contains("\u2022 Revise \u00B7 today"), texts.toString());
+                assertEquals(List.of("Mark them done", "Drop it (no credit, no penalty)",
+                                "Leave it pending (missed if not done)"),
+                        nodes(fixture.modal).stream().filter(RadioButton.class::isInstance)
+                                .map(node -> ((RadioButton) node).getText()).toList());
+
+                button(fixture.modal, "Complete task").fire();
+                verify(fixture.study).completeTask(fixture.child, fresh, StudyService.PendingGoalChoice.MARK_TODAY_DONE);
+                assertNull(fixture.modal);
+            }
+        });
+    }
+
+    @Test
+    void aFailedCompletionStaysInTheDialogWithTheError() throws Exception {
+        onFx(() -> {
+            try (Fixture fixture = new Fixture()) {
+                when(fixture.tasks.previewTaskCompletion(fixture.child)).thenReturn(new TaskService.CompletionPreview(0, 0));
+                when(fixture.study.previewPendingGoalsForCompletion(fixture.child))
+                        .thenReturn(new StudyService.PendingTaskGoals(TODAY, null, List.of(fixture.goal), List.of()));
+                doThrow(new IllegalStateException("database locked")).when(fixture.study).completeTask(any(), any(), any());
+                StudyPlannerPanel panel = fixture.panel();
+
+                button(taskGoalGroup(panel, "Parent / Subtask").getGraphic(), "Complete task").fire();
+                button(fixture.modal, "Complete task").fire();
+
+                verify(fixture.study).completeTask(eq(fixture.child), any(), eq(StudyService.PendingGoalChoice.MARK_TODAY_DONE));
+                assertNotNull(fixture.modal);
+                assertTrue(labelTexts(fixture.modal).contains("Could not complete task: database locked"));
             }
         });
     }
