@@ -97,6 +97,7 @@ sha256sum -c studysync-linux.tar.gz.sha256
 tar -xzf studysync-linux.tar.gz
 cd studysync-*-linux
 ./install.sh
+cd ..
 ```
 
 **Build from source** (requires Java 25; the Gradle wrapper is included):
@@ -109,6 +110,13 @@ java -version   # Should report Java 25 or later
 ```
 
 No separate Gradle installation is needed. The build compiles with a JDK 25 toolchain: Gradle uses an installed JDK 25 if it finds one and downloads one otherwise, so a Java 25 runtime is enough to start it.
+
+After a successful installation, the installer cleans up automatically:
+
+- Source installs run Gradle `clean` to remove generated build output, keeping the repository and Gradle caches.
+- Release installs remove copied package files and the extracted directory when empty. Adjacent versioned or `studysync-linux.tar.gz` downloads and their matching checksums are removed only when the archive still matches the extracted release. Other files, including any data or custom configuration added to the release directory, are kept.
+
+Use `./install.sh --keep-install-files` (or `./scripts/install.sh --build --keep-install-files`) to retain installation files for reuse. Failed installations keep their inputs for troubleshooting. Cleanup failures produce a warning without invalidating a successful installation.
 
 After installation:
 - **Launch from app menu**: Search "StudySync" in your application launcher (KDE, GNOME, etc.)

@@ -363,6 +363,78 @@ setup_config() {
     print_success "Configuration set up"
 }
 
+archive_matches_release() {
+    local archive=$1 release_dir=$2 members member
+    members=$(tar --list --gzip --file="$archive") || return 1
+    # Require the installer and reject archives containing files outside this
+    # release, even if tar could compare those unrelated files successfully.
+    local prefix="$(basename "$release_dir")/"
+    [[ $'\n'"$members"$'\n' == *$'\n'"${prefix}install.sh"$'\n'* ]] || return 1
+    while IFS= read -r member; do
+        [[ "$member" == "$prefix"* && "$member" != *"/../"* ]] || return 1
+    done <<< "$members"
+    tar --compare --gzip --file="$archive" --directory="$(dirname "$release_dir")"
+}
+
+cleanup_installation() {
+    print_info "Cleaning up installation files..."
+
+    if [[ "$RELEASE_MODE" == false ]]; then
+        # Let Gradle remove its generated output; keep source and shared caches.
+        if ! (cd "$PROJECT_ROOT" && ./gradlew clean --quiet); then
+            print_warning "StudySync is installed, but build output could not be cleaned."
+        fi
+        return 0
+    fi
+
+    local release_dir install_dir archive file
+    release_dir=$(realpath -e -- "$RELEASE_DIR") || return 1
+    install_dir=$(realpath -e -- "$INSTALL_DIR") || return 1
+    # Never clean a package in (or containing) the live installation.
+    if [[ "$release_dir/" == "$install_dir/"* || "$install_dir/" == "$release_dir/"* ]]; then
+        print_warning "Keeping release files because they overlap the installation directory."
+        return 0
+    fi
+    for file in lib config config/google; do
+        if [[ -L "$release_dir/$file" ]]; then
+            print_warning "Keeping release files because $file is a symbolic link."
+            return 0
+        fi
+    done
+
+    # Only remove adjacent downloads that still match this extracted package.
+    # A different version, modified package, or unreadable archive is retained.
+    for archive in "$release_dir.tar.gz" "$(dirname "$release_dir")/studysync-linux.tar.gz"; do
+        if [[ -f "$archive" && ! -L "$archive" ]] \
+            && archive_matches_release "$archive" "$release_dir" > /dev/null 2>&1; then
+            # Keep an unrelated or customized checksum file, even beside a match.
+            if [[ -f "$archive.sha256" && ! -L "$archive.sha256" ]] \
+                && (cd "$(dirname "$archive")" && sha256sum "$(basename "$archive")") \
+                    | cmp -s -- "$archive.sha256" -; then
+                rm -f -- "$archive.sha256" || return 1
+            fi
+            rm -f -- "$archive" || return 1
+        fi
+    done
+
+    # Delete only package files copied successfully to the installation. Avoid
+    # recursive removal: extra files, user data and customized config stay put.
+    for file in "$release_dir"/lib/*.jar "$release_dir/config/application.yml.template" \
+        "$release_dir/config/google/drive.properties.template" "$release_dir/icon.png"; do
+        [[ -f "$file" && ! -L "$file" ]] || continue
+        if cmp -s -- "$file" "$install_dir/${file#"$release_dir/"}"; then
+            rm -f -- "$file" || return 1
+        fi
+    done
+    for file in install.sh uninstall.sh studysync.desktop README.txt; do
+        [[ ! -L "$release_dir/$file" ]] || continue
+        rm -f -- "$release_dir/$file" || return 1
+    done
+    # rmdir preserves directories with any additional files (including dotfiles).
+    rmdir -- "$release_dir/config/google" "$release_dir/config" "$release_dir/lib" "$release_dir" 2>/dev/null || true
+    print_success "Installation files cleaned"
+}
+
 print_completion() {
     echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
@@ -395,17 +467,22 @@ main() {
     
     # Parse arguments
     BUILD=false
+    KEEP_INSTALL_FILES=false
     for arg in "$@"; do
         case $arg in
             --build|-b)
                 BUILD=true
                 ;;
+            --keep-install-files)
+                KEEP_INSTALL_FILES=true
+                ;;
             --help|-h)
                 echo "Usage: install.sh [OPTIONS]"
                 echo ""
                 echo "Options:"
-                echo "  --build, -b    Build from source before installing"
-                echo "  --help, -h     Show this help message"
+                echo "  --build, -b             Build from source before installing"
+                echo "  --keep-install-files    Keep build output or extracted release files"
+                echo "  --help, -h              Show this help message"
                 exit 0
                 ;;
         esac
@@ -431,6 +508,10 @@ main() {
         chmod +x "$INSTALL_DIR/bin/uninstall.sh"
     fi
     
+    if [[ "$KEEP_INSTALL_FILES" == false ]]; then
+        cleanup_installation || print_warning "StudySync is installed, but some installation files could not be cleaned."
+    fi
+
     print_completion
 }
 
